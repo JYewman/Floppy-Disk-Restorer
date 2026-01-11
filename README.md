@@ -444,8 +444,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 💬 Support
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/JYewman/USB-Floppy-Formatter/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/JYewman/USB-Floppy-Formatter/discussions)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/JYewman/Floppy-Disk-Restorer/issues)
+- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/JYewman/Floppy-Disk-Restorer/discussions)
 
 ---
 
