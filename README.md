@@ -1,13 +1,13 @@
-# USB Floppy Formatter
+# USB Floppy Disk Restorer
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.linux.org/)
 [![Tests](https://img.shields.io/badge/tests-124%20passing-brightgreen.svg)](tests/)
 
-> Professional floppy disk recovery and restoration tool with advanced multi-read recovery, convergence detection, and real-time visualization.
+> Floppy disk recovery and restoration tool with advanced multi-read recovery, convergence detection, and real-time visualization.
 
-A powerful, terminal-based tool for recovering, formatting, and diagnosing 1.44MB floppy disks. Featuring intelligent recovery algorithms and TUI interface built with Textual.
+A powerful, terminal-based tool for recovering, formatting, and diagnosing 1.44MB floppy disks.
 
 ## ✨ Features
 
