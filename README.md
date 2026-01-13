@@ -1,6 +1,6 @@
-# Floppy Workbench
+# Greaseweazle Floppy Disk Workbench
 
-**Professional Floppy Disk Analysis & Recovery Tool**
+**Floppy Disk Analysis & Recovery Tool**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -60,7 +60,7 @@ A comprehensive floppy disk analysis and recovery application using **Greaseweaz
 
 - **Python 3.10** or higher
 - **PyQt6** (installed automatically)
-- **Greaseweazle library** (installed automatically)
+- **Greaseweazle library**
 - **Operating System**: Linux or Windows
 
 ## Installation
