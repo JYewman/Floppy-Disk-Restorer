@@ -454,34 +454,36 @@ class SelfTestWidget(QFrame):
             SelfTestWidget {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 3px;
             }}
             QLabel {{
                 color: {COLOR_TEXT.name()};
+                font-size: 8pt;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(3)
 
         # Header row
         header = QHBoxLayout()
 
         title = QLabel("Self-Test")
-        title.setStyleSheet("font-weight: bold;")
+        title.setStyleSheet("font-weight: bold; font-size: 8pt;")
         header.addWidget(title)
 
         header.addStretch()
 
-        self._run_btn = QPushButton("Run Self-Test")
+        self._run_btn = QPushButton("Run")
         self._run_btn.setStyleSheet("""
             QPushButton {
                 background-color: #0e639c;
                 color: white;
                 border: none;
-                border-radius: 3px;
-                padding: 4px 12px;
+                border-radius: 2px;
+                padding: 2px 8px;
+                font-size: 7pt;
             }
             QPushButton:hover {
                 background-color: #1177bb;
@@ -500,16 +502,14 @@ class SelfTestWidget(QFrame):
         self._test_container = QWidget()
         self._test_layout = QVBoxLayout(self._test_container)
         self._test_layout.setContentsMargins(0, 0, 0, 0)
-        self._test_layout.setSpacing(4)
+        self._test_layout.setSpacing(2)
 
         layout.addWidget(self._test_container)
 
         # Timestamp
         self._timestamp_label = QLabel("Last run: Never")
-        self._timestamp_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 10px;")
+        self._timestamp_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 7pt;")
         layout.addWidget(self._timestamp_label)
-
-        layout.addStretch()
 
         # Initialize with default tests
         self._results = SelfTestResults()
@@ -540,7 +540,7 @@ class SelfTestWidget(QFrame):
         """Set whether tests are currently running."""
         self._is_running = running
         self._run_btn.setEnabled(not running)
-        self._run_btn.setText("Running..." if running else "Run Self-Test")
+        self._run_btn.setText("..." if running else "Run")
 
     def _update_test_display(self) -> None:
         """Update the test display."""
@@ -574,17 +574,17 @@ class SelfTestWidget(QFrame):
                 status_label.setText("\u25CB")  # Empty circle
                 status_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()};")
 
-            status_label.setFixedWidth(20)
+            status_label.setFixedWidth(14)
             row.addWidget(status_label)
 
             # Test name
             name_label = QLabel(test.name)
-            name_label.setStyleSheet(f"color: {COLOR_TEXT.name()};")
+            name_label.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-size: 7pt;")
             row.addWidget(name_label, 1)
 
             # Status text
             status_text = QLabel(test.status.value)
-            status_text.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 10px;")
+            status_text.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 7pt;")
             row.addWidget(status_text)
 
             row_widget = QWidget()
@@ -618,25 +618,28 @@ class DriveInfoWidget(QFrame):
             DriveInfoWidget {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 3px;
             }}
             QLabel {{
                 color: {COLOR_TEXT.name()};
+                font-size: 8pt;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(2)
 
         # Title
         title = QLabel("Drive Information")
-        title.setStyleSheet("font-weight: bold;")
+        title.setStyleSheet("font-weight: bold; font-size: 8pt;")
         layout.addWidget(title)
 
         # Info grid
         grid = QGridLayout()
-        grid.setSpacing(4)
+        grid.setSpacing(2)
+        grid.setColumnMinimumWidth(0, 65)
+        grid.setColumnStretch(1, 1)
 
         self._firmware_label = self._add_info_row(grid, 0, "Firmware:")
         self._drive_type_label = self._add_info_row(grid, 1, "Drive Type:")
@@ -644,15 +647,16 @@ class DriveInfoWidget(QFrame):
         self._serial_label = self._add_info_row(grid, 3, "Serial:")
 
         layout.addLayout(grid)
-        layout.addStretch()
 
     def _add_info_row(self, grid: QGridLayout, row: int, label_text: str) -> QLabel:
         """Add an info row and return the value label."""
         label = QLabel(label_text)
-        label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()};")
+        label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 7pt;")
+        label.setFixedWidth(60)
         grid.addWidget(label, row, 0)
 
         value = QLabel("--")
+        value.setStyleSheet("font-size: 7pt;")
         grid.addWidget(value, row, 1)
 
         return value
@@ -696,35 +700,34 @@ class TemperatureWidget(QFrame):
             TemperatureWidget {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 3px;
             }}
             QLabel {{
                 color: {COLOR_TEXT.name()};
+                font-size: 8pt;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(2)
 
         # Title
         title = QLabel("Temperature")
-        title.setStyleSheet("font-weight: bold;")
+        title.setStyleSheet("font-weight: bold; font-size: 8pt;")
         layout.addWidget(title)
 
         # Temperature display
         self._temp_label = QLabel("N/A")
-        self._temp_label.setStyleSheet("font-size: 24px;")
+        self._temp_label.setStyleSheet("font-size: 14pt;")
         self._temp_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._temp_label)
 
         # Status
         self._status_label = QLabel("Not available")
-        self._status_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 10px;")
+        self._status_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 7pt;")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status_label)
-
-        layout.addStretch()
 
     def set_temperature(self, temp_c: float) -> None:
         """Set temperature in Celsius."""
@@ -733,20 +736,20 @@ class TemperatureWidget(QFrame):
 
         if temp_c < 40:
             self._status_label.setText("Normal")
-            self._status_label.setStyleSheet(f"color: {COLOR_GOOD.name()}; font-size: 10px;")
+            self._status_label.setStyleSheet(f"color: {COLOR_GOOD.name()}; font-size: 7pt;")
         elif temp_c < 50:
             self._status_label.setText("Warm")
-            self._status_label.setStyleSheet(f"color: {COLOR_WARNING.name()}; font-size: 10px;")
+            self._status_label.setStyleSheet(f"color: {COLOR_WARNING.name()}; font-size: 7pt;")
         else:
             self._status_label.setText("Hot - allow cooling")
-            self._status_label.setStyleSheet(f"color: {COLOR_BAD.name()}; font-size: 10px;")
+            self._status_label.setStyleSheet(f"color: {COLOR_BAD.name()}; font-size: 7pt;")
 
     def set_unavailable(self) -> None:
         """Set temperature as unavailable."""
         self._temperature = None
         self._temp_label.setText("N/A")
         self._status_label.setText("Not available")
-        self._status_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 10px;")
+        self._status_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 7pt;")
 
 
 # =============================================================================

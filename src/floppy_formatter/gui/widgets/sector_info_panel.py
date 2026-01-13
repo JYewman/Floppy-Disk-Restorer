@@ -66,7 +66,7 @@ class StatusIndicator(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         """Initialize status indicator."""
         super().__init__(parent)
-        self.setFixedSize(16, 16)
+        self.setFixedSize(12, 12)
         self._status = SectorStatus.UNSCANNED
         self._update_style()
 
@@ -81,7 +81,7 @@ class StatusIndicator(QWidget):
         self.setStyleSheet(f"""
             StatusIndicator {{
                 background-color: {color};
-                border-radius: 8px;
+                border-radius: 6px;
                 border: 1px solid #3a3d41;
             }}
         """)
@@ -123,10 +123,10 @@ class CollapsibleSection(QWidget):
                 background-color: #2d2d30;
                 color: #cccccc;
                 border: none;
-                padding: 6px 8px;
+                padding: 3px 6px;
                 text-align: left;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: 8pt;
             }
             QPushButton:hover {
                 background-color: #3a3d41;
@@ -138,8 +138,8 @@ class CollapsibleSection(QWidget):
         # Content container
         self._content_widget = QWidget()
         self._content_layout = QVBoxLayout(self._content_widget)
-        self._content_layout.setContentsMargins(8, 4, 8, 8)
-        self._content_layout.setSpacing(4)
+        self._content_layout.setContentsMargins(6, 2, 6, 4)
+        self._content_layout.setSpacing(2)
 
         self._content_widget.setVisible(initially_expanded)
         layout.addWidget(self._content_widget)
@@ -180,12 +180,12 @@ class HexDumpWidget(QPlainTextEdit):
         """Initialize hex dump widget."""
         super().__init__(parent)
 
-        # Set up font
-        font = QFont("Consolas", 9)
+        # Set up font - smaller for compact view
+        font = QFont("Consolas", 7)
         if not font.exactMatch():
-            font = QFont("Courier New", 9)
+            font = QFont("Courier New", 7)
         if not font.exactMatch():
-            font = QFont("monospace", 9)
+            font = QFont("monospace", 7)
         self.setFont(font)
 
         # Read-only
@@ -197,13 +197,14 @@ class HexDumpWidget(QPlainTextEdit):
                 background-color: #1e1e1e;
                 color: #dcdcdc;
                 border: 1px solid #3a3d41;
-                border-radius: 3px;
+                border-radius: 2px;
+                padding: 2px;
             }
         """)
 
-        # Size
-        self.setMinimumHeight(120)
-        self.setMaximumHeight(180)
+        # Size - more compact
+        self.setMinimumHeight(80)
+        self.setMaximumHeight(120)
 
         # Initial state
         self.setPlainText("No data available")
@@ -266,32 +267,33 @@ class QualityMetricsWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
 
         # Signal strength row
         strength_layout = QHBoxLayout()
+        strength_layout.setSpacing(4)
         strength_label = QLabel("Signal:")
-        strength_label.setStyleSheet("color: #858585; font-size: 9pt;")
-        strength_label.setFixedWidth(60)
+        strength_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        strength_label.setFixedWidth(45)
         strength_layout.addWidget(strength_label)
 
         self._strength_bar = QProgressBar()
         self._strength_bar.setRange(0, 100)
         self._strength_bar.setValue(0)
         self._strength_bar.setTextVisible(True)
-        self._strength_bar.setMaximumHeight(16)
+        self._strength_bar.setMaximumHeight(12)
         self._strength_bar.setStyleSheet("""
             QProgressBar {
                 background-color: #252526;
                 border: 1px solid #3a3d41;
-                border-radius: 3px;
+                border-radius: 2px;
                 text-align: center;
                 color: #cccccc;
-                font-size: 8pt;
+                font-size: 7pt;
             }
             QProgressBar::chunk {
                 background-color: #33cc33;
-                border-radius: 2px;
+                border-radius: 1px;
             }
         """)
         strength_layout.addWidget(self._strength_bar)
@@ -299,41 +301,44 @@ class QualityMetricsWidget(QWidget):
 
         # Jitter row
         jitter_layout = QHBoxLayout()
+        jitter_layout.setSpacing(4)
         jitter_label = QLabel("Jitter:")
-        jitter_label.setStyleSheet("color: #858585; font-size: 9pt;")
-        jitter_label.setFixedWidth(60)
+        jitter_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        jitter_label.setFixedWidth(45)
         jitter_layout.addWidget(jitter_label)
 
         self._jitter_value = QLabel("N/A")
-        self._jitter_value.setStyleSheet("color: #cccccc; font-size: 9pt;")
+        self._jitter_value.setStyleSheet("color: #cccccc; font-size: 8pt;")
         jitter_layout.addWidget(self._jitter_value)
         jitter_layout.addStretch()
         layout.addLayout(jitter_layout)
 
         # SNR row
         snr_layout = QHBoxLayout()
+        snr_layout.setSpacing(4)
         snr_label = QLabel("SNR:")
-        snr_label.setStyleSheet("color: #858585; font-size: 9pt;")
-        snr_label.setFixedWidth(60)
+        snr_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        snr_label.setFixedWidth(45)
         snr_layout.addWidget(snr_label)
 
         self._snr_value = QLabel("N/A")
-        self._snr_value.setStyleSheet("color: #cccccc; font-size: 9pt;")
+        self._snr_value.setStyleSheet("color: #cccccc; font-size: 8pt;")
         snr_layout.addWidget(self._snr_value)
         snr_layout.addStretch()
         layout.addLayout(snr_layout)
 
         # Grade row
         grade_layout = QHBoxLayout()
+        grade_layout.setSpacing(4)
         grade_label = QLabel("Grade:")
-        grade_label.setStyleSheet("color: #858585; font-size: 9pt;")
-        grade_label.setFixedWidth(60)
+        grade_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        grade_label.setFixedWidth(45)
         grade_layout.addWidget(grade_label)
 
         self._grade_value = QLabel("?")
         self._grade_value.setStyleSheet("""
             color: #858585;
-            font-size: 14pt;
+            font-size: 10pt;
             font-weight: bold;
         """)
         grade_layout.addWidget(self._grade_value)
@@ -352,7 +357,7 @@ class QualityMetricsWidget(QWidget):
             self._jitter_value.setText("N/A")
             self._snr_value.setText("N/A")
             self._grade_value.setText("?")
-            self._grade_value.setStyleSheet("color: #858585; font-size: 14pt; font-weight: bold;")
+            self._grade_value.setStyleSheet("color: #858585; font-size: 10pt; font-weight: bold;")
             return
 
         # Signal strength
@@ -371,14 +376,14 @@ class QualityMetricsWidget(QWidget):
             QProgressBar {{
                 background-color: #252526;
                 border: 1px solid #3a3d41;
-                border-radius: 3px;
+                border-radius: 2px;
                 text-align: center;
                 color: #cccccc;
-                font-size: 8pt;
+                font-size: 7pt;
             }}
             QProgressBar::chunk {{
                 background-color: {bar_color};
-                border-radius: 2px;
+                border-radius: 1px;
             }}
         """)
 
@@ -401,7 +406,7 @@ class QualityMetricsWidget(QWidget):
         self._grade_value.setText(grade)
         self._grade_value.setStyleSheet(f"""
             color: {grade_color};
-            font-size: 14pt;
+            font-size: 10pt;
             font-weight: bold;
         """)
 
@@ -421,9 +426,9 @@ class SectorInfoPanel(QWidget):
     """
 
     # Minimum and maximum widths
-    MIN_WIDTH = 250
-    MAX_WIDTH = 400
-    DEFAULT_WIDTH = 280
+    MIN_WIDTH = 200
+    MAX_WIDTH = 350
+    DEFAULT_WIDTH = 220
 
     def __init__(self, parent: Optional[QWidget] = None):
         """
@@ -471,24 +476,24 @@ class SectorInfoPanel(QWidget):
         header_widget = QWidget()
         header_widget.setStyleSheet("background-color: #2d2d30;")
         header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(8, 6, 8, 6)
+        header_layout.setContentsMargins(6, 3, 6, 3)
 
         header_label = QLabel("Sector Info")
-        header_label.setStyleSheet("color: #ffffff; font-size: 11pt; font-weight: bold;")
+        header_label.setStyleSheet("color: #ffffff; font-size: 9pt; font-weight: bold;")
         header_layout.addWidget(header_label)
 
         header_layout.addStretch()
 
         # Collapse button
         self._collapse_btn = QPushButton("◀")
-        self._collapse_btn.setFixedSize(24, 24)
+        self._collapse_btn.setFixedSize(20, 20)
         self._collapse_btn.setToolTip("Collapse panel")
         self._collapse_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
                 color: #858585;
                 border: none;
-                font-size: 12pt;
+                font-size: 10pt;
             }
             QPushButton:hover {
                 color: #ffffff;
@@ -524,7 +529,7 @@ class SectorInfoPanel(QWidget):
 
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(0, 4, 0, 8)
+        content_layout.setContentsMargins(0, 2, 0, 4)
         content_layout.setSpacing(0)
 
         # Address section
@@ -559,52 +564,56 @@ class SectorInfoPanel(QWidget):
 
         # Sector number
         sector_layout = QHBoxLayout()
+        sector_layout.setSpacing(4)
         sector_label = QLabel("Sector:")
-        sector_label.setStyleSheet("color: #858585; font-size: 10pt;")
-        sector_label.setFixedWidth(70)
+        sector_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        sector_label.setFixedWidth(50)
         sector_layout.addWidget(sector_label)
 
         self._sector_value = QLabel("---")
-        self._sector_value.setStyleSheet("color: #ffffff; font-size: 10pt;")
+        self._sector_value.setStyleSheet("color: #ffffff; font-size: 8pt;")
         sector_layout.addWidget(self._sector_value)
         sector_layout.addStretch()
         section.add_layout(sector_layout)
 
         # CHS address
         chs_layout = QHBoxLayout()
+        chs_layout.setSpacing(4)
         chs_label = QLabel("CHS:")
-        chs_label.setStyleSheet("color: #858585; font-size: 10pt;")
-        chs_label.setFixedWidth(70)
+        chs_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        chs_label.setFixedWidth(50)
         chs_layout.addWidget(chs_label)
 
         self._chs_value = QLabel("---/---/---")
-        self._chs_value.setStyleSheet("color: #ffffff; font-size: 10pt;")
+        self._chs_value.setStyleSheet("color: #ffffff; font-size: 8pt;")
         chs_layout.addWidget(self._chs_value)
         chs_layout.addStretch()
         section.add_layout(chs_layout)
 
         # LBA
         lba_layout = QHBoxLayout()
+        lba_layout.setSpacing(4)
         lba_label = QLabel("LBA:")
-        lba_label.setStyleSheet("color: #858585; font-size: 10pt;")
-        lba_label.setFixedWidth(70)
+        lba_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        lba_label.setFixedWidth(50)
         lba_layout.addWidget(lba_label)
 
         self._lba_value = QLabel("---")
-        self._lba_value.setStyleSheet("color: #ffffff; font-size: 10pt;")
+        self._lba_value.setStyleSheet("color: #ffffff; font-size: 8pt;")
         lba_layout.addWidget(self._lba_value)
         lba_layout.addStretch()
         section.add_layout(lba_layout)
 
         # Byte offset
         offset_layout = QHBoxLayout()
+        offset_layout.setSpacing(4)
         offset_label = QLabel("Offset:")
-        offset_label.setStyleSheet("color: #858585; font-size: 10pt;")
-        offset_label.setFixedWidth(70)
+        offset_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        offset_label.setFixedWidth(50)
         offset_layout.addWidget(offset_label)
 
         self._offset_value = QLabel("---")
-        self._offset_value.setStyleSheet("color: #ffffff; font-size: 10pt;")
+        self._offset_value.setStyleSheet("color: #ffffff; font-size: 8pt;")
         offset_layout.addWidget(self._offset_value)
         offset_layout.addStretch()
         section.add_layout(offset_layout)
@@ -617,42 +626,45 @@ class SectorInfoPanel(QWidget):
 
         # Current status with indicator
         status_layout = QHBoxLayout()
+        status_layout.setSpacing(4)
         status_label = QLabel("Current:")
-        status_label.setStyleSheet("color: #858585; font-size: 10pt;")
-        status_label.setFixedWidth(70)
+        status_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        status_label.setFixedWidth(50)
         status_layout.addWidget(status_label)
 
         self._status_indicator = StatusIndicator()
         status_layout.addWidget(self._status_indicator)
 
         self._status_text = QLabel("Unscanned")
-        self._status_text.setStyleSheet("color: #ffffff; font-size: 10pt;")
+        self._status_text.setStyleSheet("color: #ffffff; font-size: 8pt;")
         status_layout.addWidget(self._status_text)
         status_layout.addStretch()
         section.add_layout(status_layout)
 
         # Last operation
         op_layout = QHBoxLayout()
+        op_layout.setSpacing(4)
         op_label = QLabel("Last Op:")
-        op_label.setStyleSheet("color: #858585; font-size: 10pt;")
-        op_label.setFixedWidth(70)
+        op_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        op_label.setFixedWidth(50)
         op_layout.addWidget(op_label)
 
         self._last_op_value = QLabel("None")
-        self._last_op_value.setStyleSheet("color: #cccccc; font-size: 10pt;")
+        self._last_op_value.setStyleSheet("color: #cccccc; font-size: 8pt;")
         op_layout.addWidget(self._last_op_value)
         op_layout.addStretch()
         section.add_layout(op_layout)
 
         # Last access time
         time_layout = QHBoxLayout()
-        time_label = QLabel("Last Access:")
-        time_label.setStyleSheet("color: #858585; font-size: 10pt;")
-        time_label.setFixedWidth(70)
+        time_layout.setSpacing(4)
+        time_label = QLabel("Access:")
+        time_label.setStyleSheet("color: #858585; font-size: 8pt;")
+        time_label.setFixedWidth(50)
         time_layout.addWidget(time_label)
 
         self._last_access_value = QLabel("Never")
-        self._last_access_value.setStyleSheet("color: #cccccc; font-size: 10pt;")
+        self._last_access_value.setStyleSheet("color: #cccccc; font-size: 8pt;")
         time_layout.addWidget(self._last_access_value)
         time_layout.addStretch()
         section.add_layout(time_layout)
@@ -666,23 +678,24 @@ class SectorInfoPanel(QWidget):
         # History table
         self._history_table = QTableWidget()
         self._history_table.setColumnCount(3)
-        self._history_table.setHorizontalHeaderLabels(["Time", "Operation", "Result"])
-        self._history_table.setMinimumHeight(100)
-        self._history_table.setMaximumHeight(150)
+        self._history_table.setHorizontalHeaderLabels(["Time", "Op", "Result"])
+        self._history_table.setMinimumHeight(60)
+        self._history_table.setMaximumHeight(90)
 
         # Configure table
         self._history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._history_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self._history_table.setAlternatingRowColors(True)
         self._history_table.verticalHeader().setVisible(False)
+        self._history_table.verticalHeader().setDefaultSectionSize(18)
 
         # Column sizing
         header = self._history_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self._history_table.setColumnWidth(0, 60)
-        self._history_table.setColumnWidth(2, 60)
+        self._history_table.setColumnWidth(0, 50)
+        self._history_table.setColumnWidth(2, 50)
 
         # Styling
         self._history_table.setStyleSheet("""
@@ -690,12 +703,12 @@ class SectorInfoPanel(QWidget):
                 background-color: #1e1e1e;
                 color: #cccccc;
                 border: 1px solid #3a3d41;
-                border-radius: 3px;
+                border-radius: 2px;
                 gridline-color: #3a3d41;
-                font-size: 9pt;
+                font-size: 7pt;
             }
             QTableWidget::item {
-                padding: 2px 4px;
+                padding: 1px 2px;
             }
             QTableWidget::item:alternate {
                 background-color: #252526;
@@ -705,8 +718,8 @@ class SectorInfoPanel(QWidget):
                 color: #cccccc;
                 border: none;
                 border-bottom: 1px solid #3a3d41;
-                padding: 4px;
-                font-size: 9pt;
+                padding: 2px;
+                font-size: 7pt;
             }
         """)
 
@@ -815,7 +828,7 @@ class SectorInfoPanel(QWidget):
             SectorStatus.VERIFYING: "#ff8c32",
         }
         color = status_colors.get(metadata.status, "#858585")
-        self._status_text.setStyleSheet(f"color: {color}; font-size: 10pt;")
+        self._status_text.setStyleSheet(f"color: {color}; font-size: 8pt;")
 
         # Last operation from history
         if metadata.history:
@@ -857,7 +870,7 @@ class SectorInfoPanel(QWidget):
         # Status section - default unscanned
         self._status_indicator.set_status(SectorStatus.UNSCANNED)
         self._status_text.setText("Unscanned")
-        self._status_text.setStyleSheet("color: #858585; font-size: 10pt;")
+        self._status_text.setStyleSheet("color: #858585; font-size: 8pt;")
 
         self._last_op_value.setText("None")
         self._last_access_value.setText("Never")
@@ -912,7 +925,7 @@ class SectorInfoPanel(QWidget):
         # Status section
         self._status_indicator.set_status(SectorStatus.UNSCANNED)
         self._status_text.setText("---")
-        self._status_text.setStyleSheet("color: #858585; font-size: 10pt;")
+        self._status_text.setStyleSheet("color: #858585; font-size: 8pt;")
         self._last_op_value.setText("---")
         self._last_access_value.setText("---")
 

@@ -1,10 +1,10 @@
-# Greaseweazle Floppy Disk Workbench
+# Floppy Workbench
 
-**Floppy Disk Analysis & Recovery Tool**
+**Professional Floppy Disk Analysis & Recovery Tool**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version: 2.0.0](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/JYewman/USB-Floppy-Formatter/releases)
+[![Version: 2.0.0](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/JYewman/Floppy-Disk-Restorer/releases)
 
 A comprehensive floppy disk analysis and recovery application using **Greaseweazle V4.1** for flux-level disk access. Floppy Workbench provides professional-grade tools for disk preservation, recovery, and analysis.
 
@@ -60,15 +60,10 @@ A comprehensive floppy disk analysis and recovery application using **Greaseweaz
 
 - **Python 3.10** or higher
 - **PyQt6** (installed automatically)
-- **Greaseweazle library**
+- **Greaseweazle library** (installed automatically)
 - **Operating System**: Linux or Windows
 
 ## Installation
-
-## Install Greaseweazle library (DO THIS FIRST)
-```bash
-python3 -m pip install git+https://github.com/keirf/greaseweazle@latest
-```
 
 ### Using pip (Recommended)
 
@@ -80,8 +75,8 @@ pip install floppy-workbench
 
 ```bash
 # Clone the repository
-git clone https://github.com/JYewman/USB-Floppy-Formatter.git
-cd USB-Floppy-Formatter
+git clone https://github.com/JYewman/Floppy-Disk-Restorer.git
+cd Floppy-Disk-Restorer
 
 # Install with Poetry
 poetry install
@@ -277,8 +272,8 @@ Contributions are welcome! Please:
 
 ```bash
 # Clone and install in development mode
-git clone https://github.com/JYewman/USB-Floppy-Formatter.git
-cd USB-Floppy-Formatter
+git clone https://github.com/JYewman/Floppy-Disk-Restorer.git
+cd Floppy-Disk-Restorer
 poetry install --with dev
 
 # Run tests

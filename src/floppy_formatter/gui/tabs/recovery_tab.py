@@ -358,9 +358,10 @@ class PassComparisonTable(QTableWidget):
                 color: #cccccc;
                 gridline-color: #3a3d41;
                 border: none;
+                font-size: 7pt;
             }
             QTableWidget::item {
-                padding: 4px;
+                padding: 1px 2px;
             }
             QTableWidget::item:selected {
                 background-color: #264f78;
@@ -368,16 +369,19 @@ class PassComparisonTable(QTableWidget):
             QHeaderView::section {
                 background-color: #2d2d30;
                 color: #cccccc;
-                padding: 6px;
+                padding: 2px;
                 border: none;
                 border-right: 1px solid #3a3d41;
                 border-bottom: 1px solid #3a3d41;
+                font-size: 7pt;
             }
         """)
 
         header = self.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.verticalHeader().setVisible(False)
+        self.verticalHeader().setDefaultSectionSize(18)
+        self.setMaximumHeight(120)
 
     def add_pass(self, stats: PassStats) -> None:
         """Add a pass to the table."""
@@ -455,7 +459,7 @@ class PassComparisonTable(QTableWidget):
 
         totals_label = QTableWidgetItem("Total")
         totals_label.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        totals_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        totals_label.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
         self.setItem(total_row, 0, totals_label)
 
         # Empty cell for bad
@@ -464,14 +468,14 @@ class PassComparisonTable(QTableWidget):
         # Total recovered
         total_rec_item = QTableWidgetItem(str(total_recovered))
         total_rec_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        total_rec_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        total_rec_item.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
         total_rec_item.setForeground(QBrush(COLOR_GOOD))
         self.setItem(total_row, 2, total_rec_item)
 
         # Total failed
         total_fail_item = QTableWidgetItem(str(total_failed))
         total_fail_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        total_fail_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        total_fail_item.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
         if total_failed > 0:
             total_fail_item.setForeground(QBrush(COLOR_BAD))
         self.setItem(total_row, 3, total_fail_item)
@@ -482,7 +486,7 @@ class PassComparisonTable(QTableWidget):
         # Total duration
         total_dur_item = QTableWidgetItem(f"{total_duration:.1f}s")
         total_dur_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        total_dur_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        total_dur_item.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
         self.setItem(total_row, 5, total_dur_item)
 
 
@@ -503,7 +507,8 @@ class RecoveryTimelineWidget(QWidget):
         self._recovered: List[RecoveredSector] = []
         self._max_sectors = 50  # Maximum displayed
 
-        self.setMinimumHeight(60)
+        self.setMinimumHeight(40)
+        self.setMaximumHeight(50)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def add_recovered_sector(self, sector: RecoveredSector) -> None:
@@ -531,25 +536,26 @@ class RecoveryTimelineWidget(QWidget):
         # Background
         painter.fillRect(self.rect(), COLOR_PANEL_BG)
 
-        margin_left = 10
-        margin_right = 10
-        margin_top = 20
-        height = self.height() - margin_top - 10
+        margin_left = 6
+        margin_right = 6
+        margin_top = 14
+        height = self.height() - margin_top - 6
 
         # Title
         painter.setPen(QPen(COLOR_TEXT))
-        painter.setFont(QFont("Segoe UI", 9))
-        painter.drawText(margin_left, 14, f"Recovered Sectors ({len(self._recovered)})")
+        painter.setFont(QFont("Segoe UI", 7))
+        painter.drawText(margin_left, 10, f"Recovered ({len(self._recovered)})")
 
         if not self._recovered:
             painter.setPen(QPen(COLOR_TEXT_DIM))
-            painter.drawText(margin_left, margin_top + height // 2 + 5, "No sectors recovered yet")
+            painter.setFont(QFont("Segoe UI", 7))
+            painter.drawText(margin_left, margin_top + height // 2 + 3, "No sectors recovered yet")
             return
 
         # Calculate item width
         available_width = self.width() - margin_left - margin_right
         n = len(self._recovered)
-        item_width = min(20, available_width / n - 2)
+        item_width = min(12, available_width / n - 1)
 
         # Color by technique
         technique_colors = {
@@ -559,7 +565,7 @@ class RecoveryTimelineWidget(QWidget):
         }
 
         for i, sector in enumerate(self._recovered):
-            x = margin_left + i * (item_width + 2)
+            x = margin_left + i * (item_width + 1)
             y = margin_top
 
             color = technique_colors.get(sector.technique, COLOR_GOOD)
@@ -593,29 +599,31 @@ class RecoveryPredictionWidget(QFrame):
             RecoveryPredictionWidget {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 3px;
             }}
             QLabel {{
                 color: {COLOR_TEXT.name()};
+                font-size: 8pt;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(2)
 
         # Title
         title = QLabel("Recovery Prediction")
-        title.setStyleSheet("font-weight: bold;")
+        title.setStyleSheet("font-weight: bold; font-size: 8pt;")
         layout.addWidget(title)
 
         # Estimated passes
         self._passes_label = QLabel("Estimated passes remaining: --")
-        self._passes_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()};")
+        self._passes_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 7pt;")
         layout.addWidget(self._passes_label)
 
         # Confidence
         self._confidence_label = QLabel("Confidence: --")
+        self._confidence_label.setStyleSheet("font-size: 7pt;")
         layout.addWidget(self._confidence_label)
 
         # Progress
@@ -624,27 +632,28 @@ class RecoveryPredictionWidget(QFrame):
             QProgressBar {
                 background-color: #3c3c3c;
                 border: none;
-                border-radius: 3px;
-                height: 20px;
+                border-radius: 2px;
+                height: 12px;
                 text-align: center;
                 color: white;
+                font-size: 7pt;
             }
             QProgressBar::chunk {
                 background-color: #4ec9b0;
-                border-radius: 3px;
+                border-radius: 2px;
             }
         """)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
+        self._progress.setMaximumHeight(14)
         layout.addWidget(self._progress)
 
-        # Recommendation
+        # Recommendation (hidden by default to save space)
         self._rec_label = QLabel("")
         self._rec_label.setWordWrap(True)
-        self._rec_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 11px;")
+        self._rec_label.setStyleSheet(f"color: {COLOR_TEXT_DIM.name()}; font-size: 7pt;")
+        self._rec_label.setVisible(False)
         layout.addWidget(self._rec_label)
-
-        layout.addStretch()
 
     def update_prediction(
         self,
@@ -738,23 +747,24 @@ class RecoveryStatsWidget(QFrame):
             RecoveryStatsWidget {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 3px;
             }}
             QLabel {{
                 color: {COLOR_TEXT.name()};
+                font-size: 7pt;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(1)
 
         # Title
         title = QLabel("Statistics")
-        title.setStyleSheet("font-weight: bold;")
+        title.setStyleSheet("font-weight: bold; font-size: 8pt;")
         layout.addWidget(title)
 
-        # Stats labels
+        # Stats labels - more compact
         self._total_recovered_label = QLabel("Total recovered: 0")
         layout.addWidget(self._total_recovered_label)
 
@@ -766,8 +776,6 @@ class RecoveryStatsWidget(QFrame):
 
         self._technique_label = QLabel("Primary technique: --")
         layout.addWidget(self._technique_label)
-
-        layout.addStretch()
 
     def update_stats(self, stats: RecoveryStats) -> None:
         """Update statistics display."""
@@ -866,23 +874,26 @@ class RecoveryTab(QWidget):
             }}
         """)
         table_layout = QVBoxLayout(table_frame)
-        table_layout.setContentsMargins(4, 4, 4, 4)
+        table_layout.setContentsMargins(2, 2, 2, 2)
+        table_layout.setSpacing(2)
 
         table_title = QLabel("Pass History")
-        table_title.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-weight: bold; padding: 4px;")
+        table_title.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-weight: bold; font-size: 8pt; padding: 2px;")
         table_layout.addWidget(table_title)
 
         self._pass_table = PassComparisonTable()
         table_layout.addWidget(self._pass_table)
 
-        right_column.addWidget(table_frame, 1)
+        right_column.addWidget(table_frame, 2)
 
         # Prediction widget
         self._prediction = RecoveryPredictionWidget()
+        self._prediction.setMaximumHeight(80)
         right_column.addWidget(self._prediction)
 
         # Stats widget
         self._stats_widget = RecoveryStatsWidget()
+        self._stats_widget.setMaximumHeight(80)
         right_column.addWidget(self._stats_widget)
 
         layout.addLayout(right_column, 1)

@@ -74,13 +74,14 @@ class DeviceSettingsTab(QWidget):
     def _setup_ui(self) -> None:
         """Set up the device settings UI."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # Drive Configuration Group
         drive_group = QGroupBox("Drive Configuration")
         drive_layout = QFormLayout(drive_group)
-        drive_layout.setSpacing(12)
+        drive_layout.setContentsMargins(8, 12, 8, 8)
+        drive_layout.setSpacing(6)
 
         # Default drive unit
         self.drive_unit_combo = QComboBox()
@@ -107,7 +108,8 @@ class DeviceSettingsTab(QWidget):
         # Motor Control Group
         motor_group = QGroupBox("Motor Control")
         motor_layout = QFormLayout(motor_group)
-        motor_layout.setSpacing(12)
+        motor_layout.setContentsMargins(8, 12, 8, 8)
+        motor_layout.setSpacing(6)
 
         # Motor timeout
         motor_timeout_layout = QHBoxLayout()
@@ -138,7 +140,8 @@ class DeviceSettingsTab(QWidget):
         # Seek Settings Group
         seek_group = QGroupBox("Seek Settings")
         seek_layout = QFormLayout(seek_group)
-        seek_layout.setSpacing(12)
+        seek_layout.setContentsMargins(8, 12, 8, 8)
+        seek_layout.setSpacing(6)
 
         # Seek speed
         self.seek_speed_combo = QComboBox()
@@ -219,13 +222,14 @@ class DisplaySettingsTab(QWidget):
     def _setup_ui(self) -> None:
         """Set up the display settings UI."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # Theme Group
         theme_group = QGroupBox("Theme")
         theme_layout = QVBoxLayout(theme_group)
-        theme_layout.setSpacing(12)
+        theme_layout.setContentsMargins(8, 12, 8, 8)
+        theme_layout.setSpacing(6)
 
         # Theme selection
         theme_button_layout = QHBoxLayout()
@@ -257,7 +261,8 @@ class DisplaySettingsTab(QWidget):
         # Color Scheme Group (for accessibility)
         color_group = QGroupBox("Sector Map Colors")
         color_layout = QFormLayout(color_group)
-        color_layout.setSpacing(12)
+        color_layout.setContentsMargins(8, 12, 8, 8)
+        color_layout.setSpacing(6)
 
         # Color scheme dropdown
         self.color_scheme_combo = QComboBox()
@@ -284,7 +289,8 @@ class DisplaySettingsTab(QWidget):
         # Visual Effects Group
         effects_group = QGroupBox("Visual Effects")
         effects_layout = QFormLayout(effects_group)
-        effects_layout.setSpacing(12)
+        effects_layout.setContentsMargins(8, 12, 8, 8)
+        effects_layout.setSpacing(4)
 
         self.animate_check = QCheckBox("Animate sector map during operations")
         self.animate_check.setToolTip(
@@ -313,7 +319,8 @@ class DisplaySettingsTab(QWidget):
         # Sizes Group
         sizes_group = QGroupBox("Sizes")
         sizes_layout = QFormLayout(sizes_group)
-        sizes_layout.setSpacing(12)
+        sizes_layout.setContentsMargins(8, 12, 8, 8)
+        sizes_layout.setSpacing(6)
 
         # Sector map size
         map_size_layout = QHBoxLayout()
@@ -463,8 +470,8 @@ class ColorSchemePreview(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setFixedHeight(30)
-        self.setMinimumWidth(300)
+        self.setFixedHeight(22)
+        self.setMinimumWidth(200)
         self._colors = None
         self._setup_ui()
 
@@ -472,14 +479,14 @@ class ColorSchemePreview(QWidget):
         """Set up the preview UI."""
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(3)
 
         self._color_labels = []
         color_names = ["Good", "Bad", "Weak", "Unknown", "Reading", "Writing"]
 
         for name in color_names:
             frame = QFrame()
-            frame.setFixedSize(40, 24)
+            frame.setFixedSize(28, 18)
             frame.setFrameShape(QFrame.Shape.Box)
             frame.setToolTip(name)
             self._color_labels.append(frame)
@@ -525,13 +532,14 @@ class RecoverySettingsTab(QWidget):
     def _setup_ui(self) -> None:
         """Set up the recovery settings UI."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # Recovery Mode Group
         mode_group = QGroupBox("Default Recovery Mode")
         mode_layout = QVBoxLayout(mode_group)
-        mode_layout.setSpacing(12)
+        mode_layout.setContentsMargins(8, 12, 8, 8)
+        mode_layout.setSpacing(4)
 
         # Recovery level
         level_layout = QHBoxLayout()
@@ -576,7 +584,8 @@ class RecoverySettingsTab(QWidget):
         # Pass Settings Group
         pass_group = QGroupBox("Pass Settings")
         pass_layout = QFormLayout(pass_group)
-        pass_layout.setSpacing(12)
+        pass_layout.setContentsMargins(8, 12, 8, 8)
+        pass_layout.setSpacing(6)
 
         # Default fixed passes
         passes_layout = QHBoxLayout()
@@ -605,7 +614,8 @@ class RecoverySettingsTab(QWidget):
         # Multi-Read Settings Group
         multiread_group = QGroupBox("Multi-Read Statistical Recovery")
         multiread_layout = QFormLayout(multiread_group)
-        multiread_layout.setSpacing(12)
+        multiread_layout.setContentsMargins(8, 12, 8, 8)
+        multiread_layout.setSpacing(6)
 
         # Enable multi-read
         self.multiread_check = QCheckBox("Enable multi-read by default")
@@ -633,7 +643,8 @@ class RecoverySettingsTab(QWidget):
         # Advanced Recovery Group
         advanced_group = QGroupBox("Advanced Recovery (Aggressive/Forensic)")
         advanced_layout = QFormLayout(advanced_group)
-        advanced_layout.setSpacing(12)
+        advanced_layout.setContentsMargins(8, 12, 8, 8)
+        advanced_layout.setSpacing(4)
 
         # PLL tuning
         self.pll_check = QCheckBox("Enable PLL parameter tuning")
@@ -789,13 +800,14 @@ class ExportSettingsTab(QWidget):
     def _setup_ui(self) -> None:
         """Set up the export settings UI."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         # Default Formats Group
         formats_group = QGroupBox("Default Formats")
         formats_layout = QFormLayout(formats_group)
-        formats_layout.setSpacing(12)
+        formats_layout.setContentsMargins(8, 12, 8, 8)
+        formats_layout.setSpacing(6)
 
         # Default image format
         self.image_format_combo = QComboBox()
@@ -820,7 +832,8 @@ class ExportSettingsTab(QWidget):
         # Directories Group
         dirs_group = QGroupBox("Default Directories")
         dirs_layout = QFormLayout(dirs_group)
-        dirs_layout.setSpacing(12)
+        dirs_layout.setContentsMargins(8, 12, 8, 8)
+        dirs_layout.setSpacing(6)
 
         # Export directory
         export_dir_layout = QHBoxLayout()
@@ -840,7 +853,8 @@ class ExportSettingsTab(QWidget):
         # Naming Options Group
         naming_group = QGroupBox("File Naming")
         naming_layout = QFormLayout(naming_group)
-        naming_layout.setSpacing(12)
+        naming_layout.setContentsMargins(8, 12, 8, 8)
+        naming_layout.setSpacing(4)
 
         # Auto name exports
         self.auto_name_check = QCheckBox("Auto-generate filenames")
@@ -861,7 +875,8 @@ class ExportSettingsTab(QWidget):
         # Export Options Group
         options_group = QGroupBox("Export Options")
         options_layout = QFormLayout(options_group)
-        options_layout.setSpacing(12)
+        options_layout.setContentsMargins(8, 12, 8, 8)
+        options_layout.setSpacing(4)
 
         # Compress exports
         self.compress_check = QCheckBox("Compress exported files (when supported)")
@@ -882,13 +897,11 @@ class ExportSettingsTab(QWidget):
         # Recent Files Group
         recent_group = QGroupBox("Recent Files")
         recent_layout = QVBoxLayout(recent_group)
-        recent_layout.setSpacing(12)
+        recent_layout.setContentsMargins(8, 12, 8, 8)
+        recent_layout.setSpacing(6)
 
-        recent_info = QLabel(
-            f"Recent files are stored in the settings directory.\n"
-            f"Location: {get_settings().settings_file.parent}"
-        )
-        recent_info.setStyleSheet("color: #858585; font-size: 9pt;")
+        recent_info = QLabel("Recent files are stored in the settings directory.")
+        recent_info.setStyleSheet("color: #858585; font-size: 8pt;")
         recent_layout.addWidget(recent_info)
 
         clear_recent_button = QPushButton("Clear Recent Files")
@@ -1040,14 +1053,14 @@ class SettingsDialog(QDialog):
 
         # Main layout
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
         # Header
         header_layout = QHBoxLayout()
         title_label = QLabel("Settings")
         title_font = QFont()
-        title_font.setPointSize(16)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title_label.setFont(title_font)
         header_layout.addWidget(title_label)
@@ -1091,33 +1104,33 @@ class SettingsDialog(QDialog):
 
         # Buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(12)
+        button_layout.setSpacing(8)
 
         # Settings file info
         settings_path = QLabel(f"Settings: {self.settings.settings_file}")
-        settings_path.setStyleSheet("color: #858585; font-size: 9pt;")
+        settings_path.setStyleSheet("color: #858585; font-size: 8pt;")
         button_layout.addWidget(settings_path)
 
         button_layout.addStretch()
 
         # Cancel button
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.setMinimumWidth(100)
-        self.cancel_button.setMinimumHeight(32)
+        self.cancel_button.setMinimumWidth(80)
+        self.cancel_button.setMinimumHeight(26)
         self.cancel_button.clicked.connect(self._on_cancel_clicked)
         button_layout.addWidget(self.cancel_button)
 
         # Apply button
         self.apply_button = QPushButton("Apply")
-        self.apply_button.setMinimumWidth(100)
-        self.apply_button.setMinimumHeight(32)
+        self.apply_button.setMinimumWidth(80)
+        self.apply_button.setMinimumHeight(26)
         self.apply_button.clicked.connect(self._on_apply_clicked)
         button_layout.addWidget(self.apply_button)
 
         # Save button
         self.save_button = QPushButton("Save")
-        self.save_button.setMinimumWidth(100)
-        self.save_button.setMinimumHeight(32)
+        self.save_button.setMinimumWidth(80)
+        self.save_button.setMinimumHeight(26)
         self.save_button.clicked.connect(self._on_save_clicked)
         self.save_button.setDefault(True)
         button_layout.addWidget(self.save_button)
@@ -1140,19 +1153,21 @@ class SettingsDialog(QDialog):
                 QLabel {
                     color: #cccccc;
                     background-color: transparent;
+                    font-size: 9pt;
                 }
                 QGroupBox {
                     border: 1px solid #3a3d41;
                     border-radius: 4px;
-                    margin-top: 12px;
-                    padding-top: 16px;
+                    margin-top: 8px;
+                    padding-top: 8px;
                     font-weight: bold;
+                    font-size: 9pt;
                     color: #cccccc;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
                     subcontrol-position: top left;
-                    padding: 0 8px;
+                    padding: 0 6px;
                     background-color: #1e1e1e;
                     color: #cccccc;
                 }
@@ -1164,10 +1179,11 @@ class SettingsDialog(QDialog):
                 QTabBar::tab {
                     background-color: #2d2d30;
                     color: #cccccc;
-                    padding: 8px 16px;
+                    padding: 6px 12px;
                     margin-right: 2px;
                     border-top-left-radius: 4px;
                     border-top-right-radius: 4px;
+                    font-size: 9pt;
                 }
                 QTabBar::tab:selected {
                     background-color: #252526;
@@ -1180,9 +1196,10 @@ class SettingsDialog(QDialog):
                     background-color: #3a3d41;
                     color: #cccccc;
                     border: 1px solid #6c6c6c;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-height: 24px;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    min-height: 20px;
+                    font-size: 9pt;
                 }
                 QComboBox:hover {
                     border-color: #858585;
@@ -1200,22 +1217,24 @@ class SettingsDialog(QDialog):
                     background-color: #3a3d41;
                     color: #cccccc;
                     border: 1px solid #6c6c6c;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-height: 24px;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    min-height: 20px;
+                    font-size: 9pt;
                 }
                 QSpinBox:hover {
                     border-color: #858585;
                 }
                 QCheckBox {
                     color: #cccccc;
-                    spacing: 8px;
+                    spacing: 6px;
+                    font-size: 9pt;
                 }
                 QCheckBox::indicator {
-                    width: 16px;
-                    height: 16px;
+                    width: 14px;
+                    height: 14px;
                     border: 1px solid #6c6c6c;
-                    border-radius: 3px;
+                    border-radius: 2px;
                     background-color: #3a3d41;
                 }
                 QCheckBox::indicator:hover {
@@ -1227,13 +1246,14 @@ class SettingsDialog(QDialog):
                 }
                 QRadioButton {
                     color: #cccccc;
-                    spacing: 8px;
+                    spacing: 6px;
+                    font-size: 9pt;
                 }
                 QRadioButton::indicator {
-                    width: 16px;
-                    height: 16px;
+                    width: 14px;
+                    height: 14px;
                     border: 1px solid #6c6c6c;
-                    border-radius: 8px;
+                    border-radius: 7px;
                     background-color: #3a3d41;
                 }
                 QRadioButton::indicator:hover {
@@ -1247,9 +1267,10 @@ class SettingsDialog(QDialog):
                     background-color: #3a3d41;
                     color: #cccccc;
                     border: 1px solid #6c6c6c;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-height: 24px;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    min-height: 20px;
+                    font-size: 9pt;
                 }
                 QLineEdit:hover {
                     border-color: #858585;
@@ -1293,19 +1314,21 @@ class SettingsDialog(QDialog):
                 QLabel {
                     color: #1e1e1e;
                     background-color: transparent;
+                    font-size: 9pt;
                 }
                 QGroupBox {
                     border: 1px solid #d4d4d4;
                     border-radius: 4px;
-                    margin-top: 12px;
-                    padding-top: 16px;
+                    margin-top: 8px;
+                    padding-top: 8px;
                     font-weight: bold;
+                    font-size: 9pt;
                     color: #1e1e1e;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
                     subcontrol-position: top left;
-                    padding: 0 8px;
+                    padding: 0 6px;
                     background-color: #ffffff;
                     color: #1e1e1e;
                 }
@@ -1317,10 +1340,11 @@ class SettingsDialog(QDialog):
                 QTabBar::tab {
                     background-color: #e0e0e0;
                     color: #1e1e1e;
-                    padding: 8px 16px;
+                    padding: 6px 12px;
                     margin-right: 2px;
                     border-top-left-radius: 4px;
                     border-top-right-radius: 4px;
+                    font-size: 9pt;
                 }
                 QTabBar::tab:selected {
                     background-color: #f5f5f5;
@@ -1333,15 +1357,19 @@ class SettingsDialog(QDialog):
                     background-color: #ffffff;
                     color: #1e1e1e;
                     border: 1px solid #c0c0c0;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    min-height: 24px;
+                    border-radius: 3px;
+                    padding: 2px 6px;
+                    min-height: 20px;
+                    font-size: 9pt;
                 }
                 QCheckBox, QRadioButton {
                     color: #1e1e1e;
-                    spacing: 8px;
+                    spacing: 6px;
+                    font-size: 9pt;
                 }
                 QCheckBox::indicator, QRadioButton::indicator {
+                    width: 14px;
+                    height: 14px;
                     border: 1px solid #888888;
                     background-color: #ffffff;
                 }

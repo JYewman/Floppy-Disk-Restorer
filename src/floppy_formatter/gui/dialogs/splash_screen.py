@@ -20,8 +20,9 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QPixmap, QPainter, QColor, QFont, QFontDatabase,
-    QLinearGradient, QPen, QBrush, QPainterPath
+    QLinearGradient, QPen, QBrush, QPainterPath, QImage
 )
+from pathlib import Path
 
 
 class SplashScreen(QSplashScreen):
@@ -186,12 +187,31 @@ class SplashScreen(QSplashScreen):
 
     def _draw_logo(self, painter: QPainter) -> None:
         """Draw application logo/icon."""
-        # Logo position
-        logo_size = 80
+        # Logo position and size
+        logo_size = 100
         logo_x = (self.WIDTH - logo_size) // 2
-        logo_y = 40
+        logo_y = 30
 
-        # Draw circular background
+        # Try to load the RTC logo PNG
+        logo_path = Path(__file__).parent.parent / "resources" / "icons" / "app_logo.png"
+
+        if logo_path.exists():
+            # Load and draw the PNG logo
+            logo_pixmap = QPixmap(str(logo_path))
+            if not logo_pixmap.isNull():
+                # Scale to desired size while maintaining aspect ratio
+                scaled_pixmap = logo_pixmap.scaled(
+                    logo_size, logo_size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                # Center the scaled pixmap
+                actual_x = logo_x + (logo_size - scaled_pixmap.width()) // 2
+                actual_y = logo_y + (logo_size - scaled_pixmap.height()) // 2
+                painter.drawPixmap(actual_x, actual_y, scaled_pixmap)
+                return
+
+        # Fallback: Draw a simple placeholder if logo not found
         center_x = logo_x + logo_size // 2
         center_y = logo_y + logo_size // 2
 
@@ -218,67 +238,20 @@ class SplashScreen(QSplashScreen):
         painter.setBrush(gradient)
         painter.drawEllipse(logo_x, logo_y, logo_size, logo_size)
 
-        # Draw floppy disk icon
-        self._draw_floppy_icon(painter, logo_x, logo_y, logo_size)
-
-    def _draw_floppy_icon(self, painter: QPainter, x: int, y: int, size: int) -> None:
-        """Draw a stylized floppy disk icon."""
-        # Scale factors
-        margin = size * 0.2
-        inner_x = x + margin
-        inner_y = y + margin
-        inner_size = size - 2 * margin
-
-        painter.setPen(QPen(QColor(255, 255, 255), 2))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-
-        # Outer rectangle (floppy body)
-        rect_margin = inner_size * 0.1
-        floppy_rect = QRect(
-            int(inner_x + rect_margin),
-            int(inner_y + rect_margin),
-            int(inner_size - 2 * rect_margin),
-            int(inner_size - 2 * rect_margin)
-        )
-        painter.drawRoundedRect(floppy_rect, 4, 4)
-
-        # Metal slider at top
-        slider_width = floppy_rect.width() * 0.5
-        slider_height = floppy_rect.height() * 0.15
-        slider_x = floppy_rect.x() + (floppy_rect.width() - slider_width) / 2
-        slider_y = floppy_rect.y() + floppy_rect.height() * 0.08
-
-        painter.setBrush(QColor(200, 200, 200, 100))
-        painter.drawRect(int(slider_x), int(slider_y), int(slider_width), int(slider_height))
-
-        # Label area
-        label_margin = floppy_rect.width() * 0.15
-        label_height = floppy_rect.height() * 0.35
-        label_y = floppy_rect.y() + floppy_rect.height() * 0.35
-
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(
-            int(floppy_rect.x() + label_margin),
-            int(label_y),
-            int(floppy_rect.width() - 2 * label_margin),
-            int(label_height)
-        )
-
-        # Hub ring at bottom
-        hub_size = floppy_rect.width() * 0.25
-        hub_x = floppy_rect.x() + (floppy_rect.width() - hub_size) / 2
-        hub_y = floppy_rect.y() + floppy_rect.height() * 0.72
-
-        painter.drawEllipse(int(hub_x), int(hub_y), int(hub_size), int(hub_size))
+        # Draw "RTC" text as fallback
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        text_rect = QRect(logo_x, logo_y, logo_size, logo_size)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, "RTC")
 
     def _draw_title(self, painter: QPainter) -> None:
         """Draw application name and subtitle."""
-        # Main title
+        # Main title - adjusted position for larger logo
         title_font = QFont("Segoe UI", 24, QFont.Weight.Bold)
         painter.setFont(title_font)
         painter.setPen(self.TEXT_COLOR)
 
-        title_rect = QRect(0, 135, self.WIDTH, 40)
+        title_rect = QRect(0, 145, self.WIDTH, 40)
         painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, self.APP_NAME)
 
         # Subtitle
@@ -286,7 +259,7 @@ class SplashScreen(QSplashScreen):
         painter.setFont(subtitle_font)
         painter.setPen(self.SUBTEXT_COLOR)
 
-        subtitle_rect = QRect(0, 175, self.WIDTH, 25)
+        subtitle_rect = QRect(0, 185, self.WIDTH, 25)
         painter.drawText(subtitle_rect, Qt.AlignmentFlag.AlignCenter, self.APP_SUBTITLE)
 
     def _draw_progress(self, painter: QPainter) -> None:

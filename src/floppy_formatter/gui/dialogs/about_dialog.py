@@ -46,7 +46,7 @@ class AboutDialog(QDialog):
         dialog.exec()
     """
 
-    GITHUB_URL = "https://github.com/JYewman/USB-Floppy-Formatter"
+    GITHUB_URL = "https://github.com/JYewman/Floppy-Disk-Restorer"
     APP_NAME = "Floppy Workbench"
     APP_SUBTITLE = "Professional Floppy Disk Analysis & Recovery"
 
@@ -119,30 +119,22 @@ class AboutDialog(QDialog):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(16)
 
-        # Application icon
+        # Application icon - use the RTC logo
         icon_label = QLabel()
-        icon = get_icon("app_icon")
+        icon = get_icon("app_logo")
         if not icon.isNull():
-            pixmap = icon.pixmap(72, 72)
+            pixmap = icon.pixmap(80, 80)
             icon_label.setPixmap(pixmap)
         else:
-            # Fallback to hard-drive icon
-            icon = get_icon("hard-drive")
+            # Fallback to app_icon SVG
+            icon = get_icon("app_icon")
             if not icon.isNull():
-                pixmap = icon.pixmap(64, 64)
-                colored_pixmap = QPixmap(pixmap.size())
-                colored_pixmap.fill(Qt.GlobalColor.transparent)
-                painter = QPainter(colored_pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-                painter.drawPixmap(0, 0, pixmap)
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-                painter.fillRect(colored_pixmap.rect(), QColor("#0e639c"))
-                painter.end()
-                icon_label.setPixmap(colored_pixmap)
+                pixmap = icon.pixmap(72, 72)
+                icon_label.setPixmap(pixmap)
             else:
                 icon_label.setText("💾")
                 icon_label.setStyleSheet("font-size: 48pt;")
-        icon_label.setFixedSize(72, 72)
+        icon_label.setFixedSize(80, 80)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_layout.addWidget(icon_label)
 
@@ -306,7 +298,7 @@ class AboutDialog(QDialog):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 8, 0)
-        content_layout.setSpacing(16)
+        content_layout.setSpacing(10)
 
         # Credits sections
         credits_data = [
@@ -330,26 +322,27 @@ class AboutDialog(QDialog):
         for section_title, items in credits_data:
             # Section header
             section_label = QLabel(section_title)
-            section_label.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 11pt;")
+            section_label.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 9pt;")
             content_layout.addWidget(section_label)
 
             for name, author, description in items:
                 item_layout = QHBoxLayout()
-                item_layout.setContentsMargins(16, 0, 0, 0)
+                item_layout.setContentsMargins(12, 0, 0, 0)
+                item_layout.setSpacing(6)
 
                 name_label = QLabel(f"• {name}")
-                name_label.setStyleSheet("color: #4ec9b0;")
-                name_label.setFixedWidth(180)
+                name_label.setStyleSheet("color: #4ec9b0; font-size: 8pt;")
+                name_label.setFixedWidth(160)
                 item_layout.addWidget(name_label)
 
                 if author:
                     author_label = QLabel(author)
-                    author_label.setStyleSheet("color: #cccccc;")
-                    author_label.setFixedWidth(120)
+                    author_label.setStyleSheet("color: #cccccc; font-size: 8pt;")
+                    author_label.setFixedWidth(100)
                     item_layout.addWidget(author_label)
 
                 desc_label = QLabel(description)
-                desc_label.setStyleSheet("color: #858585;")
+                desc_label.setStyleSheet("color: #858585; font-size: 8pt;")
                 desc_label.setWordWrap(True)
                 item_layout.addWidget(desc_label, 1)
 

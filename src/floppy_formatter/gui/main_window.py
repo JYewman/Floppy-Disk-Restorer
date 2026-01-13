@@ -268,7 +268,7 @@ class MainWindow(QMainWindow):
     """
 
     # GitHub documentation URL
-    GITHUB_URL = "https://github.com/JYewman/USB-Floppy-Formatter"
+    GITHUB_URL = "https://github.com/JYewman/Floppy-Disk-Restorer"
 
     # Application title
     APP_TITLE = "Floppy Workbench"
