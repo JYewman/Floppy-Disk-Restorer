@@ -65,6 +65,11 @@ A comprehensive floppy disk analysis and recovery application using **Greaseweaz
 
 ## Installation
 
+## Install Greaseweazle library (DO THIS FIRST)
+```bash
+python3 -m pip install git+https://github.com/keirf/greaseweazle@latest
+```
+
 ### Using pip (Recommended)
 
 ```bash
