@@ -39,6 +39,8 @@ poetry.lock
 *.swo
 *~
 .DS_Store
+.claude/
+.claude
 
 # Testing
 .pytest_cache/
