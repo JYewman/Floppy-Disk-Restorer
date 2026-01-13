@@ -1,26 +1,31 @@
 """
-Low-level floppy disk formatting operations for Linux/WSL2.
+Low-level floppy disk formatting operations using Greaseweazle.
 
 This module provides track and disk formatting functionality using
-sector-level writes. Linux does not have native track formatting IOCTLs,
-so we implement formatting by writing zeros to all sectors and verifying
-the writes.
+flux-level writes via Greaseweazle V4.1 USB controller. Unlike USB
+floppy drives that use sector-by-sector formatting, Greaseweazle
+enables true track-level formatting with:
+- DC erase before write (cleaner signal)
+- Proper MFM encoding with sync marks
+- Full track write in one rotation
 
-CRITICAL: Linux formatting uses sector-level operations rather than
-track-level operations. This is functionally equivalent and works
-reliably on USB floppy drives.
+This provides better results for degraded or marginal disks compared
+to USB floppy drive formatting.
 """
 
-from typing import List, Tuple, Optional, Callable
+from typing import List, Tuple, Optional, Callable, Union, Any
 
-from floppy_formatter.core.device_manager import open_device, close_device
 from floppy_formatter.core.geometry import DiskGeometry
-from floppy_formatter.core.sector_io import (
-    write_sector,
+from floppy_formatter.core.sector_adapter import (
     read_sector,
+    read_track,
+    format_track_low_level,
+    write_track_pattern,
     classify_error,
-    ERROR_SUCCESS
+    ERROR_SUCCESS,
+    invalidate_track_cache,
 )
+from floppy_formatter.hardware import GreaseweazleDevice
 
 
 # =============================================================================
@@ -29,22 +34,25 @@ from floppy_formatter.core.sector_io import (
 
 
 def format_track(
-    fd: int,
+    device: Union[GreaseweazleDevice, Any],
     cylinder: int,
     head: int,
     geometry: DiskGeometry
 ) -> Tuple[bool, int, List[int], int]:
     """
-    Format a single track using sector-level writes.
+    Format a single track using Greaseweazle flux-level writes.
 
-    On Linux, there is no native track formatting ioctl. Instead, we:
-    1. Calculate which sectors belong to this track
-    2. Write zeros to each sector
-    3. Read back to verify
-    4. Track any sectors that fail to write or verify
+    Unlike USB floppy drives that write sector-by-sector, Greaseweazle:
+    1. Performs a DC erase of the entire track (clean slate)
+    2. Encodes all 18 sectors as a single MFM flux stream
+    3. Writes the complete track in one disk rotation
+    4. Reads back and verifies all sectors
+
+    This produces cleaner writes with better signal quality compared
+    to USB floppy drive formatting.
 
     Args:
-        fd: File descriptor from open_device()
+        device: Connected GreaseweazleDevice instance
         cylinder: Cylinder number (0-79 for 1.44MB)
         head: Head number (0-1 for 1.44MB)
         geometry: Disk geometry information
@@ -60,63 +68,28 @@ def format_track(
         None - all errors returned via tuple
 
     Example:
-        >>> from floppy_formatter.core.device_manager import open_device, close_device
-        >>> from floppy_formatter.core.geometry import get_disk_geometry
-        >>> fd = open_device('/dev/sde', read_only=False)
-        >>> geometry = get_disk_geometry(fd)
-        >>> success, bad_count, bad_sectors, error = format_track(fd, 0, 0, geometry)
-        >>> if success:
-        ...     if bad_count > 0:
-        ...         print(f"Track formatted with {bad_count} bad sectors")
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     geometry = get_greaseweazle_geometry(device)
+        ...     success, bad_count, bad_sectors, error = format_track(
+        ...         device, 0, 0, geometry
+        ...     )
+        ...     if success:
+        ...         if bad_count > 0:
+        ...             print(f"Track formatted with {bad_count} bad sectors")
+        ...         else:
+        ...             print("Track formatted successfully")
         ...     else:
-        ...         print("Track formatted successfully")
-        ... else:
-        ...     print(f"Format failed: {classify_error(error)}")
-        >>> close_device(fd)
+        ...         print(f"Format failed: {classify_error(error)}")
     """
-    # Calculate starting sector for this track
-    sectors_per_track = geometry.sectors_per_track
-    start_sector = (cylinder * geometry.heads + head) * sectors_per_track
-
-    # Prepare zero-filled sector data
-    zero_sector = bytes([0] * geometry.bytes_per_sector)
-
-    bad_sectors = []
-    last_error = ERROR_SUCCESS
-
-    # Write zeros to all sectors in this track
-    for offset in range(sectors_per_track):
-        sector_num = start_sector + offset
-
-        # Write zero sector
-        success, error = write_sector(fd, sector_num, zero_sector, geometry.bytes_per_sector)
-
-        if not success:
-            bad_sectors.append(sector_num)
-            last_error = error
-            continue
-
-        # Verify the write by reading back
-        success, data, error = read_sector(fd, sector_num, geometry.bytes_per_sector)
-
-        if not success or data != zero_sector:
-            bad_sectors.append(sector_num)
-            if not success:
-                last_error = error
-
-    # Determine overall success
-    if len(bad_sectors) == 0:
-        return (True, 0, [], ERROR_SUCCESS)
-    elif len(bad_sectors) < sectors_per_track:
-        # Partial success - some bad sectors but track is usable
-        return (True, len(bad_sectors), bad_sectors, ERROR_SUCCESS)
-    else:
-        # Complete failure - all sectors bad
-        return (False, len(bad_sectors), bad_sectors, last_error)
+    # Use the low-level Greaseweazle formatting function
+    # This does DC erase + MFM encode + write + verify
+    return format_track_low_level(device, cylinder, head, geometry, fill_byte=0x00)
 
 
 def format_disk(
-    fd: int,
+    device: Union[GreaseweazleDevice, Any],
     geometry: DiskGeometry,
     progress_callback: Optional[Callable[[int, int], None]] = None
 ) -> Tuple[bool, int, List[int]]:
@@ -124,11 +97,11 @@ def format_disk(
     Format entire disk (all 80 cylinders × 2 heads = 160 tracks).
 
     This function formats the complete floppy disk by iterating through
-    all cylinders and heads. Progress can be reported via callback for
-    real-time UI updates.
+    all cylinders and heads using Greaseweazle flux-level writes.
+    Progress can be reported via callback for real-time UI updates.
 
     Args:
-        fd: File descriptor from open_device()
+        device: Connected GreaseweazleDevice instance
         geometry: Disk geometry information
         progress_callback: Optional function(current_track, total_tracks)
                           for progress updates
@@ -147,19 +120,17 @@ def format_disk(
         ...     percent = (current / total) * 100
         ...     print(f"Formatting: {percent:.1f}% ({current}/{total} tracks)")
         >>>
-        >>> from floppy_formatter.core.device_manager import open_device, close_device
-        >>> from floppy_formatter.core.geometry import get_disk_geometry
-        >>> fd = open_device('/dev/sde', read_only=False)
-        >>> geometry = get_disk_geometry(fd)
-        >>> try:
-        ...     success, bad_count, bad_sectors = format_disk(
-        ...         fd, geometry, show_progress
-        ...     )
-        ...     print(f"Format complete: {bad_count} bad sectors detected")
-        ... except IOError as e:
-        ...     print(f"Format failed: {e}")
-        ... finally:
-        ...     close_device(fd)
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     geometry = get_greaseweazle_geometry(device)
+        ...     try:
+        ...         success, bad_count, bad_sectors = format_disk(
+        ...             device, geometry, show_progress
+        ...         )
+        ...         print(f"Format complete: {bad_count} bad sectors detected")
+        ...     except IOError as e:
+        ...         print(f"Format failed: {e}")
     """
     total_bad_sectors = 0
     all_bad_sectors = []
@@ -167,12 +138,15 @@ def format_disk(
     # Calculate total number of tracks
     total_tracks = geometry.cylinders * geometry.heads
 
+    # Invalidate cache before starting
+    invalidate_track_cache()
+
     # Format each track
     for cylinder in range(geometry.cylinders):
         for head in range(geometry.heads):
             # Format this track
             success, bad_count, bad_sectors, error = format_track(
-                fd, cylinder, head, geometry
+                device, cylinder, head, geometry
             )
 
             if not success:
@@ -196,7 +170,7 @@ def format_disk(
 
 
 def format_tracks_range(
-    fd: int,
+    device: Union[GreaseweazleDevice, Any],
     start_cylinder: int,
     end_cylinder: int,
     geometry: DiskGeometry,
@@ -209,7 +183,7 @@ def format_tracks_range(
     targeted recovery operations or testing.
 
     Args:
-        fd: File descriptor from open_device()
+        device: Connected GreaseweazleDevice instance
         start_cylinder: First cylinder to format (inclusive)
         end_cylinder: Last cylinder to format (inclusive)
         geometry: Disk geometry information
@@ -223,16 +197,14 @@ def format_tracks_range(
         ValueError: If cylinder range is invalid
 
     Example:
-        >>> # Format only cylinders 0-9 (first 20 tracks)
-        >>> from floppy_formatter.core.device_manager import open_device, close_device
-        >>> from floppy_formatter.core.geometry import get_disk_geometry
-        >>> fd = open_device('/dev/sde', read_only=False)
-        >>> geometry = get_disk_geometry(fd)
-        >>> success, bad_count, bad_sectors = format_tracks_range(
-        ...     fd, 0, 9, geometry
-        ... )
-        >>> print(f"Formatted 20 tracks: {bad_count} bad sectors")
-        >>> close_device(fd)
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     geometry = get_greaseweazle_geometry(device)
+        ...     success, bad_count, bad_sectors = format_tracks_range(
+        ...         device, 0, 9, geometry
+        ...     )
+        ...     print(f"Formatted 20 tracks: {bad_count} bad sectors")
     """
     # Validate cylinder range
     if start_cylinder < 0 or end_cylinder >= geometry.cylinders:
@@ -255,12 +227,15 @@ def format_tracks_range(
 
     track_counter = 0
 
+    # Invalidate cache before starting
+    invalidate_track_cache()
+
     # Format each track in range
     for cylinder in range(start_cylinder, end_cylinder + 1):
         for head in range(geometry.heads):
             # Format this track
             success, bad_count, bad_sectors, error = format_track(
-                fd, cylinder, head, geometry
+                device, cylinder, head, geometry
             )
 
             if not success:
@@ -283,74 +258,78 @@ def format_tracks_range(
 
 
 # =============================================================================
-# Device Type Detection (Linux-specific)
+# Device Type Detection (Greaseweazle-specific)
 # =============================================================================
+
+
+def is_greaseweazle_device(device: Union[GreaseweazleDevice, Any]) -> Tuple[bool, str]:
+    """
+    Check if connected device is a Greaseweazle controller.
+
+    With Greaseweazle, we have direct hardware control rather than
+    using USB floppy drives.
+
+    Args:
+        device: GreaseweazleDevice instance
+
+    Returns:
+        Tuple of (is_greaseweazle: bool, device_name: str)
+
+    Example:
+        >>> with GreaseweazleDevice() as device:
+        ...     is_gw, name = is_greaseweazle_device(device)
+        ...     print(f"Connected: {name}")
+    """
+    if isinstance(device, GreaseweazleDevice):
+        info = device.get_device_info()
+        return (True, f"Greaseweazle {info.model} (fw {info.firmware_version})")
+
+    return (False, "Unknown Device")
 
 
 def is_usb_floppy(device_path: str) -> Tuple[bool, str]:
     """
-    Detect if floppy drive is USB or internal.
+    Legacy function for backward compatibility.
 
-    On Linux, USB devices typically appear as /dev/sdX, while internal
-    floppy controllers use /dev/fd0.
+    With Greaseweazle, this always returns information indicating
+    we're using a Greaseweazle controller.
 
     Args:
-        device_path: Device path (e.g., '/dev/sde' or '/dev/fd0')
+        device_path: Device path (ignored for Greaseweazle)
 
     Returns:
         Tuple of (is_usb: bool, device_name: str)
-        - is_usb: True if USB floppy, False if internal
-        - device_name: Human-readable device type
-
-    Example:
-        >>> is_usb, name = is_usb_floppy('/dev/sde')
-        >>> if is_usb:
-        ...     print(f"Detected {name} - sector-level formatting")
-        ... else:
-        ...     print(f"Detected {name} - sector-level formatting")
     """
-    import os
-
-    device_name = os.path.basename(device_path)
-
-    # Internal floppy controller uses /dev/fd0 or /dev/fd1
-    if device_name.startswith('fd'):
-        return (False, "Internal Floppy Controller")
-
-    # USB devices use /dev/sdX naming
-    if device_name.startswith('sd'):
-        return (True, "USB Floppy Drive")
-
-    # Unknown device type
-    return (True, f"Unknown Device ({device_name})")
+    return (True, "Greaseweazle V4.1 USB Controller")
 
 
-def get_format_capability(device_path: str) -> Tuple[bool, bool, str]:
+def get_format_capability(device_path: str = "") -> Tuple[bool, bool, str]:
     """
-    Detect format capabilities (Linux always uses sector-level formatting).
+    Get format capabilities for Greaseweazle.
 
-    On Linux, we always use sector-level formatting regardless of device type.
+    Greaseweazle supports true track-level formatting with:
+    - DC erase before write
+    - Full MFM encoding
+    - Single-rotation writes
 
     Args:
-        device_path: Device path (e.g., '/dev/sde')
+        device_path: Ignored (kept for backward compatibility)
 
     Returns:
-        Tuple of (supports_ex, supports_standard, message)
-        - supports_ex: Always False on Linux (no native format ioctl)
-        - supports_standard: Always True (sector-level formatting)
+        Tuple of (supports_flux, supports_standard, message)
+        - supports_flux: True (Greaseweazle supports flux-level operations)
+        - supports_standard: True (standard formatting available)
         - message: Descriptive message about capabilities
 
     Example:
-        >>> supports_ex, supports_std, msg = get_format_capability('/dev/sde')
+        >>> supports_flux, supports_std, msg = get_format_capability()
         >>> print(msg)
-        Linux sector-level formatting (write + verify)
+        Greaseweazle flux-level formatting (DC erase + MFM encode)
     """
-    is_usb, device_type = is_usb_floppy(device_path)
-
     return (
-        False,  # No native track formatting on Linux
-        True,   # Sector-level formatting always available
-        f"Linux sector-level formatting (write + verify) - Device: {device_type}"
+        True,   # Full flux-level formatting with Greaseweazle
+        True,   # Standard sector formatting also available
+        "Greaseweazle flux-level formatting (DC erase + MFM encode + verify)"
     )
 
 
@@ -360,7 +339,7 @@ def get_format_capability(device_path: str) -> Tuple[bool, bool, str]:
 
 
 def verify_format(
-    fd: int,
+    device: Union[GreaseweazleDevice, Any],
     geometry: DiskGeometry,
     quick: bool = True
 ) -> Tuple[bool, int, List[int]]:
@@ -368,13 +347,13 @@ def verify_format(
     Verify disk format by reading all sectors.
 
     After formatting, this function verifies that all sectors
-    can be read successfully.
+    can be read successfully using flux capture and MFM decoding.
 
     Args:
-        fd: File descriptor from open_device()
+        device: Connected GreaseweazleDevice instance
         geometry: Disk geometry information
-        quick: If True, only read sector 0 of each track (fast)
-               If False, read all sectors (thorough but slow)
+        quick: If True, only read first sector of each track (fast)
+               If False, read all sectors (thorough but slower)
 
     Returns:
         Tuple of (success, bad_sector_count, bad_sectors)
@@ -383,42 +362,51 @@ def verify_format(
         - bad_sectors: List of bad sector numbers
 
     Example:
-        >>> # After formatting
-        >>> from floppy_formatter.core.device_manager import open_device
-        >>> from floppy_formatter.core.geometry import get_disk_geometry
-        >>> fd = open_device('/dev/sde', read_only=True)
-        >>> geometry = get_disk_geometry(fd)
-        >>> success, bad_count, bad_sectors = verify_format(fd, geometry)
-        >>> if success:
-        ...     print("Format verification passed!")
-        ... else:
-        ...     print(f"Found {bad_count} bad sectors: {bad_sectors}")
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     geometry = get_greaseweazle_geometry(device)
+        ...     success, bad_count, bad_sectors = verify_format(device, geometry)
+        ...     if success:
+        ...         print("Format verification passed!")
+        ...     else:
+        ...         print(f"Found {bad_count} bad sectors: {bad_sectors}")
     """
     bad_sectors = []
 
+    # Invalidate cache to ensure fresh reads
+    invalidate_track_cache()
+
     if quick:
         # Quick verification: read first sector of each track
+        # With Greaseweazle, we still read the whole track but only check sector 1
         for cylinder in range(geometry.cylinders):
             for head in range(geometry.heads):
-                # Calculate first sector of this track
-                sector_num = (cylinder * geometry.heads + head) * geometry.sectors_per_track
+                # Read the track
+                success_count, results = read_track(device, cylinder, head, geometry)
 
-                # Try to read the sector
-                success, data, error = read_sector(
-                    fd, sector_num, geometry.bytes_per_sector
-                )
-
-                if not success:
-                    bad_sectors.append(sector_num)
+                # Check first sector (sector 1)
+                for result in results:
+                    if result['sector'] == 1:
+                        if not result['success']:
+                            linear_sector = (cylinder * geometry.heads + head) * geometry.sectors_per_track
+                            bad_sectors.append(linear_sector)
+                        break
     else:
         # Thorough verification: read all sectors
-        for sector_num in range(geometry.total_sectors):
-            success, data, error = read_sector(
-                fd, sector_num, geometry.bytes_per_sector
-            )
+        for cylinder in range(geometry.cylinders):
+            for head in range(geometry.heads):
+                # Read entire track at once
+                success_count, results = read_track(device, cylinder, head, geometry)
 
-            if not success:
-                bad_sectors.append(sector_num)
+                # Check all sectors
+                for result in results:
+                    if not result['success']:
+                        linear_sector = (
+                            (cylinder * geometry.heads + head) * geometry.sectors_per_track +
+                            (result['sector'] - 1)
+                        )
+                        bad_sectors.append(linear_sector)
 
     return (len(bad_sectors) == 0, len(bad_sectors), bad_sectors)
 

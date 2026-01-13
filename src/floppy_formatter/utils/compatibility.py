@@ -1,5 +1,5 @@
 """
-Runtime compatibility checking utilities for USB Floppy Formatter on Linux/WSL2.
+Runtime compatibility checking utilities for Floppy Workbench on Linux/WSL2.
 
 Provides functions to check system compatibility and hardware capabilities
 at runtime for better error messages and graceful degradation.
@@ -324,7 +324,7 @@ def print_system_report():
     Useful for troubleshooting and support.
     """
     print("=" * 70)
-    print("USB Floppy Formatter - System Compatibility Report (Linux)")
+    print("Floppy Workbench - System Compatibility Report (Linux)")
     print("=" * 70)
 
     info = get_system_info()

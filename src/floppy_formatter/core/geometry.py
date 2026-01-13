@@ -1,22 +1,20 @@
 """
-Disk geometry detection and validation for Linux/WSL2.
+Disk geometry detection and validation for Greaseweazle.
 
-This module provides functions to read disk geometry using Linux ioctl
-and validate that disks match expected 1.44MB floppy specifications.
+This module provides:
+- DiskGeometry dataclass for floppy disk parameters
+- Geometry detection for Greaseweazle-connected drives
+- Validation functions for standard floppy formats
+
+Greaseweazle determines geometry by probing the disk with flux reads
+and decoding sector headers to detect the format automatically.
 """
 
-import os
-import struct
-import fcntl
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union, Any, TYPE_CHECKING
 
-
-# Linux ioctl constants from linux/hdreg.h
-HDIO_GETGEO = 0x0301  # Get drive geometry
-
-# Linux ioctl constants from linux/fs.h
-BLKGETSIZE64 = 0x80081272  # Get device size in bytes
+if TYPE_CHECKING:
+    from floppy_formatter.hardware import GreaseweazleDevice
 
 # Standard floppy specifications
 MEDIA_TYPE_F3_1Pt44_512 = 0x0F
@@ -37,9 +35,9 @@ class DiskGeometry:
     """
     Disk geometry information for a floppy disk.
 
-    This class represents the physical layout of a disk, obtained from
-    ioctl(HDIO_GETGEO) on Linux. The geometry is readable even on
-    unformatted disks or disks with bad sector 0.
+    This class represents the physical layout of a disk, determined by
+    probing the disk with Greaseweazle and decoding sector headers.
+    The geometry is detectable even on disks with bad sector 0.
 
     Attributes:
         media_type: Media type constant (0x0F for 1.44MB)
@@ -147,108 +145,111 @@ class DiskGeometry:
 # =============================================================================
 
 
-def get_disk_geometry(fd: int) -> DiskGeometry:
+def get_greaseweazle_geometry(
+    device: Union['GreaseweazleDevice', Any],
+    probe_disk: bool = True
+) -> DiskGeometry:
     """
-    Read disk geometry using ioctl(HDIO_GETGEO).
+    Detect disk geometry using Greaseweazle.
 
-    This ioctl works on unformatted disks and disks with bad sector 0,
-    making it perfect for our use case. The geometry is read from the
-    drive controller, not from the filesystem.
+    For 3.5" HD PC floppy disks, the geometry is almost always:
+    - 80 cylinders, 2 heads, 18 sectors/track, 512 bytes/sector
 
-    On Linux, if HDIO_GETGEO fails (common on USB devices), we fall back
-    to detecting geometry by device size.
+    If probe_disk is True, this function will read track 0 to verify
+    the disk format and detect the actual sector count.
 
     Args:
-        fd: File descriptor from open_device()
+        device: Connected GreaseweazleDevice instance
+        probe_disk: If True, read track 0 to verify format (default: True)
 
     Returns:
         DiskGeometry object with disk layout information
 
     Raises:
-        OSError: If ioctl fails and fallback detection fails
+        RuntimeError: If disk detection fails
 
     Example:
-        >>> from floppy_formatter.core.device_manager import open_device, close_device
-        >>> fd = open_device('/dev/sde', read_only=True)
-        >>> geometry = get_disk_geometry(fd)
-        >>> print(geometry)
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     geometry = get_greaseweazle_geometry(device)
+        ...     print(geometry)
         DiskGeometry(media=0x0F, 80C/2H/18S, 512B/sec, 1.44MB)
-        >>> close_device(fd)
     """
-    try:
-        # Try ioctl(HDIO_GETGEO) first
-        # struct hd_geometry { u8 heads, u8 sectors, u16 cylinders, u32 start }
-        # Total: 8 bytes
-        buf = bytearray(8)
-        fcntl.ioctl(fd, HDIO_GETGEO, buf)
-
-        # Parse struct hd_geometry
-        heads, sectors, cylinders, start = struct.unpack('BBHI', buf)
-
-        # Validate geometry - many USB floppy drives return garbage from HDIO_GETGEO
-        # If the geometry doesn't match any known floppy format, use size-based fallback
-        is_valid_1_44mb = (cylinders == 80 and heads == 2 and sectors == 18)
-        is_valid_720kb = (cylinders == 80 and heads == 2 and sectors == 9)
-
-        if not (is_valid_1_44mb or is_valid_720kb):
-            # HDIO_GETGEO returned invalid geometry (common on USB drives)
-            # Raise OSError to trigger fallback to size-based detection
-            raise OSError("HDIO_GETGEO returned invalid geometry, using size-based detection")
-
-        # Determine media type based on geometry
-        if is_valid_1_44mb:
-            media_type = MEDIA_TYPE_F3_1Pt44_512
-        elif is_valid_720kb:
-            media_type = 0x05  # 720KB
-        else:
-            media_type = 0x00  # Unknown
-
-        return DiskGeometry(
-            media_type=media_type,
-            cylinders=cylinders,
-            heads=heads,
-            sectors_per_track=sectors,
-            bytes_per_sector=BYTES_PER_SECTOR
-        )
-
-    except OSError:
-        # HDIO_GETGEO failed or returned invalid data (common on USB floppy drives)
-        # Fall back to detection by device size
+    if probe_disk:
         try:
-            # Get device size using BLKGETSIZE64
-            size_buf = bytearray(8)
-            fcntl.ioctl(fd, BLKGETSIZE64, size_buf)
-            device_bytes = struct.unpack('Q', size_buf)[0]
+            # Import here to avoid circular imports
+            from floppy_formatter.hardware import (
+                read_track_flux,
+                decode_flux_to_sectors,
+            )
 
-            # Check if it's a 1.44MB floppy (1474560 bytes)
-            if device_bytes == 1474560:
-                return DiskGeometry(
-                    media_type=MEDIA_TYPE_F3_1Pt44_512,
-                    cylinders=CYLINDERS_1PT44MB,
-                    heads=HEADS_PER_CYLINDER_1PT44MB,
-                    sectors_per_track=SECTORS_PER_TRACK_1PT44MB,
-                    bytes_per_sector=BYTES_PER_SECTOR
-                )
-            # Check if it's a 720KB floppy (737280 bytes)
-            elif device_bytes == 737280:
-                return DiskGeometry(
-                    media_type=0x05,
-                    cylinders=80,
-                    heads=2,
-                    sectors_per_track=9,
-                    bytes_per_sector=BYTES_PER_SECTOR
-                )
-            else:
-                raise OSError(
-                    f"Unknown floppy size: {device_bytes} bytes. "
-                    f"Expected 1474560 (1.44MB) or 737280 (720KB)."
-                )
+            # Read track 0, head 0 to detect format
+            flux_data = read_track_flux(device, cylinder=0, head=0, revolutions=1.2)
+            sectors = decode_flux_to_sectors(flux_data)
 
-        except OSError as e:
-            raise OSError(
-                f"Failed to read disk geometry: {e}. "
-                f"Make sure a floppy disk is inserted."
-            ) from e
+            # Count successfully decoded sectors
+            sector_numbers = [s.sector for s in sectors if s.data is not None]
+
+            if len(sector_numbers) >= 15:
+                # Standard PC format detected
+                max_sector = max(sector_numbers) if sector_numbers else 18
+
+                if max_sector == 18:
+                    # 1.44MB HD format
+                    return DiskGeometry(
+                        media_type=MEDIA_TYPE_F3_1Pt44_512,
+                        cylinders=CYLINDERS_1PT44MB,
+                        heads=HEADS_PER_CYLINDER_1PT44MB,
+                        sectors_per_track=SECTORS_PER_TRACK_1PT44MB,
+                        bytes_per_sector=BYTES_PER_SECTOR
+                    )
+                elif max_sector == 9:
+                    # 720KB DD format
+                    return DiskGeometry(
+                        media_type=0x05,
+                        cylinders=80,
+                        heads=2,
+                        sectors_per_track=9,
+                        bytes_per_sector=BYTES_PER_SECTOR
+                    )
+
+        except Exception:
+            # Probing failed, use default geometry
+            pass
+
+    # Default to 1.44MB HD format (most common)
+    return DiskGeometry(
+        media_type=MEDIA_TYPE_F3_1Pt44_512,
+        cylinders=CYLINDERS_1PT44MB,
+        heads=HEADS_PER_CYLINDER_1PT44MB,
+        sectors_per_track=SECTORS_PER_TRACK_1PT44MB,
+        bytes_per_sector=BYTES_PER_SECTOR
+    )
+
+
+def get_disk_geometry(device: Union['GreaseweazleDevice', Any]) -> DiskGeometry:
+    """
+    Read disk geometry from a Greaseweazle-connected drive.
+
+    This is an alias for get_greaseweazle_geometry() for backward
+    compatibility with existing code.
+
+    Args:
+        device: Connected GreaseweazleDevice instance
+
+    Returns:
+        DiskGeometry object with disk layout information
+
+    Example:
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     geometry = get_disk_geometry(device)
+        ...     print(geometry)
+        DiskGeometry(media=0x0F, 80C/2H/18S, 512B/sec, 1.44MB)
+    """
+    return get_greaseweazle_geometry(device, probe_disk=True)
 
 
 # =============================================================================

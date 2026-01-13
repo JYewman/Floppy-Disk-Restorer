@@ -1,5 +1,5 @@
 """
-Context managers for USB Floppy Formatter.
+Context managers for Floppy Workbench.
 
 Provides safe resource management patterns for disk operations including
 automatic file descriptor cleanup and resource management.
@@ -8,9 +8,11 @@ automatic file descriptor cleanup and resource management.
 import os
 import logging
 
-from floppy_formatter.core import (
+from floppy_formatter.core.device_compat import (
     open_device,
     close_device,
+)
+from floppy_formatter.core.recovery import (
     prevent_sleep,
     allow_sleep,
 )

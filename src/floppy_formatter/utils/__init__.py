@@ -1,5 +1,5 @@
 """
-Utility functions for USB Floppy Formatter.
+Utility functions for Floppy Workbench.
 
 This module provides administrative privilege checking, error handling,
 logging, context managers, and other utility functions for the floppy

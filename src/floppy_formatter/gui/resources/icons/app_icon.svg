@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4682B4;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#36648B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2B5278;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Floppy body gradient -->
+    <linearGradient id="floppyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3A3A42;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2A2A32;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Metal slider gradient -->
+    <linearGradient id="metalGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#E8E8E8;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#C0C0C0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#A0A0A0;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Label gradient -->
+    <linearGradient id="labelGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#F5F5F5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E0E0E0;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Circular highlight gradient -->
+    <radialGradient id="hubGradient" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" style="stop-color:#606068;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#404048;stop-opacity:1" />
+    </radialGradient>
+
+    <!-- Drop shadow filter -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+
+    <!-- Inner shadow for depth -->
+    <filter id="innerShadow">
+      <feOffset dx="0" dy="2"/>
+      <feGaussianBlur stdDeviation="2" result="offset-blur"/>
+      <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"/>
+      <feFlood flood-color="#000000" flood-opacity="0.2" result="color"/>
+      <feComposite operator="in" in="color" in2="inverse" result="shadow"/>
+      <feComposite operator="over" in="shadow" in2="SourceGraphic"/>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bgGradient)" filter="url(#shadow)"/>
+
+  <!-- Outer ring highlight -->
+  <circle cx="128" cy="128" r="116" fill="none" stroke="#5A9FD4" stroke-width="2" opacity="0.5"/>
+
+  <!-- Floppy disk body -->
+  <rect x="58" y="50" width="140" height="156" rx="8" ry="8" fill="url(#floppyGradient)" filter="url(#innerShadow)"/>
+
+  <!-- Floppy disk border -->
+  <rect x="58" y="50" width="140" height="156" rx="8" ry="8" fill="none" stroke="#505058" stroke-width="2"/>
+
+  <!-- Metal slider (top portion) -->
+  <rect x="88" y="50" width="80" height="36" fill="url(#metalGradient)"/>
+  <rect x="88" y="50" width="80" height="36" fill="none" stroke="#909090" stroke-width="1"/>
+
+  <!-- Slider notch -->
+  <rect x="118" y="56" width="20" height="24" rx="2" ry="2" fill="#606060"/>
+  <rect x="122" y="60" width="12" height="16" rx="1" ry="1" fill="#404040"/>
+
+  <!-- Write protect notch (top left) -->
+  <rect x="62" y="54" width="16" height="20" rx="2" ry="2" fill="#505058"/>
+  <rect x="64" y="56" width="12" height="8" rx="1" ry="1" fill="#404048"/>
+
+  <!-- Label area -->
+  <rect x="72" y="96" width="112" height="64" rx="4" ry="4" fill="url(#labelGradient)"/>
+  <rect x="72" y="96" width="112" height="64" rx="4" ry="4" fill="none" stroke="#C0C0C0" stroke-width="1"/>
+
+  <!-- Label lines (text simulation) -->
+  <line x1="82" y1="112" x2="140" y2="112" stroke="#B0B0B0" stroke-width="2" stroke-linecap="round"/>
+  <line x1="82" y1="124" x2="174" y2="124" stroke="#C8C8C8" stroke-width="2" stroke-linecap="round"/>
+  <line x1="82" y1="136" x2="120" y2="136" stroke="#D0D0D0" stroke-width="2" stroke-linecap="round"/>
+  <line x1="82" y1="148" x2="155" y2="148" stroke="#D8D8D8" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Hub opening (center bottom) -->
+  <rect x="102" y="170" width="52" height="28" rx="4" ry="4" fill="#1A1A1E"/>
+  <rect x="102" y="170" width="52" height="28" rx="4" ry="4" fill="none" stroke="#404048" stroke-width="1"/>
+
+  <!-- Hub ring -->
+  <circle cx="128" cy="184" r="10" fill="url(#hubGradient)"/>
+  <circle cx="128" cy="184" r="10" fill="none" stroke="#606068" stroke-width="1"/>
+  <circle cx="128" cy="184" r="4" fill="#303038"/>
+
+  <!-- Accent dots (activity indicators) -->
+  <circle cx="168" y="184" r="4" fill="#4CAF50" opacity="0.9"/>
+  <circle cx="178" cy="184" r="4" fill="#2196F3" opacity="0.9"/>
+
+  <!-- Subtle highlight on body -->
+  <path d="M62 58 L62 198 Q62 202 66 206 L190 206 Q194 206 194 202 L194 58 Q194 54 190 50 L66 50 Q62 50 62 54 L62 58"
+        fill="none" stroke="#FFFFFF" stroke-width="1" opacity="0.1"/>
+</svg>

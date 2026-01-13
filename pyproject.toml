@@ -1,24 +1,94 @@
+[project]
+name = "floppy-workbench"
+version = "2.0.0"
+description = "Professional floppy disk analysis and recovery tool using Greaseweazle V4.1"
+authors = [{name = "Joshua Yewman", email = "joshua@yewman.co.uk"}]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = [
+    "floppy",
+    "disk",
+    "recovery",
+    "greaseweazle",
+    "flux",
+    "preservation",
+    "archival",
+    "retro",
+    "vintage",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Hardware",
+    "Topic :: System :: Archiving",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "PyQt6>=6.6.0",
+    "PyQt6-Charts>=6.6.0",
+    "pydantic>=2.5.0",
+    "rich>=13.7.0",
+    "numpy>=1.26.0",
+    "reportlab>=4.0.0",
+]
+
+[project.optional-dependencies]
+charts = ["pyqtgraph>=0.13.0"]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-cov>=4.1.0",
+    "pytest-qt>=4.2.0",
+    "black>=23.12.0",
+    "ruff>=0.1.8",
+    "mypy>=1.8.0",
+]
+
+[project.scripts]
+floppy-workbench = "floppy_formatter.main:main"
+floppy-format = "floppy_formatter.main:main"
+
+# Keep poetry section for those who prefer poetry
 [tool.poetry]
-name = "floppy-formatter"
-version = "0.2.0"
-description = "USB floppy disk restoration tool for Linux/WSL2"
+name = "floppy-workbench"
+version = "2.0.0"
+description = "Professional floppy disk analysis and recovery tool using Greaseweazle V4.1"
 authors = ["Joshua Yewman <joshua@yewman.co.uk>"]
 readme = "README.md"
+license = "MIT"
 packages = [{include = "floppy_formatter", from = "src"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-textual = "^0.47.0"
-rich = "^13.7.0"
+PyQt6 = "^6.6.0"
+PyQt6-Charts = "^6.6.0"
 pydantic = "^2.5.0"
+rich = "^13.7.0"
+numpy = "^1.26.0"
+reportlab = "^4.0.0"
+pyqtgraph = {version = "^0.13.0", optional = true}
+
+[tool.poetry.extras]
+charts = ["pyqtgraph"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"
 pytest-cov = "^4.1.0"
+pytest-qt = "^4.2.0"
 black = "^23.12.0"
 ruff = "^0.1.8"
+mypy = "^1.8.0"
 
 [tool.poetry.scripts]
+floppy-workbench = "floppy_formatter.main:main"
 floppy-format = "floppy_formatter.main:main"
 
 [tool.pytest.ini_options]
@@ -26,9 +96,38 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-# Exclude hardware_compatibility_test.py as it's a standalone script
-addopts = "--ignore=tests/hardware_compatibility_test.py -v"
+addopts = "-v"
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

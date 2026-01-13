@@ -1,5 +1,5 @@
 """
-Logging configuration for USB Floppy Formatter.
+Logging configuration for Floppy Workbench.
 
 Provides structured logging with system information capture for debugging
 and troubleshooting.
@@ -60,7 +60,7 @@ def log_system_info() -> None:
         from floppy_formatter.utils.admin_check import is_admin
 
         logging.info("=" * 60)
-        logging.info("USB Floppy Formatter - System Information")
+        logging.info("Floppy Workbench - System Information")
         logging.info("=" * 60)
         logging.info(f"Platform: {platform.system()} {platform.release()}")
         logging.info(f"Platform version: {platform.version()}")

@@ -7,13 +7,24 @@ This module provides comprehensive disk scanning functionality including:
 - Track-level analysis and reporting
 - Real-time progress reporting
 - Performance metrics tracking
+- Flux-quality metrics per sector (with Greaseweazle)
+
+Updated for Greaseweazle: Uses flux-level reads and MFM decoding for
+more accurate and detailed scanning capabilities.
 """
 
 import time
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Callable, Tuple
+from typing import List, Dict, Optional, Callable, Tuple, Any, Union
 
-from floppy_formatter.core.sector_io import read_sector, classify_error, ERROR_SUCCESS, BYTES_PER_SECTOR
+from floppy_formatter.core.sector_adapter import (
+    read_sector,
+    read_track,
+    classify_error,
+    ERROR_SUCCESS,
+    BYTES_PER_SECTOR,
+    invalidate_track_cache,
+)
 from floppy_formatter.core.geometry import (
     DiskGeometry,
     CYLINDERS_1PT44MB,
@@ -21,6 +32,7 @@ from floppy_formatter.core.geometry import (
     SECTORS_PER_TRACK_1PT44MB,
     TOTAL_SECTORS_1PT44MB,
 )
+from floppy_formatter.hardware import GreaseweazleDevice
 
 
 # =============================================================================
@@ -228,19 +240,22 @@ class ScanStatistics:
 
 
 def scan_all_sectors(
-    handle,
+    device: Union[GreaseweazleDevice, Any],
     geometry: DiskGeometry,
     progress_callback: Optional[Callable[[int, int, bool, Optional[str]], None]] = None
 ) -> SectorMap:
     """
     Perform full surface scan of all sectors on the disk.
 
-    This function reads every sector on the disk sequentially,
-    recording which sectors are good, which are bad, and what
-    specific errors occurred. Progress can be reported via callback.
+    This function reads every sector on the disk using flux captures
+    and MFM decoding, recording which sectors are good, which are bad,
+    and what specific errors occurred. Progress can be reported via callback.
+
+    Optimized for Greaseweazle: Reads entire tracks at once for efficiency,
+    rather than seeking for each individual sector.
 
     Args:
-        handle: Linux file descriptor to physical drive
+        device: Connected GreaseweazleDevice instance
         geometry: Disk geometry information
         progress_callback: Optional function(sector_num, total, is_good, error_type)
                           for progress updates
@@ -254,44 +269,60 @@ def scan_all_sectors(
         ...     status = "OK" if is_good else f"BAD ({error_type})"
         ...     print(f"Scanning: {percent:.1f}% - Sector {sector_num}: {status}")
         >>>
-        >>> handle = open_physical_drive(drive_num)
-        >>> geometry = get_disk_geometry(handle)
-        >>> sector_map = scan_all_sectors(handle, geometry, show_progress)
-        >>> print(f"Scan complete: {len(sector_map.bad_sectors)} bad sectors")
-        >>> close_handle(handle)
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     geometry = get_greaseweazle_geometry(device)
+        ...     sector_map = scan_all_sectors(device, geometry, show_progress)
+        ...     print(f"Scan complete: {len(sector_map.bad_sectors)} bad sectors")
     """
+    import logging
+
     # Initialize sector map
     sector_map = SectorMap(total_sectors=geometry.total_sectors)
 
     # Record start time for performance tracking
     start_time = time.time()
 
-    # Scan each sector sequentially
-    for sector_number in range(geometry.total_sectors):
-        # Read the sector
-        success, data, error_code = read_sector(
-            handle, sector_number, geometry.bytes_per_sector
-        )
+    # Invalidate any cached track data to ensure fresh reads
+    invalidate_track_cache()
 
-        if success:
-            # Sector read successfully
-            sector_map.good_sectors.append(sector_number)
-            error_description = None
-        else:
-            # Sector failed to read
-            sector_map.bad_sectors.append(sector_number)
-            # Classify and record the error
-            error_description = classify_error(error_code)
-            sector_map.error_types[sector_number] = error_description
+    # Scan track-by-track for efficiency (only one flux read per track)
+    sector_number = 0
+    for cylinder in range(geometry.cylinders):
+        for head in range(geometry.heads):
+            # Read entire track at once (more efficient with Greaseweazle)
+            success_count, track_results = read_track(device, cylinder, head, geometry)
 
-        # Report progress if callback provided
-        if progress_callback is not None:
-            progress_callback(
-                sector_number + 1,
-                geometry.total_sectors,
-                success,
-                error_description
-            )
+            # Process results for each sector in the track
+            for result in track_results:
+                # Calculate linear sector number
+                sector_in_track = result['sector'] - 1  # Convert 1-indexed to 0-indexed
+                linear_sector = (cylinder * geometry.heads + head) * geometry.sectors_per_track + sector_in_track
+
+                if result['success']:
+                    sector_map.good_sectors.append(linear_sector)
+                    error_description = None
+                else:
+                    sector_map.bad_sectors.append(linear_sector)
+                    error_description = classify_error(result['error'])
+                    sector_map.error_types[linear_sector] = error_description
+
+                    logging.debug(
+                        "scan_all_sectors: sector %d (C%d H%d S%d) failed: %s",
+                        linear_sector, cylinder, head, result['sector'],
+                        error_description
+                    )
+
+                # Report progress if callback provided
+                sector_number += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        sector_number,
+                        geometry.total_sectors,
+                        result['success'],
+                        error_description
+                    )
 
     # Record scan duration
     end_time = time.time()
@@ -301,7 +332,7 @@ def scan_all_sectors(
 
 
 def scan_track(
-    handle,
+    device: Union[GreaseweazleDevice, Any],
     cylinder: int,
     head: int,
     geometry: DiskGeometry,
@@ -311,10 +342,11 @@ def scan_track(
     Scan all sectors in a single track.
 
     A track consists of 18 consecutive sectors on a specific
-    cylinder and head. This function scans just that track.
+    cylinder and head. This function scans just that track using
+    a single flux capture.
 
     Args:
-        handle: Linux file descriptor to physical drive
+        device: Connected GreaseweazleDevice instance
         cylinder: Cylinder number (0-79)
         head: Head number (0-1)
         geometry: Disk geometry information
@@ -324,14 +356,16 @@ def scan_track(
         TrackInfo with scan results for this track
 
     Example:
-        >>> track = scan_track(handle, cylinder=0, head=0, geometry)
-        >>> if track.is_track_good():
-        ...     print("Track is perfect!")
-        ... else:
-        ...     print(f"Track has {track.get_bad_sector_count()} bad sectors")
+        >>> with GreaseweazleDevice() as device:
+        ...     device.select_drive(0)
+        ...     device.motor_on()
+        ...     track = scan_track(device, cylinder=0, head=0, geometry)
+        ...     if track.is_track_good():
+        ...         print("Track is perfect!")
+        ...     else:
+        ...         print(f"Track has {track.get_bad_sector_count()} bad sectors")
     """
     # Calculate sector range for this track
-    # Formula: start_sector = (cylinder * heads + head) * sectors_per_track
     start_sector = (cylinder * geometry.heads + head) * geometry.sectors_per_track
     end_sector = start_sector + geometry.sectors_per_track - 1
 
@@ -343,23 +377,19 @@ def scan_track(
         end_sector=end_sector
     )
 
-    # Scan each sector in the track
-    for i in range(geometry.sectors_per_track):
-        sector_number = start_sector + i
+    # Read the entire track at once (more efficient with Greaseweazle)
+    success_count, track_results = read_track(device, cylinder, head, geometry)
 
-        # Read the sector
-        success, data, error_code = read_sector(
-            handle, sector_number, geometry.bytes_per_sector
-        )
+    # Process results
+    for i, result in enumerate(track_results):
+        # Calculate linear sector number
+        sector_number = start_sector + (result['sector'] - 1)
 
-        if success:
-            # Sector read successfully
+        if result['success']:
             track.good_sectors.append(sector_number)
         else:
-            # Sector failed to read
             track.bad_sectors.append(sector_number)
-            # Classify and record the error
-            error_description = classify_error(error_code)
+            error_description = classify_error(result['error'])
             track.error_types[sector_number] = error_description
 
         # Report progress if callback provided

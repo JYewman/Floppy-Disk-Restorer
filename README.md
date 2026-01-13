@@ -1,454 +1,304 @@
-# USB Floppy Disk Restorer
+# Floppy Workbench
 
-[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+**Professional Floppy Disk Analysis & Recovery Tool**
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.linux.org/)
-[![Tests](https://img.shields.io/badge/tests-124%20passing-brightgreen.svg)](tests/)
+[![Version: 2.0.0](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/JYewman/USB-Floppy-Formatter/releases)
 
-> Floppy disk recovery and restoration tool with advanced multi-read recovery, convergence detection, and real-time visualization.
+A comprehensive floppy disk analysis and recovery application using **Greaseweazle V4.1** for flux-level disk access. Floppy Workbench provides professional-grade tools for disk preservation, recovery, and analysis.
 
-A powerful, terminal-based tool for recovering, formatting, and diagnosing 1.44MB floppy disks.
+## Features
 
-## ✨ Features
+### Flux-Level Analysis
+- **Real-time flux waveform visualization** - Oscilloscope-style view of magnetic transitions
+- **Pulse width histogram** - Analyze MFM timing distribution
+- **Signal quality metrics** - SNR, jitter, and weak bit detection
+- **Automatic format detection** - MFM, FM, and non-standard formats
 
-### 🔧 **Advanced Recovery Modes**
-- **Multi-Read Recovery** - Statistical data recovery using multiple read attempts with majority voting (inspired by SpinRite's DynaStat)
-- **Convergence Mode** - Automatically detects optimal recovery point and stops when bad sectors stabilize
-- **Targeted Recovery** - Intelligently formats only tracks containing bad sectors, preserving good data
-- **Multi-Pass Formatting** - Rotating magnetic patterns (0x55, 0xAA, 0xFF, 0x00) to restore weak magnetic domains
+### Advanced Data Recovery
+- **Multi-capture recovery** - Read same track multiple times for statistical bit voting
+- **PLL tuning** - Find optimal decoder parameters for marginal disks
+- **Convergence-based recovery** - Automatically stop when no further improvement
+- **Pattern write recovery** - Refresh weak magnetic areas with rotating patterns
+- **Targeted recovery** - Focus on bad sectors while preserving good data
 
-### 📊 **Real-Time Monitoring**
-- **Convergence Tracking** - View pass-by-pass statistics with trend indicators (↓ improving, ↑ degrading, → stable)
-- **Time Estimates** - Accurate ETA calculations with elapsed/remaining time display
-- **Progress Analytics** - Detailed statistics on recovery rates, sector counts, and patterns used
+### Diagnostics
+- **Head alignment measurement** - Detect azimuth errors and track centering issues
+- **RPM stability monitoring** - Real-time drive speed analysis
+- **Drive health assessment** - Comprehensive drive diagnostics
 
-### 🖥️ **Beautiful TUI Interface**
-- Modern terminal UI built with [Textual](https://textual.textualize.io/)
-- Intuitive menu-driven navigation
-- Color-coded sector maps (🟩 Good | 🟥 Bad | ⚫ Unscanned)
-- Comprehensive reporting with sector-by-sector details
+### Professional Workbench GUI
+- **Single-page workbench layout** - All controls accessible at once
+- **Circular sector map** - Visual disk health with zoom and selection
+- **Tabbed analytics panel** - Overview, flux, errors, recovery, diagnostics
+- **Keyboard shortcuts** - Fast operation access
+- **Dark/Light themes** - Comfortable viewing in any environment
 
-### 🛠️ **Low-Level Operations**
-- Direct block device access for sector-level operations
-- Works with severely damaged disks (even when boot sector is unreadable)
-- Native Linux device APIs (`/dev/sdX`)
-- Full geometry detection and validation
+### Import/Export
+- **Sector images**: IMG, IMA, DSK formats
+- **Flux images**: SCP (SuperCard Pro), HFE (HxC Floppy Emulator)
+- **Reports**: PDF and HTML with embedded charts
 
-## 📸 Screenshots
+## Hardware Requirements
 
-_Coming soon - Screenshots of scan visualization, recovery progress, and convergence tracking_
+### Required
+- **Greaseweazle V4.1** (or compatible V4, F7 models)
+- **3.5" HD floppy drive** (PC-type, 34-pin interface)
+- **USB connection** to host computer
 
-## 🚀 Quick Start
+### Where to Get Greaseweazle
+- Official project: [Greaseweazle on GitHub](https://github.com/keirf/greaseweazle)
+- Pre-built units available from various retro computing vendors
 
-### Requirements
+### Supported Drive Types
+- 3.5" HD (1.44MB) - Primary support
+- 3.5" DD (720KB) - Supported
+- 5.25" drives - Experimental support
 
-- **Linux** (native or WSL2)
-- **Python 3.10+**
-- **Root privileges** (required for raw device access)
-- **USB floppy drive** with 1.44MB disk
-  - Any TEAC USB Floppy Drive should work
+## Software Requirements
 
-### Installation
+- **Python 3.10** or higher
+- **PyQt6** (installed automatically)
+- **Greaseweazle library** (installed automatically)
+- **Operating System**: Linux or Windows
+
+## Installation
+
+### Using pip (Recommended)
+
+```bash
+pip install floppy-workbench
+```
+
+### Development Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/USB-Floppy-Formatter.git
+git clone https://github.com/JYewman/USB-Floppy-Formatter.git
 cd USB-Floppy-Formatter
 
-# Install dependencies
+# Install with Poetry
+poetry install
+
+# Or with pip in development mode
 pip install -e .
 ```
 
-### Basic Usage
+### Dependencies
+
+The following packages are installed automatically:
+- `PyQt6` - GUI framework
+- `PyQt6-Charts` - Chart widgets
+- `greaseweazle` - Hardware communication
+- `numpy` - Numerical operations
+- `reportlab` - PDF generation
+- `pydantic` - Settings validation
+
+## Quick Start
+
+### 1. Connect Hardware
+
+1. Connect your Greaseweazle to a USB port
+2. Connect a 3.5" floppy drive to the Greaseweazle
+3. Power on the drive (some drives require external power)
+
+### 2. Launch Application
 
 ```bash
-# Launch the TUI (requires sudo)
-sudo python -m floppy_formatter
+# Using the installed command
+floppy-workbench
 
-# Or run directly if installed system-wide
-sudo floppy-format
+# Or using Python module
+python -m floppy_formatter
 ```
 
-## 📖 Usage Guide
+### 3. Connect to Device
 
-### 1. Scan Disk
+1. Click **"Connect"** in the Drive Control panel
+2. Select drive unit (usually Drive 0)
+3. The motor will spin up and RPM will be displayed
 
-Perform a comprehensive surface scan to identify bad sectors:
+### 4. Insert Disk and Scan
 
-```bash
-sudo python -m floppy_formatter
-# Select: Scan Disk → Choose Device → Start Scan
-```
+1. Insert a floppy disk into the drive
+2. Click **"Scan"** or press `Ctrl+S`
+3. Watch the sector map fill in with disk health
 
-Features:
-- Real-time sector map visualization
-- Track-by-track progress display
-- Detailed error classification
-- Comprehensive scan report with statistics
+### 5. Analyze and Recover
 
-### 2. Format Disk
+- **View flux data**: Switch to the Flux tab in the analytics panel
+- **Recover bad sectors**: Click "Restore" and configure recovery options
+- **Export disk image**: Click "Export" to save IMG/SCP/HFE files
 
-Low-level format with bad sector detection:
+## Usage Guide
 
-```bash
-# From main menu: Format Disk → Choose Device → Configure Options
-```
+### Scanning Disks
 
-Options:
-- **Fixed Passes**: Execute a specific number of formatting passes (1-20)
-- **Convergence Mode**: Automatically stop when optimal recovery is achieved
-- **Verify After Format**: Confirm all sectors are readable
+The scan operation reads all sectors and displays their status:
+- **Green**: Good sector, data readable
+- **Red**: Bad sector, CRC error or unreadable
+- **Yellow**: Weak sector, marginal signal
+- **Blue**: Currently being read
 
-### 3. Restore Disk (Recovery)
+**Scan modes:**
+- **Quick**: Sample tracks (fast overview)
+- **Standard**: All sectors, single read
+- **Thorough**: Multi-read verification
 
-Advanced recovery for degraded disks with intelligent algorithms:
+### Formatting Disks
 
-```bash
-# From main menu: Restore Disk (Recovery) → Choose Device → Configure Recovery
-```
+Format operations write fresh data to the disk:
+- **Standard**: Normal format with verification
+- **Low-level Refresh**: Rewrite all sectors to refresh magnetic signal
+- **Secure Erase**: Multiple overwrite passes
 
-#### Recovery Options:
+### Recovery Operations
 
-**Basic Settings:**
-- **Fixed Pass Mode**: Execute exactly N passes (predictable duration)
-- **Convergence Mode** ⭐: Smart recovery that stops when sectors stabilize (recommended)
+For disks with bad sectors:
 
-**Advanced Recovery:**
-- **Targeted Recovery** ⚡: Only format tracks with bad sectors (10-50x faster)
-- **Multi-Read Mode** 🔬: Aggressive statistical recovery with majority voting
-  - Configurable attempts per sector (10-2000)
-  - Uses byte-level statistical analysis
-  - Can recover marginally readable sectors
+1. **Scan first** to identify bad sectors
+2. **Select recovery mode**:
+   - **Fixed Passes**: Run exactly N format passes (1-100)
+   - **Convergence Mode**: Run until bad count stabilizes
+3. **Enable Multi-Capture** for statistical recovery
+4. **Set recovery level**:
+   - **Standard**: Traditional multi-pass recovery
+   - **Aggressive**: Adds PLL tuning
+   - **Forensic**: Maximum effort, all techniques
 
-**Report Options:**
-- Detailed sector-by-sector analysis
-- Track-by-track status maps
-- Hex dumps of bad sectors
-- Save report to file
+### Flux Analysis
 
-## 🔬 Recovery Algorithms
+The Flux tab provides low-level analysis:
+- **Waveform view**: See individual flux transitions
+- **Histogram**: Analyze pulse width distribution
+- **Quality metrics**: Signal-to-noise ratio, timing jitter
 
-### Multi-Read Recovery
+### Exporting Images
 
-Statistical data recovery that attempts to read bad sectors multiple times:
+Save disk contents to files:
+- **IMG/IMA**: Standard sector images (for working disks)
+- **SCP**: SuperCard Pro flux format (preserves raw flux)
+- **HFE**: HxC Floppy Emulator format
 
-1. **Multiple Read Attempts**: Reads the same sector 10-2000 times (configurable)
-2. **Byte-Level Voting**: Compares results byte-by-byte across all attempts
-3. **Statistical Reconstruction**: Uses majority voting to determine most likely correct value
-4. **Success Detection**: Returns reconstructed data even if no single read was perfect
+## Configuration
 
-Similar to commercial tools like SpinRite's DynaStat technique, but implemented from scratch.
+Settings are stored in `~/.config/floppy-workbench/settings.json`:
 
-### Convergence Detection
-
-Smart algorithm that automatically detects when recovery has reached optimal point:
-
-**Stops When:**
-- Same bad sector count for 3 consecutive passes (converged)
-- No improvement in last 5 passes (plateau)
-- Maximum passes reached (safety limit: 50)
-
-**Prevents:**
-- Unnecessary disk wear from over-formatting
-- Wasted time on physically damaged sectors
-- Infinite recovery loops
-
-**Displays:**
-- Pass-by-pass statistics with delta calculations
-- Trend indicators (improving/degrading/stable)
-- Recovery rate percentages
-
-### Targeted Recovery
-
-Intelligent recovery that focuses only on problematic areas:
-
-1. **Track Identification**: Identifies which tracks contain bad sectors
-2. **Selective Formatting**: Only formats affected tracks (not entire disk)
-3. **Data Preservation**: Good tracks remain untouched
-4. **Performance**: 10-50x faster than full disk recovery
-
-Example: If only 50 sectors across 3 tracks are bad, formats 3 tracks instead of 160.
-
-## 🛠️ Technical Details
-
-### Device Operations
-
-All operations use native Linux APIs:
-
-| Operation | Method | Details |
-|-----------|--------|---------|
-| **Device Discovery** | `/sys/block/` scanning | Finds removable 1.44MB devices |
-| **Device Open** | `os.open()` | Flags: `O_DIRECT \| O_SYNC` |
-| **Sector Read/Write** | `os.lseek()` + `os.read()`/`os.write()` | 512-byte sectors |
-| **Geometry Detection** | `ioctl(HDIO_GETGEO)` | Fallback: `BLKGETSIZE64` |
-| **Cache Flush** | `fsync()` + `ioctl(BLKFLSBUF)` | Ensures writes are committed |
-
-### Disk Geometry
-
-Standard 1.44MB floppy disk:
-
-```
-Cylinders:        80
-Heads:            2
-Sectors/Track:    18
-Bytes/Sector:     512
-Total Sectors:    2,880
-Total Capacity:   1,440 KB (1.44 MB)
-```
-
-### Pattern Writing
-
-Multi-pass recovery uses rotating patterns to restore magnetic domains:
-
-| Pass | Pattern | Binary | Purpose |
-|------|---------|--------|---------|
-| 0 | `0x55` | `01010101` | Alternating low |
-| 1 | `0xAA` | `10101010` | Alternating high |
-| 2 | `0xFF` | `11111111` | All bits set |
-| 3 | `0x00` | `00000000` | All bits clear |
-| 4+ | Sequence | (repeating) | Progressive patterns |
-
-Each pattern exercises different magnetic states to help restore weak domains.
-
-### Error Classification
-
-Intelligent error classification for diagnostic purposes:
-
-```python
-FATAL_ERRORS = {
-    EACCES,   # Permission denied
-    ENODEV,   # No such device
-    EROFS,    # Write-protected
-    ENXIO,    # Device not configured
-}
-
-DATA_ERRORS = {
-    EIO,      # Input/output error
-    EBADMSG,  # Bad message (CRC)
-    ENODATA,  # No data available
+```json
+{
+  "device": {
+    "default_drive": 0,
+    "motor_timeout": 30,
+    "seek_speed": "standard"
+  },
+  "display": {
+    "theme": "dark",
+    "color_scheme": "default",
+    "animate_operations": true
+  },
+  "recovery": {
+    "default_passes": 5,
+    "convergence_threshold": 3,
+    "multi_capture_revolutions": 5
+  }
 }
 ```
 
-## 🧪 Testing
+## Keyboard Shortcuts
 
-Comprehensive test suite with 124 tests:
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+S` | Start Scan |
+| `Ctrl+Shift+F` | Start Format |
+| `Ctrl+R` | Start Recovery |
+| `Ctrl+Shift+A` | Start Analysis |
+| `Space` | Pause/Resume |
+| `Escape` | Cancel Operation |
+| `Ctrl+Shift+C` | Connect/Disconnect |
+| `Ctrl+M` | Toggle Motor |
+| `Ctrl+0` | Seek to Track 0 |
 
-```bash
-# Run all tests
-pytest tests/ -v
+## Troubleshooting
 
-# Run specific test categories
-pytest tests/unit/ -v           # 77 unit tests
-pytest tests/integration/ -v    # 47 integration tests
+### "No Greaseweazle found"
 
-# Run with coverage
-pytest tests/ --cov=floppy_formatter --cov-report=html
-```
+1. Check USB connection
+2. Verify Greaseweazle LED is lit
+3. On Linux, ensure user is in `plugdev` group:
+   ```bash
+   sudo usermod -a -G plugdev $USER
+   ```
+4. Try running with sudo: `sudo floppy-workbench`
 
-**Test Coverage:**
-- ✅ Geometry calculations and validation
-- ✅ Recovery algorithm logic
-- ✅ Sector I/O operations
-- ✅ Error classification
-- ✅ Format/recovery workflows
-- ✅ Thread safety and cancellation
-- ✅ Progress tracking
+### "No disk detected"
 
-## 🐧 Platform Support
+1. Check disk is fully inserted
+2. Verify drive is connected to Greaseweazle
+3. Check drive power (some drives need external 5V/12V)
+4. Try a known-good disk
 
-### Linux (Native)
-✅ **Full Support** - All features work natively
-- Direct `/dev/sdX` device access
-- No restrictions on low-level operations
-- Optimal performance
+### "Read errors on all sectors"
 
-### WSL2 (Windows Subsystem for Linux)
-✅ **Full Support** - Requires USB passthrough
-- Install `usbipd-win` on Windows host
-- Attach USB device to WSL2
-- All features work as on native Linux
+1. Clean the drive heads
+2. Try a different disk
+3. Check for correct drive type (HD vs DD)
+4. Inspect disk for visible damage
 
-#### WSL2 Setup:
+### WSL2 USB Passthrough
 
-```powershell
-# Windows side (PowerShell as Administrator)
-winget install usbipd
-usbipd list
-usbipd bind --busid <BUSID>
-usbipd attach --wsl --busid <BUSID>
-```
+If using Windows Subsystem for Linux:
 
-```bash
-# WSL2 side
-lsblk  # Verify device appears (e.g., /dev/sdb)
-sudo python -m floppy_formatter
-```
+1. Install [USBIPD-WIN](https://github.com/dorssel/usbipd-win)
+2. In PowerShell (Admin):
+   ```powershell
+   usbipd list
+   usbipd bind --busid <BUSID>
+   usbipd attach --wsl --busid <BUSID>
+   ```
+3. Verify in WSL: `lsusb | grep -i greaseweazle`
 
-### Windows (Native)
-❌ **Not Supported** - Windows blocks USB writes
-- Windows 10/11 restrict raw writes to USB devices at kernel level
-- Security feature to prevent boot sector malware
-- No workaround available without kernel modifications
-
-**Note:** Internal ISA/FDC floppy controllers work on Windows, but USB floppy drives do not.
-
-## 🐛 Troubleshooting
-
-### Permission Denied
-```
-Error: Permission denied (errno 13)
-```
-**Solution**: Run with `sudo`
-```bash
-sudo python -m floppy_formatter
-```
-
-### Device Not Found
-```
-Error: No floppy drive found
-```
-**Solutions**:
-1. Verify disk is inserted
-2. Check device appears: `lsblk`
-3. For WSL2: Ensure USB attached with `usbipd attach`
-
-### Write Protected
-```
-Error: Read-only file system (errno 30)
-```
-**Solution**: Disable write protection (slide the write-protect tab on disk)
-
-### I/O Errors During Scan
-```
-Error: Input/output error (errno 5)
-```
-**Expected Behavior**: This is normal for damaged disks
-- Run full scan to identify all bad sectors
-- Use **Restore Disk** with **Convergence Mode** to attempt recovery
-- Enable **Multi-Read Mode** for aggressive recovery of marginal sectors
-
-### WSL2 USB Device Not Appearing
-
-1. Check Windows side: `usbipd list`
-2. Verify device is bound: `usbipd bind --busid <BUSID>`
-3. Attach to WSL: `usbipd attach --wsl --busid <BUSID>`
-4. Check WSL side: `lsblk` and `dmesg | tail`
-
-## 📚 Python API
-
-### Basic Usage
-
-```python
-from floppy_formatter import (
-    open_device,
-    close_device,
-    get_disk_geometry,
-    scan_all_sectors,
-)
-
-# Open device (requires root)
-fd = open_device("/dev/sdb", read_only=True)
-
-try:
-    # Get geometry
-    geometry = get_disk_geometry(fd)
-    print(f"Disk: {geometry.cylinders}C/{geometry.heads}H/{geometry.sectors_per_track}S")
-
-    # Scan disk
-    scan_result = scan_all_sectors(fd, geometry)
-    print(f"Bad sectors: {len(scan_result.bad_sectors)}")
-
-finally:
-    close_device(fd)
-```
-
-### Advanced Recovery
-
-```python
-from floppy_formatter import (
-    open_device,
-    close_device,
-    get_disk_geometry,
-    recover_disk,
-)
-
-fd = open_device("/dev/sdb", read_only=False)
-
-try:
-    geometry = get_disk_geometry(fd)
-
-    # Convergence mode with multi-read recovery
-    stats = recover_disk(
-        fd,
-        geometry,
-        convergence_mode=True,
-        max_passes=50,
-        multiread_mode=True,
-        multiread_attempts=100,
-    )
-
-    print(f"Recovery: {stats.sectors_recovered}/{stats.initial_bad_sectors}")
-    print(f"Success rate: {stats.get_recovery_rate():.1f}%")
-    print(f"Converged after {stats.passes_executed} passes")
-
-finally:
-    close_device(fd)
-```
-
-## ⚠️ Safety Notes
-
-- ⚠️ **Data Loss Warning**: Formatting operations **WILL ERASE ALL DATA** on the disk
-- 🔒 **Root Privileges Required**: Use caution when running as root
-- ✅ **Verify Device**: Always double-check you've selected the correct device before formatting
-- 💾 **Backup First**: If disk contains important data, attempt recovery before formatting
-
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+2. Create a feature branch
 3. Make your changes
-4. Run the test suite: `pytest tests/ -v`
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+4. Run tests: `pytest`
+5. Submit a pull request
 
 ### Development Setup
 
 ```bash
-# Clone your fork
-git clone https://github.com/yourusername/USB-Floppy-Formatter.git
+# Clone and install in development mode
+git clone https://github.com/JYewman/USB-Floppy-Formatter.git
 cd USB-Floppy-Formatter
-
-# Install in development mode
-pip install -e ".[dev]"
+poetry install --with dev
 
 # Run tests
-pytest tests/ -v
+poetry run pytest
 
-# Run linters
-black src/
-flake8 src/
-mypy src/
+# Run linting
+poetry run ruff check src/
+poetry run black --check src/
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Credits
 
-- Built with [Textual](https://textual.textualize.io/) by Textualize - Modern TUI framework
-- Inspired by classic tools like SpinRite and Norton Disk Doctor
+- **Greaseweazle** - Keir Fraser's amazing floppy controller project
+- **PyQt6** - Riverbank Computing
+- **Feather Icons** - Icon set by Cole Bemis
+- **Floppy Disk Preservation Community** - For keeping magnetic media alive
 
-## 💬 Support
+## Changelog
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/JYewman/Floppy-Disk-Restorer/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/JYewman/Floppy-Disk-Restorer/discussions)
+See [CHANGELOG.md](CHANGELOG.md) for version history and changes.
 
 ---
 
-**Made with ❤️ for the floppy disk preservation community**
-
-*Remember: Always backup important data before attempting recovery operations!*
+**Made with love for the floppy disk preservation community**

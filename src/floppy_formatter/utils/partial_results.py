@@ -1,5 +1,5 @@
 """
-Partial results handling for USB Floppy Formatter.
+Partial results handling for Floppy Workbench.
 
 Provides functionality to save operation state when interrupted, allowing
 recovery or analysis of partial results.

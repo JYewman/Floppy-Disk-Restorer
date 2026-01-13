@@ -1,8 +1,8 @@
 """
-Root privilege checking for Linux/WSL2.
+Permission and environment checking for Floppy Workbench.
 
-This module provides functions to verify root privileges required for
-raw device access on Linux systems.
+This module provides functions to verify permissions required for
+Greaseweazle USB access on Linux and Windows systems.
 """
 
 import os
@@ -16,29 +16,30 @@ from typing import Tuple, List
 
 def is_admin() -> bool:
     """
-    Check if the current process is running with root privileges.
+    Check if the current process has administrator/root privileges.
 
-    This check is CRITICAL for the application because:
-    - Opening /dev/sdX devices requires root privileges
-    - O_RDWR | O_DIRECT access to block devices is restricted
-    - Without root rights, all device operations will fail with EACCES
+    Note: Greaseweazle uses libusb which typically doesn't require root
+    on Linux if proper udev rules are installed, or on Windows. However,
+    some operations may still benefit from elevated privileges.
 
     Returns:
-        True if running as root (UID 0), False otherwise
-
-    Implementation Notes:
-        Uses os.geteuid() to check effective user ID
-        Returns False if UID != 0
+        True if running as root/administrator, False otherwise
 
     Example:
         >>> if not is_admin():
-        ...     print("Please run as root (use sudo)")
-        ...     sys.exit(1)
+        ...     print("Consider running with elevated privileges if you encounter permission issues")
     """
     try:
-        return os.geteuid() == 0
+        # Check for Unix-like systems
+        if hasattr(os, 'geteuid'):
+            return os.geteuid() == 0
+        # Check for Windows
+        try:
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            return False
     except Exception:
-        # If we can't determine, assume not root for safety
         return False
 
 
@@ -52,13 +53,16 @@ def get_current_user() -> str:
     Example:
         >>> user = get_current_user()
         >>> print(f"Running as: {user}")
-        Running as: root
+        Running as: joshua
     """
     try:
         import pwd
         return pwd.getpwuid(os.getuid()).pw_name
     except Exception:
-        return "unknown"
+        try:
+            return os.getlogin()
+        except Exception:
+            return os.environ.get('USER', os.environ.get('USERNAME', 'unknown'))
 
 
 # =============================================================================
@@ -66,37 +70,42 @@ def get_current_user() -> str:
 # =============================================================================
 
 
-def check_device_permissions(device_path: str) -> Tuple[bool, str]:
+def check_greaseweazle_permissions() -> Tuple[bool, str]:
     """
-    Check if the current user has permission to access a device.
+    Check if the current user can access Greaseweazle devices.
 
-    Args:
-        device_path: Device path (e.g., '/dev/sde')
+    On Linux, Greaseweazle uses libusb which requires:
+    - Being in the 'plugdev' group, OR
+    - Having proper udev rules installed, OR
+    - Running as root
+
+    On Windows, Greaseweazle typically works without special permissions
+    once the WinUSB driver is installed.
 
     Returns:
         Tuple of (has_permission: bool, message: str)
-        - has_permission: True if device is accessible
+        - has_permission: True if Greaseweazle should be accessible
         - message: Descriptive message about access status
 
     Example:
-        >>> has_perm, msg = check_device_permissions('/dev/sde')
+        >>> has_perm, msg = check_greaseweazle_permissions()
         >>> if not has_perm:
-        ...     print(f"Access denied: {msg}")
+        ...     print(f"Access may be limited: {msg}")
     """
-    if not os.path.exists(device_path):
-        return (False, f"Device {device_path} does not exist")
-
+    # Try to import greaseweazle and detect devices
     try:
-        # Try to check if device is readable
-        if os.access(device_path, os.R_OK):
-            if os.access(device_path, os.W_OK):
-                return (True, f"Read/write access to {device_path}")
-            else:
-                return (False, f"Read-only access to {device_path} (need write access)")
+        from greaseweazle import usb as gw_usb
+        devices = gw_usb.find()
+        if devices:
+            return (True, f"Found {len(devices)} Greaseweazle device(s)")
         else:
-            return (False, f"No read access to {device_path}")
+            return (False, "No Greaseweazle devices found. Check USB connection.")
+    except ImportError:
+        return (False, "Greaseweazle library not installed. Run: pip install greaseweazle")
+    except PermissionError:
+        return (False, "Permission denied accessing Greaseweazle. Try running with sudo or check udev rules.")
     except Exception as e:
-        return (False, f"Error checking permissions: {e}")
+        return (False, f"Error detecting Greaseweazle: {e}")
 
 
 # =============================================================================
@@ -106,17 +115,16 @@ def check_device_permissions(device_path: str) -> Tuple[bool, str]:
 
 def is_wsl() -> bool:
     """
-    Detect if running under WSL (Linux subsystem on a different OS).
+    Detect if running under WSL (Windows Subsystem for Linux).
 
     Returns:
         True if running in WSL, False otherwise
 
     Example:
         >>> if is_wsl():
-        ...     print("Running in WSL2 - USB passthrough required")
+        ...     print("Running in WSL - USB passthrough required for Greaseweazle")
     """
     try:
-        # Check for WSL in kernel version string
         with open('/proc/version', 'r') as f:
             version = f.read().lower()
             return 'microsoft' in version or 'wsl' in version
@@ -126,7 +134,7 @@ def is_wsl() -> bool:
 
 def get_wsl_instructions() -> str:
     """
-    Get instructions for setting up USB passthrough in WSL2.
+    Get instructions for using Greaseweazle in WSL2.
 
     Returns:
         Multi-line string with step-by-step instructions
@@ -136,31 +144,32 @@ def get_wsl_instructions() -> str:
         ...     print(get_wsl_instructions())
     """
     return """
-WSL2 USB Floppy Setup Instructions:
-====================================
+WSL2 Greaseweazle Setup Instructions:
+=====================================
 
-USB floppy drives require USB passthrough using USBIPD-WIN.
+Greaseweazle requires USB passthrough using USBIPD-WIN.
 
-1. Install USBIPD-WIN (on host side):
+1. Install USBIPD-WIN (on Windows host):
    - Open PowerShell as Administrator
    - Run: winget install --interactive --exact dorssel.usbipd-win
 
-2. Attach USB floppy to WSL2 (each time you plug in the drive):
+2. Attach Greaseweazle to WSL2 (each time you plug in):
    - In PowerShell (Admin):
      * List USB devices: usbipd list
-     * Find your USB floppy (look for "TEAC" or similar)
+     * Find your Greaseweazle (look for "Greaseweazle" or USB VID:PID)
      * Note the BUSID (e.g., 2-2)
      * Bind the device: usbipd bind --busid 2-2
      * Attach to WSL: usbipd attach --wsl --busid 2-2
 
 3. Verify in WSL2:
-   - Run: lsblk
-   - Look for 1.4M device (usually /dev/sde)
+   - Run: lsusb
+   - Look for Greaseweazle device
 
-4. Run this tool with sudo:
-   - sudo python -m floppy_formatter
+4. Run Floppy Workbench:
+   - python -m floppy_formatter
 
-For more information, see: WSL2_USB_SOLUTION.md
+Note: The greaseweazle library uses libusb, which should work
+without root privileges once USB passthrough is established.
 """
 
 
@@ -171,40 +180,36 @@ For more information, see: WSL2_USB_SOLUTION.md
 
 def check_all_permissions() -> Tuple[bool, List[str]]:
     """
-    Check all permissions required for the application to function.
+    Check all permissions required for Floppy Workbench to function.
 
-    Performs comprehensive permission checking:
-    - Root privileges
+    Performs comprehensive checking:
+    - Greaseweazle accessibility
     - WSL2 environment detection
 
     Returns:
         Tuple of (all_ok: bool, issues: List[str])
-        - all_ok: True if no issues detected
+        - all_ok: True if no critical issues detected
         - issues: List of human-readable issue descriptions
 
     Example:
         >>> all_ok, issues = check_all_permissions()
         >>> if not all_ok:
-        ...     print("Permission issues detected:")
+        ...     print("Issues detected:")
         ...     for issue in issues:
         ...         print(f"  - {issue}")
     """
     issues = []
 
-    # Check root privileges
-    if not is_admin():
-        user = get_current_user()
-        issues.append(
-            f"Not running as root (current user: {user}). "
-            f"Root privileges are required to access block devices. "
-            f"Please run with: sudo python -m floppy_formatter"
-        )
+    # Check Greaseweazle access
+    gw_ok, gw_msg = check_greaseweazle_permissions()
+    if not gw_ok:
+        issues.append(gw_msg)
 
-    # Check if running in WSL and provide helpful info
+    # Provide WSL-specific info
     if is_wsl():
         issues.append(
-            "Running in WSL2. Make sure USB floppy is attached using USBIPD-WIN. "
-            "See WSL2_USB_SOLUTION.md for details."
+            "Running in WSL2. Make sure Greaseweazle is attached using USBIPD-WIN. "
+            "See get_wsl_instructions() for setup details."
         )
 
     return (len(issues) == 0, issues)
@@ -226,23 +231,23 @@ def format_permission_errors(issues: List[str]) -> str:
         ...     print(format_permission_errors(issues))
     """
     if not issues:
-        return "All permissions OK"
+        return "All permissions OK - Greaseweazle accessible"
 
-    lines = ["PERMISSION ISSUES DETECTED", "=" * 70, ""]
+    lines = ["PERMISSION/ACCESS ISSUES DETECTED", "=" * 70, ""]
     lines.extend(issues)
     lines.append("")
     lines.append("=" * 70)
     lines.append("SOLUTIONS:")
     lines.append("")
 
-    # Check if root issue exists
-    if any("root" in issue.lower() for issue in issues):
-        lines.append("For root privileges:")
-        lines.append("  1. Run this application with sudo:")
-        lines.append("     sudo python -m floppy_formatter")
-        lines.append("")
-        lines.append("  2. Or if using a script:")
-        lines.append("     sudo ./your_script.py")
+    # Check if Greaseweazle issue exists
+    if any("greaseweazle" in issue.lower() or "permission" in issue.lower() for issue in issues):
+        lines.append("For Greaseweazle access issues:")
+        lines.append("  1. Check USB connection - is Greaseweazle plugged in?")
+        lines.append("  2. On Linux, you may need to add yourself to the 'plugdev' group:")
+        lines.append("     sudo usermod -a -G plugdev $USER")
+        lines.append("     (then log out and back in)")
+        lines.append("  3. Or run with sudo: sudo python -m floppy_formatter")
         lines.append("")
 
     # Check if WSL issue exists
@@ -258,33 +263,34 @@ def format_permission_errors(issues: List[str]) -> str:
 # =============================================================================
 
 
-def require_root(exit_on_fail: bool = True) -> bool:
+def require_greaseweazle(exit_on_fail: bool = True) -> bool:
     """
-    Require root privileges or exit/return False.
+    Require Greaseweazle to be accessible or exit/return False.
 
     Args:
-        exit_on_fail: If True, exit the program if not root.
-                     If False, return False if not root.
+        exit_on_fail: If True, exit the program if Greaseweazle not found.
+                     If False, return False if not accessible.
 
     Returns:
-        True if running as root, False otherwise (if exit_on_fail=False)
+        True if Greaseweazle is accessible, False otherwise (if exit_on_fail=False)
 
     Example:
-        >>> # Exit if not root
-        >>> require_root()
+        >>> # Exit if Greaseweazle not found
+        >>> require_greaseweazle()
         >>>
         >>> # Or check and handle manually
-        >>> if not require_root(exit_on_fail=False):
-        ...     print("Please run as root")
-        ...     # Handle error
+        >>> if not require_greaseweazle(exit_on_fail=False):
+        ...     print("Please connect Greaseweazle")
     """
-    if is_admin():
+    has_perm, msg = check_greaseweazle_permissions()
+
+    if has_perm:
         return True
 
     if exit_on_fail:
         import sys
-        print("ERROR: Root privileges required", file=sys.stderr)
-        print("Please run with: sudo python -m floppy_formatter", file=sys.stderr)
+        print(f"ERROR: {msg}", file=sys.stderr)
+        print("Please connect Greaseweazle and try again.", file=sys.stderr)
         sys.exit(1)
     else:
         return False

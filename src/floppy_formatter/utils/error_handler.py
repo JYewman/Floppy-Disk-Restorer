@@ -1,12 +1,12 @@
 """
-Error handling utilities for USB Floppy Formatter on Linux/WSL2.
+Error handling utilities for Floppy Workbench on Linux/WSL2.
 
 Provides comprehensive Linux error code handling with context-aware
 messages and device disconnection detection.
 """
 
 import errno
-from floppy_formatter.core.sector_io import (
+from floppy_formatter.core.sector_adapter import (
     ERROR_SUCCESS,
     ERROR_PERMISSION_DENIED,
     ERROR_NOT_READY,
