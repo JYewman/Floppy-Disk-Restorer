@@ -23,7 +23,10 @@ import logging
 import math
 import statistics
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Iterator
+from typing import List, Optional, Tuple, Iterator, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .greaseweazle_device import GreaseweazleDevice
 
 # Greaseweazle imports
 try:

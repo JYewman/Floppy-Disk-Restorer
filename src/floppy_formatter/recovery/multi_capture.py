@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from floppy_formatter.hardware import GreaseweazleDevice
+    from floppy_formatter.hardware import GreaseweazleDevice, FluxData
 
 from floppy_formatter.analysis.flux_analyzer import FluxCapture
 from floppy_formatter.analysis.signal_quality import calculate_snr

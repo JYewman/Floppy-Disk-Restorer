@@ -795,7 +795,7 @@ def wake_up_device(device: GreaseweazleDevice) -> bool:
     Returns:
         True if device is ready
     """
-    global _last_successful_read_time, _consecutive_errors
+    global _consecutive_errors
 
     logger.debug("wake_up_device: ensuring motor is on")
 

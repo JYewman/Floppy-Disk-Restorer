@@ -24,7 +24,10 @@ import statistics
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .greaseweazle_device import GreaseweazleDevice
 
 from . import (
     GreaseweazleError,

@@ -36,7 +36,7 @@ from .image_formats import (
 
 if TYPE_CHECKING:
     from floppy_formatter.hardware import FluxData, GreaseweazleDevice
-    from .sector_image import SectorImage
+    from .sector_image import SectorImage, ImageComparison
 
 logger = logging.getLogger(__name__)
 

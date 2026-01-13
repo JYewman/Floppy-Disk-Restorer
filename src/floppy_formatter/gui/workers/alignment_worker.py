@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
     from floppy_formatter.core.geometry import DiskGeometry
     from floppy_formatter.analysis.head_alignment import (
-        AlignmentReport, MarginMeasurement, AzimuthResult
+        AlignmentReport, MarginMeasurement, AzimuthResult, AlignmentStatus
     )
 
 logger = logging.getLogger(__name__)
