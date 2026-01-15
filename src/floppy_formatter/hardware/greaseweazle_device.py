@@ -659,7 +659,9 @@ class GreaseweazleDevice(IFloppyDevice):
             gw_flux = flux_data.to_greaseweazle_flux()
 
             # Write the track
-            self._unit.write_track(gw_flux)
+            # terminate_at_index=True means write exactly one revolution
+            # (stop when index pulse is detected after starting)
+            self._unit.write_track(gw_flux, terminate_at_index=True)
 
             logger.debug("Successfully wrote track C%d H%d", cylinder, head)
 

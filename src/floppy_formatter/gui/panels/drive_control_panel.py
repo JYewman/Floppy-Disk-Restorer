@@ -134,6 +134,7 @@ class DriveControlPanel(QWidget):
     position_changed = pyqtSignal(int, int)
     calibration_complete = pyqtSignal(bool, str)
     error_occurred = pyqtSignal(str)
+    rpm_updated = pyqtSignal(float)  # Emitted when RPM measurement is updated
 
     def __init__(self, parent: Optional[QWidget] = None):
         """
@@ -546,6 +547,9 @@ class DriveControlPanel(QWidget):
             self._rpm_fail_count = 0  # Reset fail counter on success
 
             self._rpm_value_label.setText(f"{rpm:.0f}")
+
+            # Emit RPM update for diagnostics tab
+            self.rpm_updated.emit(rpm)
 
             # Color code based on RPM (nominal 300 RPM)
             if 290 <= rpm <= 310:

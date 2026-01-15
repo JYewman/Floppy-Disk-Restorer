@@ -18,6 +18,7 @@ from typing import List, Dict, Optional, Tuple, Any, TYPE_CHECKING
 from PyQt6.QtCore import pyqtSignal
 
 from floppy_formatter.gui.workers.base_worker import GreaseweazleWorker
+from floppy_formatter.hardware import SectorData, SectorStatus
 
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
@@ -640,11 +641,22 @@ class RestoreWorker(GreaseweazleWorker):
                 if self._cancelled:
                     return False
 
-                # Create sector data
-                sector_data = [bytes([pattern] * 512) for _ in range(self._geometry.sectors_per_track)]
+                # Create sector data as proper SectorData objects
+                sector_data = [
+                    SectorData(
+                        cylinder=cylinder,
+                        head=head,
+                        sector=i + 1,  # 1-based sector numbers
+                        data=bytes([pattern] * 512),
+                        status=SectorStatus.GOOD,
+                        crc_valid=True,
+                        signal_quality=1.0
+                    )
+                    for i in range(self._geometry.sectors_per_track)
+                ]
 
-                # Encode and write
-                flux = encode_sectors_to_flux(sector_data, cylinder, head)
+                # Encode and write (correct argument order: cylinder, head, sectors)
+                flux = encode_sectors_to_flux(cylinder, head, sector_data)
                 write_track_flux(self._device, cylinder, head, flux)
 
             return True

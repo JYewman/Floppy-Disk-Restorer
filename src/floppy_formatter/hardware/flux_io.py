@@ -180,13 +180,37 @@ class FluxData:
 
         Returns:
             Greaseweazle Flux object suitable for write_track()
+
+        Raises:
+            ImportError: If greaseweazle package is not installed
+            ValueError: If flux data is empty
         """
         if not GREASEWEAZLE_AVAILABLE:
             raise ImportError("greaseweazle package not installed")
 
+        # Validate we have flux data to write
+        if not self.flux_times:
+            raise ValueError("Cannot create Greaseweazle Flux from empty flux data")
+
+        # For writing, we need proper index positions
+        # If we don't have them (common for encoded data), create them
+        if self.index_positions and len(self.index_positions) >= 2:
+            # Use existing index positions
+            index_list = self.index_positions
+            logger.debug("Using existing index_list with %d positions", len(index_list))
+        else:
+            # Calculate total samples for this track's flux data
+            total_samples = sum(self.flux_times)
+            # Create index list: [0, end_of_revolution]
+            # This tells Greaseweazle this is one revolution of data
+            index_list = [0, total_samples]
+            logger.debug("Created index_list for write: [0, %d] (%d flux transitions)",
+                        total_samples, len(self.flux_times))
+
         # Create Flux object with our data
+        # flux_list is a list of lists - one sublist per revolution
         return Flux(
-            index_list=self.index_positions,
+            index_list=index_list,
             flux_list=[self.flux_times],
             sample_freq=self.sample_freq
         )

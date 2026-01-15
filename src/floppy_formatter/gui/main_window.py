@@ -68,7 +68,9 @@ from floppy_formatter.hardware import GreaseweazleDevice, read_track_flux
 from floppy_formatter.gui.workers.scan_worker import ScanWorker, ScanMode, ScanResult, TrackResult
 from floppy_formatter.gui.workers.format_worker import FormatWorker, FormatType, FormatResult
 from floppy_formatter.gui.workers.restore_worker import RestoreWorker, RestoreConfig, RecoveryLevel, RecoveryStats
-from floppy_formatter.gui.workers.analyze_worker import AnalyzeWorker, AnalysisConfig, AnalysisDepth, DiskAnalysisResult
+from floppy_formatter.gui.workers.analyze_worker import (
+    AnalyzeWorker, AnalysisConfig, AnalysisDepth, AnalysisComponent, DiskAnalysisResult
+)
 from floppy_formatter.gui.workers.flux_capture_worker import FluxCaptureWorker, CaptureConfig, FluxSample
 from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
@@ -506,6 +508,7 @@ class MainWindow(QMainWindow):
         self._drive_control.position_changed.connect(self._on_position_changed)
         self._drive_control.calibration_complete.connect(self._on_calibration_complete)
         self._drive_control.error_occurred.connect(self._on_error)
+        self._drive_control.rpm_updated.connect(self._on_rpm_updated)
 
         # Operation toolbar signals
         self._operation_toolbar.operation_requested.connect(self._on_operation_requested)
@@ -636,7 +639,58 @@ class MainWindow(QMainWindow):
             bytes_per_sector=512
         )
 
+        # Update diagnostics tab with drive information
+        self._update_drive_info_display()
+
         self._update_state()
+
+    def _update_drive_info_display(self) -> None:
+        """Update the diagnostics tab with drive information."""
+        if not self._device:
+            self._analytics_panel.update_drive_info(
+                firmware="--",
+                drive_type="--",
+                disk_type="--",
+                serial="--"
+            )
+            return
+
+        try:
+            # Get device info from Greaseweazle Unit object
+            unit = getattr(self._device, '_unit', None)
+            if unit:
+                hw_model = getattr(unit, 'hw_model', 'Unknown')
+                fw_major = getattr(unit, 'major', '?')
+                fw_minor = getattr(unit, 'minor', '?')
+                firmware = f"V{hw_model} FW {fw_major}.{fw_minor}"
+
+                # Get serial if available
+                serial = getattr(unit, 'serial', None)
+                if serial:
+                    serial_str = serial[:12] if len(serial) > 12 else serial
+                else:
+                    serial_str = "N/A"
+            else:
+                firmware = "Unknown"
+                serial_str = "N/A"
+
+            # Update diagnostics tab
+            self._analytics_panel.update_drive_info(
+                firmware=firmware,
+                drive_type="3.5\" Floppy",
+                disk_type="HD (1.44MB)",
+                serial=serial_str
+            )
+            logger.debug("Updated drive info display: firmware=%s", firmware)
+
+        except Exception as e:
+            logger.warning("Failed to get drive info: %s", e)
+            self._analytics_panel.update_drive_info(
+                firmware="Error",
+                drive_type="3.5\" Floppy",
+                disk_type="Unknown",
+                serial="--"
+            )
 
     def _on_device_disconnected(self) -> None:
         """Handle device disconnection."""
@@ -683,6 +737,11 @@ class MainWindow(QMainWindow):
         """Handle error from panels."""
         logger.error("Panel error: %s", message)
         self._status_strip.set_error(message)
+
+    def _on_rpm_updated(self, rpm: float) -> None:
+        """Handle RPM measurement update from drive control."""
+        # Send RPM to diagnostics tab for the RPM stability chart
+        self._analytics_panel.add_rpm_measurement(rpm)
 
     # =========================================================================
     # Signal Handlers - Operations
@@ -1215,10 +1274,62 @@ class MainWindow(QMainWindow):
         """Start the analyze operation with worker thread."""
         self._cleanup_analyze_worker()
 
+        # Get operation mode from toolbar and map to analysis config
+        mode_text = self._operation_toolbar.get_selected_mode()
+
+        # Map operation mode to analysis depth and components
+        if mode_text == "Quick":
+            depth = AnalysisDepth.QUICK
+            revolutions = 1
+            components = [
+                AnalysisComponent.FLUX_TIMING,
+                AnalysisComponent.SIGNAL_QUALITY,
+            ]
+        elif mode_text == "Standard":
+            depth = AnalysisDepth.STANDARD
+            revolutions = 2
+            components = [
+                AnalysisComponent.FLUX_TIMING,
+                AnalysisComponent.SIGNAL_QUALITY,
+                AnalysisComponent.ENCODING,
+            ]
+        elif mode_text == "Thorough":
+            depth = AnalysisDepth.COMPREHENSIVE
+            revolutions = 3
+            components = [
+                AnalysisComponent.FLUX_TIMING,
+                AnalysisComponent.SIGNAL_QUALITY,
+                AnalysisComponent.ENCODING,
+                AnalysisComponent.WEAK_BITS,
+            ]
+        elif mode_text == "Forensic":
+            depth = AnalysisDepth.COMPREHENSIVE
+            revolutions = 5
+            components = [
+                AnalysisComponent.FLUX_TIMING,
+                AnalysisComponent.SIGNAL_QUALITY,
+                AnalysisComponent.ENCODING,
+                AnalysisComponent.WEAK_BITS,
+                AnalysisComponent.FORENSICS,
+            ]
+        else:
+            # Default to standard
+            depth = AnalysisDepth.STANDARD
+            revolutions = 2
+            components = [
+                AnalysisComponent.FLUX_TIMING,
+                AnalysisComponent.SIGNAL_QUALITY,
+                AnalysisComponent.ENCODING,
+            ]
+
+        logger.info("Starting analysis with mode=%s, depth=%s, revolutions=%d",
+                    mode_text, depth.name, revolutions)
+
         # Create analysis config
         config = AnalysisConfig(
-            depth=AnalysisDepth.STANDARD,
-            capture_revolutions=2,
+            depth=depth,
+            components=components,
+            capture_revolutions=revolutions,
             save_flux=False,
         )
 
@@ -1325,6 +1436,25 @@ class MainWindow(QMainWindow):
             recovered_sectors=0,
             health_score=result.overall_quality_score,
         )
+
+        # Display forensics results if available
+        if result.is_copy_protected:
+            protection_msg = f"Copy protection detected on {result.protected_track_count} tracks"
+            if result.protection_types:
+                protection_msg += f": {', '.join(result.protection_types[:3])}"
+            logger.warning(protection_msg)
+            # Show warning in status
+            self._status_strip.set_warning(protection_msg)
+
+        if result.format_type and result.format_type != "UNKNOWN":
+            logger.info("Detected format: %s (standard=%s)",
+                        result.format_type, result.format_is_standard)
+
+        # Log recommendations
+        if result.recommendations:
+            logger.info("Analysis recommendations:")
+            for rec in result.recommendations:
+                logger.info("  - %s", rec)
 
     def _on_analyze_progress(self, progress: int) -> None:
         """Handle analyze progress update."""
@@ -1773,8 +1903,11 @@ class MainWindow(QMainWindow):
             if not self._device.is_motor_on():
                 self._device.motor_on()
 
-            # Run quick calibration/self-test
-            calibration = quick_calibration(self._device)
+            # Get the currently selected drive unit (default to 0 if none selected)
+            drive_unit = self._device.selected_drive if self._device.selected_drive is not None else 0
+
+            # Run quick calibration/self-test on the current drive
+            calibration = quick_calibration(self._device, drive_unit=drive_unit)
 
             if calibration.calibration_successful:
                 health = calibration.health
