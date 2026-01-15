@@ -430,6 +430,15 @@ class FluxTab(QWidget):
         """Get the histogram widget."""
         return self._histogram_panel.get_histogram_widget()
 
+    def get_current_flux(self) -> Optional['FluxCapture']:
+        """
+        Get the currently loaded flux data.
+
+        Returns:
+            FluxCapture object or None if no flux is loaded
+        """
+        return self._current_flux
+
 
 __all__ = [
     'FluxTab',

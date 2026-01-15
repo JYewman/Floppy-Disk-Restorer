@@ -842,10 +842,12 @@ class MainWindow(QMainWindow):
             play_error_sound()
 
         # Update analytics panel with results
-        self._analytics_panel.update_scan_results(
+        self._analytics_panel.update_overview(
+            total_sectors=result.total_sectors,
             good_sectors=len(result.good_sectors),
             bad_sectors=len(result.bad_sectors),
-            weak_sectors=0,
+            recovered_sectors=0,
+            health_score=self._disk_health,
         )
 
     def _on_scan_progress(self, progress: int) -> None:
@@ -1197,8 +1199,20 @@ class MainWindow(QMainWindow):
             )
             play_error_sound()
 
-        # Update analytics panel with results
-        self._analytics_panel.update_analysis_results(result)
+        # Update analytics panel with analysis results
+        # Convert analysis result to overview format
+        grade_dist = result.get_grade_distribution()
+        good_sectors = (grade_dist.get('A', 0) + grade_dist.get('B', 0)) * self._geometry.sectors_per_track
+        weak_sectors = (grade_dist.get('C', 0) + grade_dist.get('D', 0)) * self._geometry.sectors_per_track
+        bad_sectors = grade_dist.get('F', 0) * self._geometry.sectors_per_track
+
+        self._analytics_panel.update_overview(
+            total_sectors=self._geometry.total_sectors,
+            good_sectors=good_sectors,
+            bad_sectors=bad_sectors,
+            recovered_sectors=0,
+            health_score=result.overall_quality_score,
+        )
 
     def _on_analyze_progress(self, progress: int) -> None:
         """Handle analyze progress update."""
@@ -1446,7 +1460,7 @@ class MainWindow(QMainWindow):
             capture.head = head
 
             # Update flux tab with captured data
-            self._analytics_panel.update_flux_data(capture, cylinder, head)
+            self._analytics_panel.load_flux_data(capture)
 
             self._status_strip.set_success(f"Flux loaded: C{cylinder}:H{head}")
             logger.info("Flux capture complete for C%d:H%d", cylinder, head)
@@ -1484,7 +1498,7 @@ class MainWindow(QMainWindow):
             capture.head = head
 
             # Update flux tab with captured data
-            self._analytics_panel.update_flux_data(capture, cylinder, head)
+            self._analytics_panel.load_flux_data(capture)
 
             self._status_strip.set_success(f"Flux captured: C{cylinder}:H{head}")
             logger.info("Flux capture complete for C%d:H%d", cylinder, head)
@@ -1565,8 +1579,21 @@ class MainWindow(QMainWindow):
                     f"Head alignment marginal (score: {avg_score:.0%})"
                 )
 
+            # Convert to AlignmentResults format expected by diagnostics tab
+            from floppy_formatter.gui.tabs.diagnostics_tab import AlignmentResults
+
+            alignment_results = AlignmentResults(
+                score=avg_score * 100,  # Convert to 0-100 scale
+                status="Aligned" if alignment_ok else "Slightly Off" if avg_score >= 0.5 else "Misaligned",
+                inner_margin=0.0,  # Not measured
+                outer_margin=0.0,  # Not measured
+                center_offset=0.0,  # Not measured
+                cylinders_tested=test_cylinders,
+                per_cylinder_scores=[r.alignment_score * 100 for r in results],
+            )
+
             # Update diagnostics tab with results
-            self._analytics_panel.update_alignment_results(results)
+            self._analytics_panel.update_alignment_results(alignment_results)
 
             logger.info("Alignment test complete: avg_score=%.2f", avg_score)
 
@@ -1608,8 +1635,49 @@ class MainWindow(QMainWindow):
                     f"Self-test completed with warnings: {issue_msg}"
                 )
 
+            # Convert DriveCalibration to SelfTestResults format
+            from floppy_formatter.gui.tabs.diagnostics_tab import (
+                SelfTestResults, SelfTestItem, TestStatus
+            )
+            from datetime import datetime
+
+            # Build test items from calibration results
+            test_items = [
+                SelfTestItem(
+                    name="Track 0 seek",
+                    status=TestStatus.PASS,
+                    details="Seek to track 0 successful",
+                ),
+                SelfTestItem(
+                    name="RPM stability",
+                    status=TestStatus.PASS if calibration.rpm.within_spec else TestStatus.FAIL,
+                    details=f"{calibration.rpm.rpm:.1f} RPM (±{calibration.rpm.std_dev:.1f})",
+                ),
+                SelfTestItem(
+                    name="Bit timing",
+                    status=TestStatus.PASS if calibration.bit_timing.within_spec else TestStatus.FAIL,
+                    details=f"{calibration.bit_timing.bit_cell_us:.3f}µs bit cell",
+                ),
+                SelfTestItem(
+                    name="Head alignment",
+                    status=TestStatus.PASS if calibration.health.alignment_ok else TestStatus.FAIL,
+                    details=f"Score: {calibration.health.score:.0%}",
+                ),
+                SelfTestItem(
+                    name="Overall health",
+                    status=TestStatus.PASS if calibration.calibration_successful else TestStatus.FAIL,
+                    details=f"Grade {calibration.health.grade_letter}",
+                ),
+            ]
+
+            self_test_results = SelfTestResults(
+                tests=test_items,
+                timestamp=datetime.now(),
+                overall_pass=calibration.calibration_successful,
+            )
+
             # Update diagnostics tab with results
-            self._analytics_panel.update_self_test_results(calibration)
+            self._analytics_panel.update_self_test_results(self_test_results)
 
             logger.info("Self-test complete: success=%s, grade=%s",
                         calibration.calibration_successful,

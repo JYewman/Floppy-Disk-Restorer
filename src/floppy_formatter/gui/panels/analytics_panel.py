@@ -299,6 +299,15 @@ class AnalyticsPanel(QWidget):
         """Update flux tab based on device connection."""
         self._flux_tab.set_device_connected(connected)
 
+    def get_current_flux_data(self) -> Optional['FluxCapture']:
+        """
+        Get the currently loaded flux data from flux tab.
+
+        Returns:
+            FluxCapture object or None if no flux is loaded
+        """
+        return self._flux_tab.get_current_flux()
+
     # =========================================================================
     # Public API - Errors Tab
     # =========================================================================
