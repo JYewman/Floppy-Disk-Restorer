@@ -447,6 +447,9 @@ class MainWindow(QMainWindow):
         self._sector_map_panel.setMinimumHeight(150)
         splitter.addWidget(self._sector_map_panel)
 
+        # Keep reference to sector map for convenience
+        self._sector_map = self._sector_map_panel.get_sector_map()
+
         # Bottom panel (analytics dashboard)
         self._analytics_panel = AnalyticsPanel()
         self._analytics_panel.setMinimumHeight(180)
@@ -1541,31 +1544,31 @@ class MainWindow(QMainWindow):
             if not self._device.is_motor_on():
                 self._device.motor_on()
 
-            # Run alignment check on sample tracks
+            # Run alignment check on sample cylinders (inner, middle, outer)
             results = []
-            test_tracks = [0, 39, 79]  # Inner, middle, outer tracks
+            test_cylinders = [2, 40, 78]  # Outer, middle, inner cylinders
 
-            for track in test_tracks:
-                result = check_track_alignment(self._device, track, 0)
+            for cylinder in test_cylinders:
+                result = check_track_alignment(self._device, cylinder)
                 results.append(result)
 
-            # Calculate overall alignment score
-            avg_offset = sum(r.offset_us for r in results) / len(results)
-            alignment_ok = all(abs(r.offset_us) < 5.0 for r in results)
+            # Calculate overall alignment score using alignment_score property
+            avg_score = sum(r.alignment_score for r in results) / len(results)
+            alignment_ok = avg_score >= 0.7  # 70% is good threshold
 
             if alignment_ok:
                 self._status_strip.set_success(
-                    f"Head alignment OK (avg offset: {avg_offset:.1f}µs)"
+                    f"Head alignment OK (score: {avg_score:.0%})"
                 )
             else:
                 self._status_strip.set_warning(
-                    f"Head alignment marginal (avg offset: {avg_offset:.1f}µs)"
+                    f"Head alignment marginal (score: {avg_score:.0%})"
                 )
 
             # Update diagnostics tab with results
             self._analytics_panel.update_alignment_results(results)
 
-            logger.info("Alignment test complete: avg_offset=%.1fµs", avg_offset)
+            logger.info("Alignment test complete: avg_score=%.2f", avg_score)
 
         except Exception as e:
             logger.error("Alignment test failed: %s", e)
@@ -1589,22 +1592,28 @@ class MainWindow(QMainWindow):
                 self._device.motor_on()
 
             # Run quick calibration/self-test
-            result = quick_calibration(self._device)
+            calibration = quick_calibration(self._device)
 
-            if result.success:
+            if calibration.calibration_successful:
+                health = calibration.health
                 self._status_strip.set_success(
-                    f"Self-test passed: RPM={result.rpm:.0f}, "
-                    f"seek time={result.seek_time_ms:.0f}ms"
+                    f"Self-test passed: Grade {health.grade_letter}, "
+                    f"RPM={calibration.rpm.rpm:.1f}"
                 )
             else:
+                # Report issues found
+                issues = calibration.health.issues
+                issue_msg = issues[0] if issues else "Unknown issue"
                 self._status_strip.set_warning(
-                    f"Self-test completed with warnings: {result.message}"
+                    f"Self-test completed with warnings: {issue_msg}"
                 )
 
             # Update diagnostics tab with results
-            self._analytics_panel.update_self_test_results(result)
+            self._analytics_panel.update_self_test_results(calibration)
 
-            logger.info("Self-test complete: success=%s", result.success)
+            logger.info("Self-test complete: success=%s, grade=%s",
+                        calibration.calibration_successful,
+                        calibration.health.grade_letter)
 
         except Exception as e:
             logger.error("Self-test failed: %s", e)
