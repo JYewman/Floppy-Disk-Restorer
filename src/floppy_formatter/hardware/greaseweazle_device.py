@@ -652,16 +652,25 @@ class GreaseweazleDevice(IFloppyDevice):
         # Seek to the target track
         self.seek(cylinder, head)
 
-        logger.info("Writing track C%d H%d", cylinder, head)
+        logger.info("Writing track C%d H%d (%d flux transitions)",
+                    cylinder, head, len(flux_data.flux_times))
 
         try:
-            # Convert to Greaseweazle flux format
-            gw_flux = flux_data.to_greaseweazle_flux()
+            # Greaseweazle's write_track expects a simple list of flux timing values
+            # (integers in sample ticks), not a Flux object
+            if not flux_data.flux_times:
+                raise FluxError(
+                    "Cannot write empty flux data",
+                    cylinder=cylinder,
+                    head=head,
+                    operation="write",
+                    device_info=self._device_info
+                )
 
-            # Write the track
+            # Write the track with the raw flux timing list
             # terminate_at_index=True means write exactly one revolution
             # (stop when index pulse is detected after starting)
-            self._unit.write_track(gw_flux, terminate_at_index=True)
+            self._unit.write_track(flux_data.flux_times, terminate_at_index=True)
 
             logger.debug("Successfully wrote track C%d H%d", cylinder, head)
 

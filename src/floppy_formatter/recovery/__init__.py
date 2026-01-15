@@ -46,10 +46,10 @@ from .pll_tuning import (
     PLLDecodeResult,
     PLLSearchResult,
     OptimalPLLResult,
+    PLLState,
 
     # Classes
     PLLDecoder,
-    PLLState,
 
     # Main functions
     decode_with_pll,
@@ -63,6 +63,9 @@ from .pll_tuning import (
 )
 
 from .bit_slip_recovery import (
+    # Enums
+    SlipType,
+
     # Dataclasses
     BitSlipEvent,
     PhaseTrackingState,
@@ -70,9 +73,6 @@ from .bit_slip_recovery import (
     SlipRecoveryResult,
     CorrectedFlux,
     SlipPattern,
-
-    # Enums
-    SlipType,
 
     # Main functions
     detect_bit_slips,
@@ -135,8 +135,8 @@ __all__ = [
     'PLLDecodeResult',
     'PLLSearchResult',
     'OptimalPLLResult',
-    'PLLDecoder',
     'PLLState',
+    'PLLDecoder',
     'decode_with_pll',
     'try_pll_variations',
     'find_optimal_pll',
@@ -145,13 +145,13 @@ __all__ = [
     'default_pll_parameters',
 
     # bit_slip_recovery
+    'SlipType',
     'BitSlipEvent',
     'PhaseTrackingState',
     'SlipCorrection',
     'SlipRecoveryResult',
     'CorrectedFlux',
     'SlipPattern',
-    'SlipType',
     'detect_bit_slips',
     'analyze_slip_pattern',
     'realign_after_slip',

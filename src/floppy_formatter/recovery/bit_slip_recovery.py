@@ -27,6 +27,7 @@ import math
 import statistics
 import logging
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import List, Optional, Tuple, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -68,8 +69,43 @@ PHASE_WINDOW_SIZE = 50  # Transitions to average for phase tracking
 
 
 # =============================================================================
+# Enums
+# =============================================================================
+
+class SlipType(Enum):
+    """Type of bit slip event."""
+    FORWARD = auto()   # Slipped forward (lost bits)
+    BACKWARD = auto()  # Slipped backward (gained bits)
+    UNKNOWN = auto()   # Direction unknown
+
+
+# =============================================================================
 # Data Classes
 # =============================================================================
+
+@dataclass
+class SlipPattern:
+    """
+    Pattern of bit slips across a track or disk.
+
+    Attributes:
+        slip_count: Total number of slips detected
+        forward_slips: Number of forward slips
+        backward_slips: Number of backward slips
+        avg_slip_magnitude: Average slip size in bits
+        clustered: Whether slips are clustered together
+        periodic: Whether slips occur at regular intervals
+        period_samples: Period between slips if periodic
+        affected_sectors: List of sector numbers affected
+    """
+    slip_count: int = 0
+    forward_slips: int = 0
+    backward_slips: int = 0
+    avg_slip_magnitude: float = 0.0
+    clustered: bool = False
+    periodic: bool = False
+    period_samples: int = 0
+    affected_sectors: List[int] = field(default_factory=list)
 
 @dataclass
 class BitSlipEvent:
@@ -257,7 +293,7 @@ def detect_bit_slips(flux: FluxCapture) -> List[BitSlipEvent]:
         ...     print(f"Slip at {slip.position_us:.0f}us: {slip.slip_amount} bits")
         ...     print(f"  Cause: {slip.probable_cause}")
     """
-    times_us = flux.get_timings_microseconds()
+    times_us = flux.get_times_microseconds()
 
     if len(times_us) < 100:
         return []
@@ -437,7 +473,7 @@ def realign_after_slip(
         ...     corrected = realign_after_slip(capture, slips[0].flux_index, slips[0].slip_amount)
         ...     print(f"Applied {len(corrected.corrections)} corrections")
     """
-    times_us = list(flux.get_timings_microseconds())
+    times_us = list(flux.get_times_microseconds())
     original_times = list(times_us)
     corrections = []
     positions_modified = []
@@ -517,8 +553,8 @@ def apply_all_slip_corrections(
     """
     if not slips:
         return CorrectedFlux(
-            timings_us=list(flux.get_timings_microseconds()),
-            original_timings_us=list(flux.get_timings_microseconds()),
+            timings_us=list(flux.get_times_microseconds()),
+            original_timings_us=list(flux.get_times_microseconds()),
             corrections=[],
             positions_modified=[],
         )
@@ -526,7 +562,7 @@ def apply_all_slip_corrections(
     # Sort slips by position (process from end to start to avoid index shifts)
     sorted_slips = sorted(slips, key=lambda s: s.flux_index, reverse=True)
 
-    times_us = list(flux.get_timings_microseconds())
+    times_us = list(flux.get_times_microseconds())
     original_times = list(times_us)
     all_corrections = []
     all_modified = []
@@ -839,7 +875,7 @@ def _try_alternative_corrections(
     Sometimes the slip amount estimate is off by ±1 bit.
     This tries variations to find working corrections.
     """
-    times_us = list(flux.get_timings_microseconds())
+    times_us = list(flux.get_times_microseconds())
 
     # Try variations of slip amounts
     for variation in [-1, 1, -2, 2]:
@@ -889,16 +925,124 @@ def _validate_sector_crc(data: bytes) -> bool:
 
 
 # =============================================================================
+# Utility Functions
+# =============================================================================
+
+def calculate_phase_continuity(flux_times: List[float], bit_cell_us: float = HD_BIT_CELL_US) -> float:
+    """
+    Calculate phase continuity score for flux data.
+
+    Measures how consistently the PLL can track the data stream.
+    Higher scores indicate better phase continuity (fewer potential slips).
+
+    Args:
+        flux_times: List of flux timing values in microseconds
+        bit_cell_us: Expected bit cell width
+
+    Returns:
+        Phase continuity score from 0.0 (poor) to 1.0 (excellent)
+    """
+    if len(flux_times) < 10:
+        return 0.0
+
+    # Calculate expected pulse widths (2T, 3T, 4T for MFM)
+    expected_2t = bit_cell_us * 2
+    expected_3t = bit_cell_us * 3
+    expected_4t = bit_cell_us * 4
+
+    phase_errors = []
+    for t in flux_times:
+        # Find closest expected pulse width
+        closest = min([expected_2t, expected_3t, expected_4t],
+                     key=lambda x: abs(t - x))
+        # Calculate phase error as fraction of bit cell
+        error = abs(t - closest) / bit_cell_us
+        phase_errors.append(error)
+
+    # Calculate continuity score
+    if not phase_errors:
+        return 0.0
+
+    avg_error = sum(phase_errors) / len(phase_errors)
+    max_error = max(phase_errors)
+
+    # Score based on average and max errors
+    # Perfect tracking = 0 error = score 1.0
+    avg_score = max(0.0, 1.0 - avg_error * 2)
+    max_score = max(0.0, 1.0 - max_error)
+
+    # Combined score weighted toward average
+    return avg_score * 0.7 + max_score * 0.3
+
+
+def estimate_slip_severity(slips: List[BitSlipEvent]) -> float:
+    """
+    Estimate the severity of bit slip events.
+
+    Analyzes slip patterns to determine how severely they impact
+    data recovery prospects.
+
+    Args:
+        slips: List of detected bit slip events
+
+    Returns:
+        Severity score from 0.0 (minor) to 1.0 (severe)
+    """
+    if not slips:
+        return 0.0
+
+    # Factors that increase severity:
+    # 1. Number of slips
+    # 2. Magnitude of slips
+    # 3. Clustering (multiple slips close together)
+    # 4. Low confidence detections
+
+    # Score based on slip count
+    count_score = min(1.0, len(slips) / 20)  # 20+ slips = max severity
+
+    # Score based on average magnitude
+    magnitudes = [abs(s.slip_amount) for s in slips]
+    avg_magnitude = sum(magnitudes) / len(magnitudes) if magnitudes else 0
+    magnitude_score = min(1.0, avg_magnitude / 4)  # 4+ bit slip = max severity
+
+    # Score based on confidence (low confidence = higher severity)
+    confidences = [s.confidence for s in slips]
+    avg_confidence = sum(confidences) / len(confidences) if confidences else 0.5
+    confidence_score = 1.0 - avg_confidence
+
+    # Check for clustering
+    positions = sorted([s.position for s in slips])
+    cluster_count = 0
+    for i in range(1, len(positions)):
+        if positions[i] - positions[i-1] < 1000:  # Within 1000 samples
+            cluster_count += 1
+    cluster_score = min(1.0, cluster_count / 5)  # 5+ clusters = max
+
+    # Weighted combination
+    severity = (
+        count_score * 0.3 +
+        magnitude_score * 0.3 +
+        confidence_score * 0.2 +
+        cluster_score * 0.2
+    )
+
+    return min(1.0, severity)
+
+
+# =============================================================================
 # Public API
 # =============================================================================
 
 __all__ = [
+    # Enums
+    'SlipType',
     # Data classes
     'BitSlipEvent',
     'PhaseTrackingState',
     'SlipCorrection',
     'SlipRecoveryResult',
     'CorrectedFlux',
+    'SlipPattern',
     # Functions
     'detect_bit_slips',
     'analyze_slip_pattern',
@@ -906,6 +1050,8 @@ __all__ = [
     'apply_all_slip_corrections',
     'reconstruct_slipped_sector',
     'recover_track_with_slip_correction',
+    'calculate_phase_continuity',
+    'estimate_slip_severity',
     # Constants
     'HD_BIT_CELL_NS',
     'HD_BIT_CELL_US',

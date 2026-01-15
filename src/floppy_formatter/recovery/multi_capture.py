@@ -438,7 +438,7 @@ def align_flux_captures(captures: List[FluxCapture]) -> AlignedCaptures:
     reference = captures[reference_index]
 
     # Get reference timing in microseconds
-    ref_timings = reference.get_timings_microseconds()
+    ref_timings = reference.get_times_microseconds()
     ref_length = len(ref_timings)
 
     # Calculate quality weights for weighted voting
@@ -450,7 +450,7 @@ def align_flux_captures(captures: List[FluxCapture]) -> AlignedCaptures:
     alignment_offsets = []
 
     for i, capture in enumerate(captures):
-        timings = capture.get_timings_microseconds()
+        timings = capture.get_times_microseconds()
 
         if i == reference_index:
             # Reference capture - no alignment needed
@@ -885,6 +885,49 @@ def multi_capture_recover_track(
     return reconstructed, reconstructed.sectors
 
 
+def multi_capture_recover_sector(
+    device: Any,  # GreaseweazleDevice
+    cyl: int,
+    head: int,
+    sector_number: int,
+    revolution_count: int = DEFAULT_REVOLUTION_COUNT
+) -> Optional[ReconstructedSector]:
+    """
+    Perform multi-capture recovery for a specific sector.
+
+    Captures multiple revolutions and uses statistical bit voting to
+    recover data from a single problematic sector.
+
+    Args:
+        device: Connected GreaseweazleDevice instance
+        cyl: Cylinder number
+        head: Head number
+        sector_number: Sector number to recover (1-based)
+        revolution_count: Number of revolutions to capture
+
+    Returns:
+        ReconstructedSector if found, None if sector not recoverable
+
+    Example:
+        >>> sector = multi_capture_recover_sector(device, 40, 0, 5)
+        >>> if sector and sector.crc_valid:
+        ...     print(f"Recovered sector 5 with confidence {sector.confidence:.1%}")
+    """
+    # Perform track-level recovery
+    _, sectors = multi_capture_recover_track(
+        device, cyl, head, revolution_count
+    )
+
+    # Find the requested sector
+    for sector in sectors:
+        if sector.sector_number == sector_number:
+            return sector
+
+    logger.warning("Sector %d not found in multi-capture recovery for C%d H%d",
+                   sector_number, cyl, head)
+    return None
+
+
 def compare_multi_capture_to_single(
     device: Any,  # GreaseweazleDevice
     cyl: int,
@@ -930,6 +973,141 @@ def compare_multi_capture_to_single(
 
 
 # =============================================================================
+# Utility Functions
+# =============================================================================
+
+def calculate_capture_quality(capture: FluxCapture) -> float:
+    """
+    Calculate quality score for a single flux capture.
+
+    Evaluates the capture based on timing consistency, noise levels,
+    and signal characteristics.
+
+    Args:
+        capture: FluxCapture to evaluate
+
+    Returns:
+        Quality score from 0.0 (poor) to 1.0 (excellent)
+    """
+    times = capture.get_times_microseconds()
+    if not times or len(times) < 100:
+        return 0.0
+
+    # Calculate timing statistics
+    import statistics
+
+    # Expected MFM pulse widths for HD: 4us, 6us, 8us
+    expected_widths = [4.0, 6.0, 8.0]
+
+    # Calculate how well pulses match expected widths
+    deviations = []
+    for t in times:
+        min_dev = min(abs(t - e) for e in expected_widths)
+        deviations.append(min_dev)
+
+    avg_deviation = statistics.mean(deviations)
+    std_deviation = statistics.stdev(deviations) if len(deviations) > 1 else 0
+
+    # Score based on average deviation (lower is better)
+    # Perfect match = 0 deviation = score 1.0
+    deviation_score = max(0.0, 1.0 - avg_deviation / 2.0)
+
+    # Score based on consistency (lower std dev is better)
+    consistency_score = max(0.0, 1.0 - std_deviation / 2.0)
+
+    # Check for noise (very short pulses < 2us)
+    noise_count = sum(1 for t in times if t < 2.0)
+    noise_ratio = noise_count / len(times)
+    noise_score = max(0.0, 1.0 - noise_ratio * 5)
+
+    # Combined score
+    quality = (
+        deviation_score * 0.4 +
+        consistency_score * 0.3 +
+        noise_score * 0.3
+    )
+
+    return min(1.0, max(0.0, quality))
+
+
+def estimate_recovery_potential(
+    captures: List[FluxCapture],
+    sector_number: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Estimate the potential for data recovery from multiple captures.
+
+    Analyzes capture quality and consistency to predict likelihood
+    of successful recovery.
+
+    Args:
+        captures: List of flux captures to analyze
+        sector_number: Optional specific sector to focus on
+
+    Returns:
+        Dictionary with recovery potential estimates
+    """
+    if not captures:
+        return {
+            'overall_potential': 0.0,
+            'capture_count': 0,
+            'avg_quality': 0.0,
+            'consistency': 0.0,
+            'recommendation': 'No captures available'
+        }
+
+    # Calculate quality for each capture
+    qualities = [calculate_capture_quality(c) for c in captures]
+    avg_quality = sum(qualities) / len(qualities)
+
+    # Calculate consistency between captures
+    # Higher consistency = better recovery potential
+    if len(captures) >= 2:
+        # Compare timing patterns between captures
+        consistency_scores = []
+        ref_times = captures[0].get_times_microseconds()
+
+        for capture in captures[1:]:
+            other_times = capture.get_times_microseconds()
+            if ref_times and other_times:
+                # Compare lengths
+                len_ratio = min(len(ref_times), len(other_times)) / max(len(ref_times), len(other_times))
+                consistency_scores.append(len_ratio)
+
+        consistency = sum(consistency_scores) / len(consistency_scores) if consistency_scores else 0.5
+    else:
+        consistency = 0.5
+
+    # Calculate overall recovery potential
+    potential = (avg_quality * 0.6 + consistency * 0.4)
+
+    # Boost potential based on capture count (more captures = better)
+    capture_bonus = min(0.2, len(captures) * 0.02)
+    potential = min(1.0, potential + capture_bonus)
+
+    # Generate recommendation
+    if potential >= 0.8:
+        recommendation = "Excellent recovery potential - proceed with multi-capture recovery"
+    elif potential >= 0.6:
+        recommendation = "Good recovery potential - multi-capture should improve results"
+    elif potential >= 0.4:
+        recommendation = "Moderate potential - additional captures may help"
+    elif potential >= 0.2:
+        recommendation = "Limited potential - consider surface treatment first"
+    else:
+        recommendation = "Poor potential - disk may be too damaged for recovery"
+
+    return {
+        'overall_potential': potential,
+        'capture_count': len(captures),
+        'avg_quality': avg_quality,
+        'consistency': consistency,
+        'individual_qualities': qualities,
+        'recommendation': recommendation
+    }
+
+
+# =============================================================================
 # Public API
 # =============================================================================
 
@@ -946,7 +1124,10 @@ __all__ = [
     'align_flux_captures',
     'reconstruct_from_captures',
     'multi_capture_recover_track',
+    'multi_capture_recover_sector',
     'compare_multi_capture_to_single',
+    'calculate_capture_quality',
+    'estimate_recovery_potential',
     # Constants
     'DEFAULT_REVOLUTION_COUNT',
     'HIGH_CONFIDENCE_THRESHOLD',

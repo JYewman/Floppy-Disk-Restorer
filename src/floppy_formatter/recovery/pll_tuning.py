@@ -900,6 +900,139 @@ def optimize_for_sector(
 
 
 # =============================================================================
+# PLL State Class
+# =============================================================================
+
+@dataclass
+class PLLState:
+    """
+    Current state of the PLL during decoding.
+
+    Tracks the internal state variables used by the PLL to
+    maintain phase lock with the incoming flux data.
+
+    Attributes:
+        phase: Current phase in nanoseconds
+        frequency: Current frequency estimate in Hz
+        phase_error: Last phase error measurement
+        locked: Whether PLL is currently locked
+        lock_count: Number of consecutive locked samples
+        history: Recent phase error history for analysis
+    """
+    phase: float = 0.0
+    frequency: float = DEFAULT_FREQUENCY_HZ
+    phase_error: float = 0.0
+    locked: bool = False
+    lock_count: int = 0
+    history: List[float] = field(default_factory=list)
+
+    def update(self, measured_period: float, params: PLLParameters) -> None:
+        """Update PLL state with new measurement."""
+        expected_period = 1e9 / self.frequency  # Expected in nanoseconds
+
+        # Calculate phase error
+        self.phase_error = measured_period - expected_period
+
+        # Update phase
+        self.phase += self.phase_error * params.bandwidth
+
+        # Update frequency estimate (second-order PLL)
+        freq_correction = self.phase_error * params.bandwidth * params.bandwidth
+        self.frequency += freq_correction * params.gain
+
+        # Track lock status
+        if abs(self.phase_error) < expected_period * 0.1:  # Within 10%
+            self.lock_count += 1
+            if self.lock_count > 10:
+                self.locked = True
+        else:
+            self.lock_count = 0
+            self.locked = False
+
+        # Maintain history
+        self.history.append(self.phase_error)
+        if len(self.history) > 100:
+            self.history.pop(0)
+
+
+# =============================================================================
+# Utility Functions
+# =============================================================================
+
+def create_parameter_grid(
+    frequency_range: Tuple[float, float] = (490000, 510000),
+    frequency_steps: int = 5,
+    bandwidth_range: Tuple[float, float] = (0.02, 0.15),
+    bandwidth_steps: int = 5,
+    phase_offsets: List[float] = None
+) -> List[PLLParameters]:
+    """
+    Create a grid of PLL parameters for exhaustive search.
+
+    Generates combinations of PLL parameters to try when searching
+    for optimal settings for difficult sectors.
+
+    Args:
+        frequency_range: Min and max frequency in Hz
+        frequency_steps: Number of frequency values to try
+        bandwidth_range: Min and max bandwidth values
+        bandwidth_steps: Number of bandwidth values to try
+        phase_offsets: List of phase offsets to try (ns)
+
+    Returns:
+        List of PLLParameters to try
+    """
+    if phase_offsets is None:
+        phase_offsets = [-200, -100, 0, 100, 200]
+
+    params_list = []
+
+    # Generate frequency values
+    freq_min, freq_max = frequency_range
+    freq_step = (freq_max - freq_min) / max(1, frequency_steps - 1)
+    frequencies = [freq_min + i * freq_step for i in range(frequency_steps)]
+
+    # Generate bandwidth values
+    bw_min, bw_max = bandwidth_range
+    bw_step = (bw_max - bw_min) / max(1, bandwidth_steps - 1)
+    bandwidths = [bw_min + i * bw_step for i in range(bandwidth_steps)]
+
+    # Generate all combinations
+    for freq in frequencies:
+        for bw in bandwidths:
+            for phase in phase_offsets:
+                params_list.append(PLLParameters(
+                    phase_offset=phase,
+                    frequency=freq,
+                    bandwidth=bw,
+                    damping=DEFAULT_DAMPING,
+                    gain=1.0
+                ))
+
+    logger.debug("Created parameter grid with %d combinations", len(params_list))
+    return params_list
+
+
+def default_pll_parameters() -> PLLParameters:
+    """
+    Get default PLL parameters for HD MFM decoding.
+
+    Returns standard parameters suitable for most 3.5" HD
+    floppy disks in good condition.
+
+    Returns:
+        PLLParameters with default values
+    """
+    return PLLParameters(
+        phase_offset=0,
+        frequency=DEFAULT_FREQUENCY_HZ,
+        bandwidth=DEFAULT_BANDWIDTH,
+        damping=DEFAULT_DAMPING,
+        gain=1.0
+    )
+
+
+# =============================================================================
 # Public API
 # =============================================================================
 
@@ -910,11 +1043,16 @@ __all__ = [
     'PLLDecodeResult',
     'PLLSearchResult',
     'OptimalPLLResult',
+    'PLLState',
+    # Classes
+    'PLLDecoder',
     # Functions
     'decode_with_pll',
     'try_pll_variations',
     'find_optimal_pll',
     'optimize_for_sector',
+    'create_parameter_grid',
+    'default_pll_parameters',
     # Constants
     'DEFAULT_FREQUENCY_HZ',
     'DEFAULT_BANDWIDTH',

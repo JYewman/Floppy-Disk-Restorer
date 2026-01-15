@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 def decode_flux_data(flux_data):
     """
-    Decode flux data to sectors using PLL decoder (preferred) or simple decoder (fallback).
+    Decode flux data to sectors using Greaseweazle-compatible decoder.
 
     Args:
         flux_data: FluxData from track read
@@ -41,7 +41,20 @@ def decode_flux_data(flux_data):
     Returns:
         List of SectorData objects
     """
-    # Try PLL decoder first
+    # Use Greaseweazle-compatible decoder (proven implementation)
+    try:
+        from floppy_formatter.hardware.gw_mfm_codec import decode_flux_to_sectors_gw
+        sectors = decode_flux_to_sectors_gw(flux_data)
+        if sectors:
+            logger.debug("GW decoder returned %d sectors", len(sectors))
+            return sectors
+        logger.debug("GW decoder returned 0 sectors, trying PLL decoder")
+    except ImportError:
+        logger.debug("GW decoder not available")
+    except Exception as e:
+        logger.warning("GW decoder failed: %s", e)
+
+    # Try PLL decoder as fallback
     try:
         from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
         sectors = decode_flux_with_pll(flux_data)
@@ -49,9 +62,9 @@ def decode_flux_data(flux_data):
             logger.debug("PLL decoder returned %d sectors", len(sectors))
             return sectors
     except ImportError:
-        logger.debug("PLL decoder not available, using simple decoder")
+        logger.debug("PLL decoder not available")
     except Exception as e:
-        logger.warning("PLL decoder failed: %s, falling back to simple decoder", e)
+        logger.warning("PLL decoder failed: %s", e)
 
     # Fall back to simple decoder
     from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
@@ -626,7 +639,7 @@ class RestoreWorker(GreaseweazleWorker):
             True if track now reads better
         """
         from floppy_formatter.hardware import erase_track_flux, write_track_flux
-        from floppy_formatter.hardware.mfm_codec import encode_sectors_to_flux
+        from floppy_formatter.hardware.gw_mfm_codec import encode_sectors_to_flux_gw
 
         try:
             # Seek to track
@@ -635,7 +648,7 @@ class RestoreWorker(GreaseweazleWorker):
             # DC erase
             erase_track_flux(self._device, cylinder, head)
 
-            # Write with pattern rotation
+            # Write with pattern rotation - use GW-compatible encoder
             patterns = [0x00, 0xFF, 0xAA, 0x55]
             for pattern in patterns:
                 if self._cancelled:
@@ -655,8 +668,8 @@ class RestoreWorker(GreaseweazleWorker):
                     for i in range(self._geometry.sectors_per_track)
                 ]
 
-                # Encode and write (correct argument order: cylinder, head, sectors)
-                flux = encode_sectors_to_flux(cylinder, head, sector_data)
+                # Encode using GW-compatible encoder and write
+                flux = encode_sectors_to_flux_gw(cylinder, head, sector_data)
                 write_track_flux(self._device, cylinder, head, flux)
 
             return True
@@ -726,17 +739,22 @@ class RestoreWorker(GreaseweazleWorker):
             True if sector recovered
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.recovery.pll_tuning import try_pll_variations
+        from floppy_formatter.recovery.pll_tuning import try_pll_variations, default_pll_parameters
 
         try:
             # Seek and capture
             self._device.seek(cylinder, head)
             flux = read_track_flux(self._device, cylinder, head, revolutions=3)
 
-            # Try PLL variations
-            result = try_pll_variations(flux, target_sector=sector)
+            # Try PLL variations with default parameters as base
+            result = try_pll_variations(flux, default_pll_parameters())
 
-            return result is not None and result.success
+            # Check if target sector was recovered by any parameter set
+            if result.sectors_recovered:
+                for recovered_sectors in result.sectors_recovered.values():
+                    if sector in recovered_sectors:
+                        return True
+            return False
 
         except Exception as e:
             logger.warning("PLL tuning failed for C%d:H%d:S%d: %s", cylinder, head, sector, e)
