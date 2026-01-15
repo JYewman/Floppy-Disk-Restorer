@@ -230,7 +230,6 @@ class ScanWorker(GreaseweazleWorker):
         progress and results via signals.
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
         from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
         start_time = time.time()
@@ -298,6 +297,10 @@ class ScanWorker(GreaseweazleWorker):
         )
         self.scan_complete.emit(result)
 
+        # IMPORTANT: Emit finished signal to trigger cleanup
+        # This must happen after scan_complete so handlers can process the result first
+        self.finished.emit()
+
     def _get_tracks_to_scan(self) -> List[Tuple[int, int]]:
         """
         Get list of tracks to scan based on mode.
@@ -354,9 +357,16 @@ class ScanWorker(GreaseweazleWorker):
             TrackResult with scan data
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
         from floppy_formatter.analysis.flux_analyzer import FluxCapture
         from floppy_formatter.analysis.signal_quality import calculate_snr
+
+        # Try to import PLL decoder (preferred method)
+        try:
+            from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
+            pll_available = True
+        except ImportError:
+            pll_available = False
+            logger.debug("PLL decoder not available, using simple decoder")
 
         track_start = time.time()
 
@@ -382,8 +392,28 @@ class ScanWorker(GreaseweazleWorker):
             self.flux_captured.emit(cylinder, head, capture)
             self._flux_cache[(cylinder, head)] = capture
 
-        # Decode sectors
-        sectors = decode_flux_to_sectors(flux)
+        # Decode sectors - try PLL decoder first, fall back to simple decoder
+        sectors = []
+        if pll_available:
+            try:
+                sectors = decode_flux_with_pll(flux)
+                logger.debug("PLL decoder returned %d sectors for C%d:H%d",
+                            len(sectors), cylinder, head)
+            except Exception as e:
+                logger.warning("PLL decoder failed for C%d:H%d: %s, trying simple decoder",
+                              cylinder, head, e)
+                sectors = []
+
+        # Fall back to simple decoder if PLL didn't work
+        if not sectors:
+            from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
+            sectors = decode_flux_to_sectors(flux)
+            logger.debug("Simple decoder returned %d sectors for C%d:H%d",
+                        len(sectors), cylinder, head)
+
+        # Log decode results for debugging
+        logger.info("Track C%d:H%d: decoded %d sectors from flux (%d transitions)",
+                    cylinder, head, len(sectors), len(flux.flux_times) if hasattr(flux, 'flux_times') else 0)
 
         # Calculate signal quality
         try:
@@ -403,29 +433,68 @@ class ScanWorker(GreaseweazleWorker):
         sectors_per_track = self._geometry.sectors_per_track
         base_sector = (cylinder * self._geometry.heads + head) * sectors_per_track
 
-        # Process each sector result
+        # Deduplicate sectors - keep best result for each sector number
+        # This handles multiple revolutions where same sector appears multiple times
+        best_sectors = {}  # sector_num -> best SectorData
         for sector in sectors:
-            linear_sector = base_sector + (sector.sector_num - 1)  # Convert 1-based to linear
+            sector_num = sector.sector
+            if sector_num < 1 or sector_num > sectors_per_track:
+                # Skip invalid sector numbers (could be from corrupt headers)
+                continue
 
-            is_good = sector.data is not None and sector.crc_valid
-            error_type = None
+            if sector_num not in best_sectors:
+                best_sectors[sector_num] = sector
+            else:
+                # Prefer good CRC over bad CRC
+                existing = best_sectors[sector_num]
+                if sector.crc_valid and not existing.crc_valid:
+                    best_sectors[sector_num] = sector
+                elif sector.crc_valid == existing.crc_valid:
+                    # Both same CRC status, prefer better signal quality
+                    if hasattr(sector, 'signal_quality') and hasattr(existing, 'signal_quality'):
+                        if sector.signal_quality > existing.signal_quality:
+                            best_sectors[sector_num] = sector
 
-            if not is_good:
-                if sector.data is None:
-                    error_type = "Missing sector"
-                elif not sector.crc_valid:
-                    error_type = "CRC error"
-                else:
-                    error_type = "Unknown error"
+        logger.debug("Track C%d:H%d: deduplicated %d raw sectors to %d unique sectors",
+                    cylinder, head, len(sectors), len(best_sectors))
 
-            sector_result = SectorResult(
-                sector_num=sector.sector_num,
-                linear_sector=linear_sector,
-                is_good=is_good,
-                error_type=error_type,
-                crc_valid=sector.crc_valid,
-                flux_quality=avg_quality,
-            )
+        # Process all expected sectors (1 through sectors_per_track)
+        for sector_num in range(1, sectors_per_track + 1):
+            linear_sector = base_sector + (sector_num - 1)
+
+            if sector_num in best_sectors:
+                sector = best_sectors[sector_num]
+                is_good = sector.data is not None and sector.crc_valid
+                error_type = None
+
+                if not is_good:
+                    if sector.data is None:
+                        error_type = "Missing data"
+                    elif not sector.crc_valid:
+                        error_type = "CRC error"
+                    else:
+                        error_type = "Unknown error"
+
+                sector_result = SectorResult(
+                    sector_num=sector_num,
+                    linear_sector=linear_sector,
+                    is_good=is_good,
+                    error_type=error_type,
+                    crc_valid=sector.crc_valid,
+                    flux_quality=avg_quality,
+                )
+            else:
+                # Sector not found in any revolution
+                is_good = False
+                error_type = "Not found"
+                sector_result = SectorResult(
+                    sector_num=sector_num,
+                    linear_sector=linear_sector,
+                    is_good=False,
+                    error_type="Not found",
+                    crc_valid=False,
+                    flux_quality=0.0,
+                )
 
             track_result.sector_results.append(sector_result)
 

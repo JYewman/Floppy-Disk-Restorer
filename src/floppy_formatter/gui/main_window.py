@@ -734,6 +734,10 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.start_operation()
         self._update_state()
 
+        # IMPORTANT: Stop RPM polling to prevent USB communication conflicts
+        # The scan/format/restore/analyze workers will be reading from the device
+        self._drive_control.pause_rpm_polling()
+
         # Update status strip and start operation
         if operation == "scan":
             self._status_strip.set_scanning(0, 160)
@@ -753,10 +757,11 @@ class MainWindow(QMainWindow):
         # Clean up any existing worker
         self._cleanup_scan_worker()
 
-        # Reset sector map to pending state
+        # Reset sector map to pending state (no animation for instant visual update)
         total_sectors = self._geometry.total_sectors
         for sector in range(total_sectors):
-            self._sector_map.update_sector(sector, SectorStatus.PENDING)
+            self._sector_map.set_sector_status(sector, SectorStatus.PENDING, animate=False)
+        self._sector_map.scene.update()
 
         # Create thread and worker
         self._scan_thread = QThread()
@@ -783,77 +788,123 @@ class MainWindow(QMainWindow):
 
     def _cleanup_scan_worker(self) -> None:
         """Clean up scan worker and thread."""
-        if self._scan_worker:
-            self._scan_worker.cancel()
-            self._scan_worker = None
+        logger.debug("_cleanup_scan_worker: starting cleanup")
+        try:
+            if self._scan_worker:
+                logger.debug("_cleanup_scan_worker: cancelling worker")
+                self._scan_worker.cancel()
+                self._scan_worker = None
+                logger.debug("_cleanup_scan_worker: worker cancelled and cleared")
 
-        if self._scan_thread:
-            if self._scan_thread.isRunning():
-                self._scan_thread.quit()
-                self._scan_thread.wait(3000)
-            self._scan_thread = None
+            if self._scan_thread:
+                logger.debug("_cleanup_scan_worker: cleaning up thread (isRunning=%s)",
+                            self._scan_thread.isRunning())
+                if self._scan_thread.isRunning():
+                    logger.debug("_cleanup_scan_worker: calling thread.quit()")
+                    self._scan_thread.quit()
+                    logger.debug("_cleanup_scan_worker: calling thread.wait(3000)")
+                    if not self._scan_thread.wait(3000):
+                        logger.warning("_cleanup_scan_worker: thread did not stop in 3 seconds")
+                    else:
+                        logger.debug("_cleanup_scan_worker: thread stopped")
+                self._scan_thread = None
+                logger.debug("_cleanup_scan_worker: thread cleared")
+            logger.debug("_cleanup_scan_worker: cleanup complete")
+        except Exception as e:
+            logger.exception("Error in _cleanup_scan_worker: %s", e)
 
     def _on_track_scanned(self, cylinder: int, head: int, track_result: TrackResult) -> None:
         """Handle track scan completion."""
         logger.debug("Track scanned: cyl=%d, head=%d, good=%d, bad=%d",
                      cylinder, head, track_result.good_count, track_result.bad_count)
 
-        # Update sector map with track results
+        # Update sector map with track results - disable animation for immediate visual feedback
         for sector_result in track_result.sector_results:
             if sector_result.is_good:
                 status = SectorStatus.GOOD
             else:
                 status = SectorStatus.BAD
-            self._sector_map.update_sector(sector_result.linear_sector, status)
+            self._sector_map.set_sector_status(sector_result.linear_sector, status, animate=False)
 
         # Show activity on current track
         track_number = cylinder * 2 + head
         start_sector = track_number * self._geometry.sectors_per_track
-        self._sector_map.show_activity(start_sector, ActivityType.READ)
+        self._sector_map.set_active_sector(start_sector, ActivityType.READING)
+
+        # Force scene repaint after each track for visual feedback
+        self._sector_map.scene.update()
 
     def _on_sector_status(self, sector_num: int, is_good: bool, error_type: str) -> None:
         """Handle individual sector status update."""
         status = SectorStatus.GOOD if is_good else SectorStatus.BAD
-        self._sector_map.update_sector(sector_num, status)
+        # Disable animation for immediate visual feedback during scanning
+        self._sector_map.set_sector_status(sector_num, status, animate=False)
 
     def _on_scan_complete(self, result: ScanResult) -> None:
         """Handle scan operation completion."""
-        logger.info("Scan complete: %d good, %d bad sectors",
-                    len(result.good_sectors), len(result.bad_sectors))
+        try:
+            logger.info("Scan complete: %d good, %d bad sectors",
+                        len(result.good_sectors), len(result.bad_sectors))
 
-        # Store result
-        self._last_scan_result = result
+            # Store result
+            self._last_scan_result = result
+            logger.debug("Scan result stored")
 
-        # Calculate disk health percentage
-        total = result.total_sectors
-        good = len(result.good_sectors)
-        if total > 0:
-            self._disk_health = int((good / total) * 100)
-            self._status_strip.set_disk_health(self._disk_health)
+            # Calculate disk health percentage
+            total = result.total_sectors
+            good = len(result.good_sectors)
+            if total > 0:
+                self._disk_health = int((good / total) * 100)
+                logger.debug("Setting health to %d%%", self._disk_health)
+                self._status_strip.set_health(self._disk_health)
+                logger.debug("Health set on status strip")
 
-        # Update status
-        if len(result.bad_sectors) == 0:
-            self._status_strip.set_success(
-                f"Scan complete: All {total} sectors OK"
+            # Update status
+            if len(result.bad_sectors) == 0 and good > 0:
+                logger.debug("All sectors OK")
+                self._status_strip.set_success(
+                    f"Scan complete: All {total} sectors OK"
+                )
+                # Sound disabled - was causing crash in Qt multimedia
+                # play_success_sound()
+            elif good == 0 and len(result.bad_sectors) == 0:
+                # No sectors decoded at all - likely flux decode issue
+                logger.debug("No sectors decoded")
+                self._status_strip.set_warning(
+                    f"Scan complete: No sectors decoded (flux read issue?)"
+                )
+            else:
+                logger.debug("Bad sectors found: %d", len(result.bad_sectors))
+                self._status_strip.set_warning(
+                    f"Scan complete: {len(result.bad_sectors)} bad sectors found"
+                )
+                # Sound disabled - was causing crash in Qt multimedia
+                # try:
+                #     play_error_sound()
+                # except Exception as sound_err:
+                #     logger.warning("Failed to play error sound: %s", sound_err)
+                logger.debug("Status warning set (sound disabled)")
+
+            # Update analytics panel with results
+            logger.debug("Updating analytics panel")
+            self._analytics_panel.update_overview(
+                total_sectors=result.total_sectors,
+                good_sectors=len(result.good_sectors),
+                bad_sectors=len(result.bad_sectors),
+                recovered_sectors=0,
+                health_score=self._disk_health,
             )
-            play_success_sound()
-        else:
-            self._status_strip.set_warning(
-                f"Scan complete: {len(result.bad_sectors)} bad sectors found"
-            )
-            play_error_sound()
-
-        # Update analytics panel with results
-        self._analytics_panel.update_overview(
-            total_sectors=result.total_sectors,
-            good_sectors=len(result.good_sectors),
-            bad_sectors=len(result.bad_sectors),
-            recovered_sectors=0,
-            health_score=self._disk_health,
-        )
+            logger.debug("Analytics panel updated")
+            logger.info("_on_scan_complete finished successfully")
+        except Exception as e:
+            logger.exception("Error in _on_scan_complete: %s", e)
+            self._status_strip.set_error(f"Scan completion error: {e}")
 
     def _on_scan_progress(self, progress: int) -> None:
         """Handle scan progress update."""
+        # Update operation toolbar progress bar
+        self._operation_toolbar.set_progress(progress)
+
         # Update status strip with progress
         total_tracks = self._geometry.cylinders * self._geometry.heads
         current_track = int((progress / 100) * total_tracks)
@@ -867,9 +918,15 @@ class MainWindow(QMainWindow):
 
     def _on_scan_finished(self) -> None:
         """Handle scan worker finished (cleanup)."""
-        logger.debug("Scan worker finished")
-        self._on_operation_complete()
-        self._cleanup_scan_worker()
+        try:
+            logger.info("_on_scan_finished called - starting cleanup")
+            logger.debug("Calling _on_operation_complete")
+            self._on_operation_complete()
+            logger.debug("_on_operation_complete returned, calling _cleanup_scan_worker")
+            self._cleanup_scan_worker()
+            logger.info("_on_scan_finished completed successfully")
+        except Exception as e:
+            logger.exception("Error in _on_scan_finished: %s", e)
 
     # =========================================================================
     # Format Operation
@@ -879,10 +936,11 @@ class MainWindow(QMainWindow):
         """Start the format operation with worker thread."""
         self._cleanup_format_worker()
 
-        # Reset sector map to pending state
+        # Reset sector map to pending state (no animation for instant visual update)
         total_sectors = self._geometry.total_sectors
         for sector in range(total_sectors):
-            self._sector_map.update_sector(sector, SectorStatus.PENDING)
+            self._sector_map.set_sector_status(sector, SectorStatus.PENDING, animate=False)
+        self._sector_map.scene.update()
 
         # Create thread and worker
         self._format_thread = QThread()
@@ -927,9 +985,12 @@ class MainWindow(QMainWindow):
 
         status = SectorStatus.GOOD if success else SectorStatus.BAD
         for i in range(self._geometry.sectors_per_track):
-            self._sector_map.update_sector(start_sector + i, status)
+            self._sector_map.set_sector_status(start_sector + i, status, animate=False)
 
-        self._sector_map.show_activity(start_sector, ActivityType.WRITE)
+        self._sector_map.set_active_sector(start_sector, ActivityType.WRITING)
+
+        # Force scene repaint for visual feedback
+        self._sector_map.scene.update()
 
     def _on_track_verified(self, cylinder: int, head: int, verified_ok: bool) -> None:
         """Handle track verification completion."""
@@ -938,7 +999,9 @@ class MainWindow(QMainWindow):
             track_number = cylinder * 2 + head
             start_sector = track_number * self._geometry.sectors_per_track
             for i in range(self._geometry.sectors_per_track):
-                self._sector_map.update_sector(start_sector + i, SectorStatus.WEAK)
+                self._sector_map.set_sector_status(start_sector + i, SectorStatus.WEAK, animate=False)
+            # Force scene repaint
+            self._sector_map.scene.update()
 
     def _on_format_complete(self, result: FormatResult) -> None:
         """Handle format operation completion."""
@@ -958,6 +1021,10 @@ class MainWindow(QMainWindow):
 
     def _on_format_progress(self, progress: int) -> None:
         """Handle format progress update."""
+        # Update operation toolbar progress bar
+        self._operation_toolbar.set_progress(progress)
+
+        # Update status strip
         total_tracks = self._geometry.cylinders * self._geometry.heads
         current_track = int((progress / 100) * total_tracks)
         self._status_strip.set_formatting(current_track, total_tracks)
@@ -982,16 +1049,50 @@ class MainWindow(QMainWindow):
         """Start the restore operation with worker thread."""
         self._cleanup_restore_worker()
 
+        # Get operation mode from toolbar and map to recovery level
+        mode_text = self._operation_toolbar.get_selected_mode()
+
+        # Map operation mode to recovery level and settings
+        if mode_text == "Quick":
+            recovery_level = RecoveryLevel.STANDARD
+            passes = 3
+            pll_tuning = False
+            bit_slip_recovery = False
+        elif mode_text == "Standard":
+            recovery_level = RecoveryLevel.STANDARD
+            passes = 10
+            pll_tuning = False
+            bit_slip_recovery = False
+        elif mode_text == "Thorough":
+            recovery_level = RecoveryLevel.AGGRESSIVE
+            passes = 20
+            pll_tuning = True
+            bit_slip_recovery = False
+        elif mode_text == "Forensic":
+            recovery_level = RecoveryLevel.FORENSIC
+            passes = 50
+            pll_tuning = True
+            bit_slip_recovery = True
+        else:
+            # Default to Standard
+            recovery_level = RecoveryLevel.STANDARD
+            passes = 10
+            pll_tuning = False
+            bit_slip_recovery = False
+
+        logger.info("Starting restore with mode=%s, level=%s, pll=%s, bitslip=%s",
+                    mode_text, recovery_level.name, pll_tuning, bit_slip_recovery)
+
         # Create restore config
         config = RestoreConfig(
             convergence_mode=True,
-            passes=10,
+            passes=passes,
             convergence_threshold=3,
             multiread_mode=True,
             multiread_attempts=5,
-            recovery_level=RecoveryLevel.AGGRESSIVE,
-            pll_tuning=True,
-            bit_slip_recovery=True,
+            recovery_level=recovery_level,
+            pll_tuning=pll_tuning,
+            bit_slip_recovery=bit_slip_recovery,
         )
 
         # Create thread and worker
@@ -1043,18 +1144,20 @@ class MainWindow(QMainWindow):
     def _on_sector_recovered(self, sector_num: int, technique: str) -> None:
         """Handle sector recovery success."""
         logger.debug("Sector recovered: %d using %s", sector_num, technique)
-        self._sector_map.update_sector(sector_num, SectorStatus.RECOVERED)
-        self._sector_map.show_activity(sector_num, ActivityType.WRITE)
+        self._sector_map.set_sector_status(sector_num, SectorStatus.RECOVERED, animate=False)
+        self._sector_map.set_active_sector(sector_num, ActivityType.WRITING)
+        self._sector_map.scene.update()
 
     def _on_sector_failed(self, sector_num: int, reason: str) -> None:
         """Handle sector recovery failure."""
         logger.debug("Sector failed: %d - %s", sector_num, reason)
-        self._sector_map.update_sector(sector_num, SectorStatus.BAD)
+        self._sector_map.set_sector_status(sector_num, SectorStatus.BAD, animate=False)
+        self._sector_map.scene.update()
 
     def _on_restore_initial_scan_sector(self, sector_num: int, is_good: bool) -> None:
         """Handle initial scan sector result during restore."""
         status = SectorStatus.GOOD if is_good else SectorStatus.BAD
-        self._sector_map.update_sector(sector_num, status)
+        self._sector_map.set_sector_status(sector_num, status, animate=False)
 
     def _on_restore_complete(self, stats: RecoveryStats) -> None:
         """Handle restore operation completion."""
@@ -1082,11 +1185,15 @@ class MainWindow(QMainWindow):
         if self._geometry.total_sectors > 0:
             good_sectors = self._geometry.total_sectors - stats.final_bad_sectors
             self._disk_health = int((good_sectors / self._geometry.total_sectors) * 100)
-            self._status_strip.set_disk_health(self._disk_health)
+            self._status_strip.set_health(self._disk_health)
 
     def _on_restore_progress(self, progress: int) -> None:
         """Handle restore progress update."""
-        pass  # Progress is handled by pass_started signal
+        # Update operation toolbar progress bar
+        self._operation_toolbar.set_progress(progress)
+
+        # Update status strip with progress info
+        self._status_strip.set_operation_status(f"Restoring: {progress}%")
 
     def _on_restore_error(self, error_message: str) -> None:
         """Handle restore error."""
@@ -1167,9 +1274,12 @@ class MainWindow(QMainWindow):
         status = grade_status.get(result.grade, SectorStatus.UNKNOWN)
 
         for i in range(self._geometry.sectors_per_track):
-            self._sector_map.update_sector(start_sector + i, status)
+            self._sector_map.set_sector_status(start_sector + i, status, animate=False)
 
-        self._sector_map.show_activity(start_sector, ActivityType.READ)
+        self._sector_map.set_active_sector(start_sector, ActivityType.READING)
+
+        # Force scene repaint for visual feedback
+        self._sector_map.scene.update()
 
     def _on_flux_quality_update(self, cylinder: int, head: int, score: float) -> None:
         """Handle flux quality update."""
@@ -1182,7 +1292,7 @@ class MainWindow(QMainWindow):
 
         # Update disk health
         self._disk_health = int(result.overall_quality_score)
-        self._status_strip.set_disk_health(self._disk_health)
+        self._status_strip.set_health(self._disk_health)
 
         grade = result.overall_grade
         if grade in ('A', 'B'):
@@ -1218,6 +1328,10 @@ class MainWindow(QMainWindow):
 
     def _on_analyze_progress(self, progress: int) -> None:
         """Handle analyze progress update."""
+        # Update operation toolbar progress bar
+        self._operation_toolbar.set_progress(progress)
+
+        # Update status strip
         total_tracks = self._geometry.cylinders * self._geometry.heads
         current_track = int((progress / 100) * total_tracks)
         self._status_strip.set_analyzing(f"track {current_track}/{total_tracks}")
@@ -1255,6 +1369,17 @@ class MainWindow(QMainWindow):
         self._status_strip.set_warning("Operation cancelled")
         self._update_state()
 
+        # Turn off the motor
+        if self._device and self._device.is_connected():
+            try:
+                self._device.motor_off()
+                logger.debug("Motor stopped after cancel")
+            except Exception as motor_err:
+                logger.warning("Failed to stop motor: %s", motor_err)
+
+        # Resume RPM polling now that the operation is stopped
+        self._drive_control.resume_rpm_polling()
+
         # Cleanup all workers after a short delay to let them finish
         QTimer.singleShot(500, self._cleanup_all_workers)
 
@@ -1284,20 +1409,42 @@ class MainWindow(QMainWindow):
         self._status_strip.set_warning("Operation paused")
 
     def _on_operation_complete(self) -> None:
-        """Handle operation completion (placeholder)."""
-        self._state = WorkbenchState.IDLE
-        self._operation_toolbar.stop_operation()
-        self._operation_toolbar.set_progress(100)
-        self._status_strip.set_success("Operation complete")
+        """Handle operation completion (cleanup and state reset)."""
+        try:
+            logger.debug("_on_operation_complete: setting state to IDLE")
+            self._state = WorkbenchState.IDLE
+            logger.debug("_on_operation_complete: stopping operation toolbar")
+            self._operation_toolbar.stop_operation()
+            self._operation_toolbar.set_progress(100)
 
-        # Play completion sound
-        play_complete_sound()
+            # Don't overwrite status - scan_complete/format_complete already set it
 
-        # Simulate health update after scan
-        self._disk_health = 95
-        self._status_strip.set_health(self._disk_health)
+            # Play completion sound - DISABLED due to Qt multimedia crash
+            # logger.debug("_on_operation_complete: playing completion sound")
+            # try:
+            #     play_complete_sound()
+            # except Exception as sound_err:
+            #     logger.warning("Failed to play completion sound: %s", sound_err)
+            logger.debug("_on_operation_complete: sounds disabled")
 
-        self._update_state()
+            # Turn off the motor now that the operation is complete
+            logger.debug("_on_operation_complete: stopping motor")
+            if self._device and self._device.is_connected():
+                try:
+                    self._device.motor_off()
+                    logger.debug("_on_operation_complete: motor stopped")
+                except Exception as motor_err:
+                    logger.warning("Failed to stop motor: %s", motor_err)
+
+            # Resume RPM polling now that the operation is complete
+            logger.debug("_on_operation_complete: resuming RPM polling")
+            self._drive_control.resume_rpm_polling()
+
+            logger.debug("_on_operation_complete: updating state")
+            self._update_state()
+            logger.debug("_on_operation_complete: completed")
+        except Exception as e:
+            logger.exception("Error in _on_operation_complete: %s", e)
 
     def _on_operation_error(self, message: str) -> None:
         """
@@ -1312,6 +1459,9 @@ class MainWindow(QMainWindow):
 
         # Play error sound
         play_error_sound()
+
+        # Resume RPM polling now that the operation has ended
+        self._drive_control.resume_rpm_polling()
 
         self._update_state()
 
@@ -1329,6 +1479,9 @@ class MainWindow(QMainWindow):
 
         # Play success sound
         play_success_sound()
+
+        # Resume RPM polling now that the operation is complete
+        self._drive_control.resume_rpm_polling()
 
         self._update_state()
 

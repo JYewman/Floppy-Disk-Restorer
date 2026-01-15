@@ -638,22 +638,30 @@ def play_sound(sound_type: SoundType) -> None:
 
 def play_complete_sound() -> None:
     """Play the operation complete sound."""
-    get_sound_manager().play_operation_complete()
+    # DISABLED: Qt multimedia causing crashes on some systems
+    # get_sound_manager().play_operation_complete()
+    pass
 
 
 def play_error_sound() -> None:
     """Play the error sound."""
-    get_sound_manager().play_error()
+    # DISABLED: Qt multimedia causing crashes on some systems
+    # get_sound_manager().play_error()
+    pass
 
 
 def play_success_sound() -> None:
     """Play the recovery success sound."""
-    get_sound_manager().play_recovery_success()
+    # DISABLED: Qt multimedia causing crashes on some systems
+    # get_sound_manager().play_recovery_success()
+    pass
 
 
 def play_warning_sound() -> None:
     """Play the warning sound."""
-    get_sound_manager().play_warning()
+    # DISABLED: Qt multimedia causing crashes on some systems
+    # get_sound_manager().play_warning()
+    pass
 
 
 # =============================================================================

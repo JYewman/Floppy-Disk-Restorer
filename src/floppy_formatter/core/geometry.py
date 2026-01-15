@@ -181,12 +181,12 @@ def get_greaseweazle_geometry(
             # Import here to avoid circular imports
             from floppy_formatter.hardware import (
                 read_track_flux,
-                decode_flux_to_sectors,
+                decode_flux_data,
             )
 
             # Read track 0, head 0 to detect format
             flux_data = read_track_flux(device, cylinder=0, head=0, revolutions=1.2)
-            sectors = decode_flux_to_sectors(flux_data)
+            sectors = decode_flux_data(flux_data)
 
             # Count successfully decoded sectors
             sector_numbers = [s.sector for s in sectors if s.data is not None]

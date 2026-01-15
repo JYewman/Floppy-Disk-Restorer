@@ -39,6 +39,8 @@ dependencies = [
     "rich>=13.7.0",
     "numpy>=1.26.0",
     "reportlab>=4.0.0",
+    "bitarray>=2.8.0",
+    "crcmod>=1.7",
     "greaseweazle @ git+https://github.com/keirf/greaseweazle@latest",
 ]
 
@@ -75,6 +77,8 @@ pydantic = "^2.5.0"
 rich = "^13.7.0"
 numpy = "^1.26.0"
 reportlab = "^4.0.0"
+bitarray = "^2.8.0"
+crcmod = "^1.7"
 pyqtgraph = {version = "^0.13.0", optional = true}
 greaseweazle = {git = "https://github.com/keirf/greaseweazle", branch = "latest"}
 

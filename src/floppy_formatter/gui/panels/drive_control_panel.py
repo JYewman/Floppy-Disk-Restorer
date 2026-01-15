@@ -807,6 +807,27 @@ class DriveControlPanel(QWidget):
         except Exception:
             return "Greaseweazle"
 
+    def pause_rpm_polling(self) -> None:
+        """
+        Pause RPM polling during operations.
+
+        Call this before starting any operation that uses the device
+        to prevent USB communication conflicts.
+        """
+        if self._rpm_timer.isActive():
+            logger.debug("Pausing RPM polling")
+            self._rpm_timer.stop()
+
+    def resume_rpm_polling(self) -> None:
+        """
+        Resume RPM polling after operations complete.
+
+        Call this after operations finish to restore RPM display updates.
+        """
+        if self._motor_on and not self._rpm_timer.isActive():
+            logger.debug("Resuming RPM polling")
+            self._rpm_timer.start(500)
+
     def cleanup(self) -> None:
         """Clean up resources before destruction."""
         self._rpm_timer.stop()

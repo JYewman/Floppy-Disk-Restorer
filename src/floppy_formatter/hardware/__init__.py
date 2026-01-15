@@ -508,6 +508,7 @@ __all__ = [
     'MFMEncoder',
     'MFMBitstream',
     'decode_flux_to_sectors',
+    'decode_flux_data',
     'encode_sectors_to_flux',
     'verify_sector_crc',
     'calculate_crc',
@@ -554,3 +555,39 @@ from .flux_io import (
     read_track_flux, write_track_flux, erase_track_flux,
     analyze_flux_quality, compare_flux_captures, merge_flux_captures,
 )
+
+
+# =============================================================================
+# PLL Decoder Helper
+# =============================================================================
+
+def decode_flux_data(flux_data: 'FluxData') -> List['SectorData']:
+    """
+    Decode flux data to sectors using PLL decoder (preferred) or simple decoder (fallback).
+
+    The PLL (Phase-Locked Loop) decoder dynamically adjusts phase and frequency to
+    track timing variations, providing much more robust decoding than the simple
+    division-based method.
+
+    Args:
+        flux_data: FluxData from track read
+
+    Returns:
+        List of SectorData objects
+    """
+    # Try PLL decoder first (more robust for real-world flux data)
+    try:
+        from .pll_decoder import decode_flux_with_pll
+        sectors = decode_flux_with_pll(flux_data)
+        if sectors:
+            logger.debug("PLL decoder returned %d sectors", len(sectors))
+            return sectors
+    except ImportError:
+        logger.debug("PLL decoder not available, using simple decoder")
+    except Exception as e:
+        logger.warning("PLL decoder failed: %s, falling back to simple decoder", e)
+
+    # Fall back to simple decoder
+    sectors = decode_flux_to_sectors(flux_data)
+    logger.debug("Simple decoder returned %d sectors", len(sectors))
+    return sectors

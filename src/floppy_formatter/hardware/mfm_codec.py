@@ -185,9 +185,25 @@ class MFMBitstream:
         bits = []
         times_us = flux_data.get_times_microseconds()
 
+        # Noise filtering threshold - pulses shorter than this are considered noise
+        # and are accumulated into the next pulse. For HD MFM, shortest valid pulse
+        # is 2 bit cells = 4µs, so anything under ~2.5µs is likely noise.
+        noise_threshold_us = bit_cell_us * 1.25  # 2.5µs for HD
+
+        accumulated_time = 0.0
+        filtered_count = 0
+
         for time_us in times_us:
+            # Accumulate time
+            accumulated_time += time_us
+
+            # If accumulated time is too short, it's noise - skip and accumulate more
+            if accumulated_time < noise_threshold_us:
+                filtered_count += 1
+                continue
+
             # Determine number of bit cells (zeros before the 1)
-            num_cells = round(time_us / bit_cell_us)
+            num_cells = round(accumulated_time / bit_cell_us)
 
             # Clamp to valid MFM range (2-4 bit cells)
             num_cells = max(2, min(4, num_cells))
@@ -195,6 +211,12 @@ class MFMBitstream:
             # Add zeros then a one
             bits.extend([0] * (num_cells - 1))
             bits.append(1)
+
+            # Reset accumulator
+            accumulated_time = 0.0
+
+        if filtered_count > 0:
+            logger.debug("Filtered %d noise pulses (threshold=%.2fµs)", filtered_count, noise_threshold_us)
 
         return cls(bits=bits)
 
@@ -403,20 +425,74 @@ class MFMDecoder:
         Returns:
             List of SectorData for each decoded sector
         """
-        logger.debug("Decoding track C%d H%d", flux_data.cylinder, flux_data.head)
+        logger.debug("Decoding track C%d H%d (sample_freq=%d Hz, %d transitions)",
+                    flux_data.cylinder, flux_data.head, flux_data.sample_freq, len(flux_data.flux_times))
+
+        # Try to auto-detect bit cell width from flux data
+        detected_bit_cell = flux_data.estimate_bit_cell_width()
+        if detected_bit_cell is not None:
+            # Use detected bit cell if it's reasonable
+            # 0.9-1.1 µs = ED/high-rate, 1.8-2.2 µs = HD, 3.5-4.5 µs = DD
+            if 0.9 <= detected_bit_cell <= 6.0:
+                bit_cell_to_use = detected_bit_cell
+                logger.debug("Using detected bit cell: %.2f µs (expected: %.2f µs)",
+                            detected_bit_cell, self.bit_cell_us)
+            else:
+                bit_cell_to_use = self.bit_cell_us
+                logger.warning("Detected bit cell %.2f µs out of range, using default %.2f µs",
+                              detected_bit_cell, self.bit_cell_us)
+        else:
+            bit_cell_to_use = self.bit_cell_us
+            logger.debug("Could not detect bit cell, using default: %.2f µs", self.bit_cell_us)
+
+        # Log flux timing statistics for debugging
+        times_us = flux_data.get_times_microseconds()
+        if times_us:
+            # Count pulse widths in MFM ranges
+            short = sum(1 for t in times_us if 3.0 <= t < 5.0)
+            medium = sum(1 for t in times_us if 5.0 <= t < 7.0)
+            long = sum(1 for t in times_us if 7.0 <= t < 9.0)
+            too_short = sum(1 for t in times_us if t < 3.0)
+            too_long = sum(1 for t in times_us if t > 9.0)
+
+            logger.debug("Flux timing distribution: short(4µs)=%d, medium(6µs)=%d, long(8µs)=%d, too_short(<3µs)=%d, too_long(>9µs)=%d",
+                        short, medium, long, too_short, too_long)
+
+            # Log actual timing statistics
+            if len(times_us) > 100:
+                import statistics
+                min_t = min(times_us)
+                max_t = max(times_us)
+                mean_t = statistics.mean(times_us)
+                median_t = statistics.median(times_us)
+                logger.debug("Flux timing stats: min=%.2fµs, max=%.2fµs, mean=%.2fµs, median=%.2fµs",
+                            min_t, max_t, mean_t, median_t)
+
+            # If most pulses are out of range, this might explain decode failure
+            total = len(times_us)
+            out_of_range = too_short + too_long
+            if out_of_range > total * 0.3:
+                logger.warning("%.1f%% of flux pulses are outside MFM timing range (%.1f%% too short, %.1f%% too long)",
+                              (out_of_range / total) * 100,
+                              (too_short / total) * 100,
+                              (too_long / total) * 100)
 
         # Convert flux to bit stream
-        bitstream = MFMBitstream.from_flux(flux_data, self.bit_cell_us)
+        bitstream = MFMBitstream.from_flux(flux_data, bit_cell_to_use)
 
         sectors = []
         found_sectors = set()
+        sync_search_count = 0
+        sync_found_count = 0
 
         # Search for sector headers
         while bitstream.remaining() > 1000:
             # Find A1 sync pattern
+            sync_search_count += 1
             sync_pos = bitstream.find_a1_sync()
             if sync_pos < 0:
                 break
+            sync_found_count += 1
 
             # Move to sync position
             bitstream.seek(sync_pos)
@@ -437,7 +513,8 @@ class MFMDecoder:
                 # Skip past this sync and continue searching
                 bitstream.skip(16)
 
-        logger.debug("Decoded %d sectors from track", len(sectors))
+        logger.debug("Decoded %d sectors from track (found %d A1 syncs in %d searches, bitstream=%d bits)",
+                    len(sectors), sync_found_count, sync_search_count, len(bitstream))
 
         return sorted(sectors, key=lambda s: s.sector)
 
@@ -460,23 +537,30 @@ class MFMDecoder:
             # Read 3 A1 sync bytes + address mark
             bitstream.skip(16)  # Skip first A1 (already found)
 
-            # Verify remaining sync bytes
-            for _ in range(2):
+            # Verify remaining sync bytes (need 2 more A1s after the first)
+            for i in range(2):
                 sync_check = bitstream.find_a1_sync()
                 if sync_check != bitstream.position:
+                    logger.debug("Sector decode failed: A1 sync %d not at expected position "
+                                "(found at %d, expected %d)", i+2, sync_check, bitstream.position)
                     return None
                 bitstream.skip(16)
 
             # Read address mark
             mark = bitstream.read_byte()
             if mark is None:
+                logger.debug("Sector decode failed: could not read address mark")
                 return None
+
+            logger.debug("Found address mark: 0x%02X (IDAM=0x%02X, DAM=0x%02X)",
+                        mark, IDAM_MARK, DAM_MARK)
 
             if mark == IDAM_MARK:
                 # This is a sector header (ID Address Mark)
                 return self._decode_sector_with_header(bitstream, start_pos)
 
             # Not an IDAM, skip
+            logger.debug("Address mark 0x%02X is not IDAM, skipping", mark)
             return None
 
         except Exception as e:

@@ -71,12 +71,16 @@ class SectorStatus(Enum):
     Each state has an associated color for visualization.
     """
     UNSCANNED = auto()    # Gray - not yet scanned
+    PENDING = auto()      # Gray - awaiting scan (alias for UNSCANNED)
     GOOD = auto()         # Green - sector reads correctly
     BAD = auto()          # Red - sector has errors
+    WEAK = auto()         # Yellow-orange - sector readable but marginal quality
+    RECOVERED = auto()    # Light green - sector was recovered successfully
     RECOVERING = auto()   # Yellow - recovery in progress
     READING = auto()      # Blue - currently being read
     WRITING = auto()      # Purple - currently being written
     VERIFYING = auto()    # Orange - being verified
+    UNKNOWN = auto()      # Gray - status not determined
 
 
 class ViewMode(Enum):
@@ -300,12 +304,16 @@ class SectorWedgeItem(QGraphicsItem):
     # Color definitions for different sector states
     STATUS_COLORS = {
         SectorStatus.UNSCANNED: QColor(80, 80, 80),      # Dark gray
+        SectorStatus.PENDING: QColor(80, 80, 80),        # Dark gray (same as unscanned)
         SectorStatus.GOOD: QColor(0, 200, 0),            # Bright green
         SectorStatus.BAD: QColor(200, 50, 50),           # Red
+        SectorStatus.WEAK: QColor(255, 200, 50),         # Yellow - marginal quality
+        SectorStatus.RECOVERED: QColor(100, 220, 100),   # Light green - recovered
         SectorStatus.RECOVERING: QColor(255, 180, 0),    # Yellow/Orange
         SectorStatus.READING: QColor(50, 120, 220),      # Blue
         SectorStatus.WRITING: QColor(150, 50, 200),      # Purple
         SectorStatus.VERIFYING: QColor(255, 140, 50),    # Orange
+        SectorStatus.UNKNOWN: QColor(100, 100, 100),     # Gray
     }
 
     # Quality gradient colors (worst to best)
@@ -1375,6 +1383,8 @@ class CircularSectorMap(QGraphicsView):
         legend_items = [
             ("Good", SectorWedgeItem.STATUS_COLORS[SectorStatus.GOOD]),
             ("Bad", SectorWedgeItem.STATUS_COLORS[SectorStatus.BAD]),
+            ("Weak", SectorWedgeItem.STATUS_COLORS[SectorStatus.WEAK]),
+            ("Recovered", SectorWedgeItem.STATUS_COLORS[SectorStatus.RECOVERED]),
             ("Reading", SectorWedgeItem.STATUS_COLORS[SectorStatus.READING]),
             ("Writing", SectorWedgeItem.STATUS_COLORS[SectorStatus.WRITING]),
             ("Recovering", SectorWedgeItem.STATUS_COLORS[SectorStatus.RECOVERING]),

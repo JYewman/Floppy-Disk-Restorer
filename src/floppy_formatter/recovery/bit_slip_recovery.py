@@ -764,7 +764,7 @@ def _try_decode_sector(flux: FluxCapture, sector_num: int) -> Optional[bytes]:
         Sector data if successful, None if decode failed
     """
     try:
-        from floppy_formatter.hardware import FluxData, decode_flux_to_sectors
+        from floppy_formatter.hardware import FluxData, decode_flux_data
 
         flux_data = FluxData(
             flux_times=flux.raw_timings,
@@ -774,7 +774,7 @@ def _try_decode_sector(flux: FluxCapture, sector_num: int) -> Optional[bytes]:
             head=flux.head,
         )
 
-        sectors = decode_flux_to_sectors(flux_data)
+        sectors = decode_flux_data(flux_data)
 
         for sector in sectors:
             if sector.sector == sector_num and sector.is_good:
@@ -799,7 +799,7 @@ def _decode_corrected_flux(
         Sector data if successful, None if decode failed
     """
     try:
-        from floppy_formatter.hardware import FluxData, decode_flux_to_sectors
+        from floppy_formatter.hardware import FluxData, decode_flux_data
 
         # Convert microseconds back to sample counts
         sample_rate = original_flux.sample_rate or 72_000_000
@@ -814,7 +814,7 @@ def _decode_corrected_flux(
             head=original_flux.head,
         )
 
-        sectors = decode_flux_to_sectors(flux_data)
+        sectors = decode_flux_data(flux_data)
 
         for sector in sectors:
             if sector.sector == sector_num:

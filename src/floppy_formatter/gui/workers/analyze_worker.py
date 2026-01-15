@@ -100,6 +100,8 @@ class TrackAnalysisResult:
         peak_positions: Detected histogram peak positions
         weak_bit_count: Number of weak bits detected
         analysis_time_ms: Time taken to analyze in milliseconds
+        copy_protection: Copy protection analysis result
+        format_analysis: Format analysis result
     """
     cylinder: int
     head: int
@@ -111,6 +113,8 @@ class TrackAnalysisResult:
     peak_positions: List[float] = field(default_factory=list)
     weak_bit_count: int = 0
     analysis_time_ms: float = 0.0
+    copy_protection: Optional[Any] = None
+    format_analysis: Optional[Any] = None
 
     @property
     def track_number(self) -> int:
@@ -145,6 +149,11 @@ class DiskAnalysisResult:
         analysis_duration: Total analysis time in seconds
         timestamp: When analysis was performed
         recommendations: List of recommendations based on analysis
+        is_copy_protected: Whether any copy protection detected
+        protection_types: List of detected protection types
+        format_type: Detected disk format type
+        format_is_standard: Whether format is standard
+        protected_track_count: Number of tracks with copy protection
     """
     total_tracks: int
     tracks_analyzed: int = 0
@@ -160,6 +169,11 @@ class DiskAnalysisResult:
     analysis_duration: float = 0.0
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     recommendations: List[str] = field(default_factory=list)
+    is_copy_protected: bool = False
+    protection_types: List[str] = field(default_factory=list)
+    format_type: str = "UNKNOWN"
+    format_is_standard: bool = True
+    protected_track_count: int = 0
 
     @property
     def health_percentage(self) -> float:
@@ -350,6 +364,27 @@ class AnalyzeWorker(GreaseweazleWorker):
                             track_result.quality.jitter_rms_ns / 50
                         )
 
+                # Forensics analysis (copy protection and format analysis)
+                if self._config.includes(AnalysisComponent.FORENSICS):
+                    from floppy_formatter.analysis.forensics import (
+                        detect_copy_protection, analyze_format_type
+                    )
+
+                    # Analyze copy protection
+                    protection_result = detect_copy_protection(capture)
+                    track_result.copy_protection = protection_result
+
+                    # Analyze format type
+                    format_result = analyze_format_type(capture)
+                    track_result.format_analysis = format_result
+
+                    logger.debug(
+                        "Forensics C%d:H%d: protected=%s, format=%s",
+                        cylinder, head,
+                        protection_result.is_protected,
+                        format_result.format_type.name
+                    )
+
             except Exception as e:
                 logger.warning("Analysis failed for C%d:H%d: %s", cylinder, head, e)
                 track_result.encoding_type = "ERROR"
@@ -401,6 +436,33 @@ class AnalyzeWorker(GreaseweazleWorker):
                 result.weak_track_count += 1
             if tr.grade in ('D', 'F'):
                 result.bad_track_count += 1
+
+        # Aggregate forensics results
+        if self._config.includes(AnalysisComponent.FORENSICS):
+            all_protection_types = set()
+            format_counts: Dict[str, int] = {}
+            non_standard_count = 0
+
+            for tr in result.track_results:
+                # Copy protection summary
+                if tr.copy_protection and tr.copy_protection.is_protected:
+                    result.protected_track_count += 1
+                    for pt in tr.copy_protection.protection_types:
+                        all_protection_types.add(pt.name)
+
+                # Format analysis summary
+                if tr.format_analysis:
+                    fmt_name = tr.format_analysis.format_type.name
+                    format_counts[fmt_name] = format_counts.get(fmt_name, 0) + 1
+                    if not tr.format_analysis.is_standard:
+                        non_standard_count += 1
+
+            result.is_copy_protected = result.protected_track_count > 0
+            result.protection_types = list(all_protection_types)
+
+            if format_counts:
+                result.format_type = max(format_counts, key=format_counts.get)
+                result.format_is_standard = non_standard_count == 0
 
         # Generate recommendations
         result.recommendations = self._generate_recommendations(result)
@@ -491,6 +553,22 @@ class AnalyzeWorker(GreaseweazleWorker):
         # Weak bit recommendations
         if result.weak_track_count > 5:
             recommendations.append("Multiple tracks with weak bits - multi-capture recovery recommended")
+
+        # Forensics recommendations
+        if result.is_copy_protected:
+            recommendations.append(
+                f"Copy protection detected on {result.protected_track_count} tracks - "
+                "use raw flux capture for preservation"
+            )
+            if result.protection_types:
+                types_str = ", ".join(result.protection_types[:3])
+                recommendations.append(f"Protection types: {types_str}")
+
+        if not result.format_is_standard:
+            recommendations.append(
+                f"Non-standard format detected ({result.format_type}) - "
+                "analyze format before standard decode"
+            )
 
         return recommendations
 

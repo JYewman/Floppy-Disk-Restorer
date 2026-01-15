@@ -704,8 +704,16 @@ class GreaseweazleDevice(IFloppyDevice):
         logger.info("Erasing track C%d H%d", cylinder, head)
 
         try:
-            self._unit.erase_track()
-            logger.debug("Successfully erased track C%d H%d", cylinder, head)
+            # Calculate erase duration in ticks
+            # For HD at 300 RPM: one revolution = 200ms
+            # We erase for ~1.5 revolutions to ensure complete coverage
+            # Sample rate is typically 72MHz for Greaseweazle V4
+            sample_rate = self._unit.sample_freq if hasattr(self._unit, 'sample_freq') else 72_000_000
+            erase_duration_us = 300_000  # 300ms = 1.5 revolutions at 300 RPM
+            erase_ticks = int((erase_duration_us / 1_000_000) * sample_rate)
+
+            self._unit.erase_track(erase_ticks)
+            logger.debug("Successfully erased track C%d H%d (ticks=%d)", cylinder, head, erase_ticks)
 
         except Exception as e:
             logger.error("Failed to erase track C%d H%d: %s", cylinder, head, e)

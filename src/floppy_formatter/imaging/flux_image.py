@@ -1259,7 +1259,7 @@ def convert_flux_to_sector(flux_image: FluxImage) -> 'SectorImage':
     Returns:
         SectorImage with decoded sector data
     """
-    from floppy_formatter.hardware import decode_flux_to_sectors
+    from floppy_formatter.hardware import decode_flux_data
     from .sector_image import SectorImage
 
     sector_image = SectorImage()
@@ -1272,7 +1272,7 @@ def convert_flux_to_sector(flux_image: FluxImage) -> 'SectorImage':
                 continue
 
             # Decode sectors
-            sectors = decode_flux_to_sectors(flux)
+            sectors = decode_flux_data(flux)
 
             for sector in sectors:
                 try:
@@ -1388,7 +1388,7 @@ def read_disk_to_image(device: 'GreaseweazleDevice',
     Raises:
         ImageWriteError: If save fails
     """
-    from floppy_formatter.hardware import decode_flux_to_sectors
+    from floppy_formatter.hardware import decode_flux_data
     from .sector_image import SectorImage
 
     logger.info("Reading disk to %s (format: %s)", output_path, format_type.name)
@@ -1437,7 +1437,7 @@ def read_disk_to_image(device: 'GreaseweazleDevice',
                     progress_callback(track_num, total_tracks, f"Reading C{cyl} H{head}")
 
                 flux = device.read_track(cyl, head)
-                sectors = decode_flux_to_sectors(flux)
+                sectors = decode_flux_data(flux)
 
                 for sector in sectors:
                     if sector.is_good and 1 <= sector.sector <= sector_image.sectors_per_track:
@@ -1463,7 +1463,7 @@ def write_image_to_disk(device: 'GreaseweazleDevice',
     Returns:
         WriteResult with operation details
     """
-    from floppy_formatter.hardware import encode_sectors_to_flux, decode_flux_to_sectors
+    from floppy_formatter.hardware import encode_sectors_to_flux, decode_flux_data
     from .sector_image import SectorImage
 
     logger.info("Writing %s to disk (verify: %s)", input_path, verify)
@@ -1537,12 +1537,12 @@ def write_image_to_disk(device: 'GreaseweazleDevice',
                     if is_flux_format:
                         # For flux images, we can't easily verify byte-for-byte
                         # Just check if we can decode sectors
-                        sectors = decode_flux_to_sectors(read_flux)
+                        sectors = decode_flux_data(read_flux)
                         if sectors:
                             result.tracks_verified += 1
                     else:
                         # Decode and compare
-                        sectors = decode_flux_to_sectors(read_flux)
+                        sectors = decode_flux_data(read_flux)
                         all_match = True
                         for sector in sectors:
                             if sector.is_good and 1 <= sector.sector <= image.sectors_per_track:
@@ -1580,7 +1580,7 @@ def compare_image_to_disk(image_path: str,
     Returns:
         ImageComparison with detailed results
     """
-    from floppy_formatter.hardware import decode_flux_to_sectors
+    from floppy_formatter.hardware import decode_flux_data
     from .sector_image import SectorImage, ImageComparison
 
     logger.info("Comparing %s to disk", image_path)
@@ -1613,7 +1613,7 @@ def compare_image_to_disk(image_path: str,
 
             try:
                 flux = device.read_track(cyl, head)
-                sectors = decode_flux_to_sectors(flux)
+                sectors = decode_flux_data(flux)
 
                 for sec in range(1, sector_image.sectors_per_track + 1):
                     lba = sector_image.chs_to_lba(cyl, head, sec)

@@ -37,7 +37,7 @@ from . import (
     SectorStatus,
 )
 from .flux_io import FluxData, analyze_flux_quality
-from .mfm_codec import decode_flux_to_sectors, BIT_CELL_US
+from .mfm_codec import BIT_CELL_US
 
 logger = logging.getLogger(__name__)
 
@@ -336,8 +336,9 @@ def check_track_alignment(device: 'GreaseweazleDevice',
     # Read track on head 0
     flux = device.read_track(cylinder, 0, revolutions=2.0)
 
-    # Decode sectors
-    sectors = decode_flux_to_sectors(flux)
+    # Decode sectors (local import to avoid circular import)
+    from . import decode_flux_data
+    sectors = decode_flux_data(flux)
 
     # Calculate metrics
     sectors_found = len(sectors)

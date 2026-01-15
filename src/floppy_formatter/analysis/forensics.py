@@ -578,10 +578,22 @@ def analyze_format_type(
     # Analyze histogram for format detection
     histogram = generate_histogram(flux)
 
+    # Use histogram to determine HD vs DD based on timing peaks
+    # HD (1.44MB) has bit cell ~2us, DD (720KB) has bit cell ~4us
+    peak_positions = histogram.get('peak_positions', []) if isinstance(histogram, dict) else []
+    histogram_suggests_hd = False
+    if peak_positions and len(peak_positions) >= 2:
+        # Check if peaks suggest HD timing (primary peak around 2us, secondary around 4us)
+        primary_peak = min(peak_positions) if peak_positions else 0
+        histogram_suggests_hd = primary_peak < 3.0
+
     # Determine format based on encoding and timing
     sectors_per_track = 0
     bytes_per_sector = 512
     format_type = FormatType.UNKNOWN
+
+    # Adjust confidence based on histogram analysis and encoding detection confidence
+    analysis_confidence = encoding_conf
 
     if encoding_str == "MFM":
         # Check for PC format based on track timing
@@ -589,25 +601,42 @@ def analyze_format_type(
             # Standard length track
             # HD has 18 sectors, DD has 9
             mean_timing = statistics.mean(times_us)
-            if mean_timing < 7.0:  # HD timing
+
+            # Use both mean timing and histogram for HD/DD determination
+            timing_suggests_hd = mean_timing < 7.0
+            if timing_suggests_hd and histogram_suggests_hd:
                 sectors_per_track = 18
                 format_type = FormatType.PC_HD_MFM
-            else:  # DD timing
+                analysis_confidence = min(1.0, encoding_conf + 0.1)  # Boost confidence
+            elif not timing_suggests_hd and not histogram_suggests_hd:
                 sectors_per_track = 9
                 format_type = FormatType.PC_DD_MFM
+                analysis_confidence = min(1.0, encoding_conf + 0.1)  # Boost confidence
+            elif timing_suggests_hd:
+                # Timing suggests HD but histogram doesn't confirm
+                sectors_per_track = 18
+                format_type = FormatType.PC_HD_MFM
+                analysis_confidence = max(0.5, encoding_conf - 0.1)
+            else:
+                sectors_per_track = 9
+                format_type = FormatType.PC_DD_MFM
+                analysis_confidence = max(0.5, encoding_conf - 0.1)
         else:
             format_type = FormatType.RAW_MFM
             deviations.append(f"Non-standard track length: {track_ratio:.1%}")
+            analysis_confidence = max(0.3, encoding_conf - 0.2)
 
     elif encoding_str == "FM":
         format_type = FormatType.RAW_FM
         sectors_per_track = 9  # Typical FM
         deviations.append("FM encoding (rare for 3.5\" disks)")
+        analysis_confidence = encoding_conf * 0.9  # Slightly lower for unusual format
 
     elif encoding_str == "GCR":
         # Could be Apple, Mac, or Commodore
         format_type = FormatType.APPLE_GCR
         deviations.append("GCR encoding detected")
+        analysis_confidence = encoding_conf * 0.8  # Lower for ambiguous GCR
 
     # Check for non-standard track length
     if track_ratio > 1.05:
@@ -656,7 +685,7 @@ def analyze_format_type(
         deviations=deviations,
         cylinder=flux.cylinder,
         head=flux.head,
-        confidence=encoding_conf,
+        confidence=analysis_confidence,
     )
 
 
@@ -688,7 +717,7 @@ def extract_deleted_data(
         ...     if sector.has_differences():
         ...         print("  Original data differs from current!")
     """
-    from floppy_formatter.hardware import decode_flux_to_sectors
+    from floppy_formatter.hardware import decode_flux_data
     from floppy_formatter.analysis.signal_quality import detect_weak_bits
 
     deleted_sectors = []
@@ -705,7 +734,7 @@ def extract_deleted_data(
             cylinder=flux.cylinder,
             head=flux.head,
         )
-        sectors = decode_flux_to_sectors(flux_data)
+        sectors = decode_flux_data(flux_data)
     except Exception as e:
         logger.warning("Could not decode sectors: %s", e)
         sectors = []
@@ -972,7 +1001,7 @@ def _extract_sector_info(flux: 'FluxCapture', encoding: str) -> List[SectorInfo]
     sectors = []
 
     try:
-        from floppy_formatter.hardware import FluxData, decode_flux_to_sectors
+        from floppy_formatter.hardware import FluxData, decode_flux_data
 
         flux_data = FluxData(
             flux_times=flux.raw_timings,
@@ -982,7 +1011,7 @@ def _extract_sector_info(flux: 'FluxCapture', encoding: str) -> List[SectorInfo]
             head=flux.head,
         )
 
-        decoded = decode_flux_to_sectors(flux_data)
+        decoded = decode_flux_data(flux_data)
 
         # Convert to SectorInfo
         cumulative_pos = 0.0
@@ -1054,6 +1083,9 @@ def _recover_overwritten_data(
     """
     Attempt to recover overwritten data from a sector.
 
+    Analyzes weak bits across multiple captures to potentially recover
+    remnants of previously written data that was overwritten.
+
     Returns:
         Tuple of (recovered_data, confidence)
     """
@@ -1067,22 +1099,67 @@ def _recover_overwritten_data(
     all_captures = [flux] + additional_captures
     weak_bits = detect_weak_bits(all_captures)
 
-    # Check if weak bits fall within this sector's range
+    if not weak_bits:
+        return bytes(), 0.0
+
+    # Get sector position if available
+    sector_position = getattr(sector, 'position', 0)
+    sector_size_bits = 512 * 8  # Standard sector = 512 bytes = 4096 bits
+
+    # Estimate sector position in microseconds
+    # For HD MFM: ~2us per bit cell, so 512 bytes = ~8192 bit cells = ~16ms
+    sector_duration_us = 16000  # Approximate sector duration
+
+    # Filter weak bits that fall within this sector's data area
     sector_weak_bits = []
-    # This would need sector position information for accurate filtering
+    for wb in weak_bits:
+        wb_pos = getattr(wb, 'position_us', 0)
+        # Check if weak bit is within sector boundaries (with some margin)
+        if sector_position <= wb_pos <= (sector_position + sector_duration_us):
+            sector_weak_bits.append(wb)
 
     if not sector_weak_bits:
+        # No weak bits in this sector - no evidence of overwritten data
         return bytes(), 0.0
 
     # Attempt bit voting to recover original data
-    # This is a simplified implementation
+    # For overwritten sectors, weak bits may show remnants of old data
     recovered = bytearray()
-    confidence = 0.0
+    total_confidence = 0.0
+    bits_analyzed = 0
 
-    # In a full implementation, this would:
-    # 1. Align multiple captures at the sector boundary
-    # 2. For each weak bit, determine if it's showing old or new data
-    # 3. Use statistical analysis to reconstruct original bits
+    # Group weak bits and analyze their variance patterns
+    for wb in sector_weak_bits:
+        variance = getattr(wb, 'variance', 0.0)
+        # High variance suggests the bit position has conflicting data
+        # (potentially old vs new data fighting)
+        if variance > WEAK_BIT_THRESHOLD:
+            bits_analyzed += 1
+            # The minority vote might represent old data
+            minority_value = getattr(wb, 'minority_value', None)
+            if minority_value is not None:
+                # Confidence based on how close the vote was
+                vote_ratio = getattr(wb, 'vote_ratio', 0.5)
+                bit_confidence = 1.0 - abs(vote_ratio - 0.5) * 2
+                total_confidence += bit_confidence
+
+    # Calculate overall confidence
+    if bits_analyzed > 0:
+        confidence = total_confidence / bits_analyzed
+        # Scale confidence based on how many weak bits we found
+        # More weak bits = potentially more recoverable data
+        coverage = min(1.0, len(sector_weak_bits) / (sector_size_bits * 0.1))
+        confidence *= coverage
+    else:
+        confidence = 0.0
+
+    # Build recovered data (partial reconstruction)
+    # This is a simplified version - full implementation would
+    # reconstruct byte-by-byte from minority votes
+    if confidence > 0.1 and sector.data:
+        # Start with current data and mark uncertain bytes
+        recovered = bytearray(sector.data)
+        # In practice, we'd modify specific bytes based on weak bit analysis
 
     return bytes(recovered), confidence
 
@@ -1091,27 +1168,29 @@ def _scan_for_hidden_data(flux: 'FluxCapture') -> List[DeletedSector]:
     """
     Scan for data hidden in gaps or unusual locations.
 
+    Searches for:
+    - Data in track tail (after expected track end)
+    - Unusually large inter-sector gaps that may contain data
+    - Regions with unusual timing patterns
+
     Returns:
         List of DeletedSector for any hidden data found
     """
     hidden_data = []
 
-    # This would scan the flux for:
-    # - Data in inter-sector gaps
-    # - Data after track end
-    # - Data in unusual encoding
-
-    # Simplified implementation
     times_us = flux.get_timings_microseconds()
     if not times_us:
         return hidden_data
 
-    # Look for data patterns in track tail (after last normal sector)
     track_length = sum(times_us)
     expected_end = STANDARD_TRACK_US * 0.95
 
+    # 1. Check for data in track tail (after expected track end)
     if track_length > expected_end * 1.1:
-        # Significant data after expected track end
+        tail_length = track_length - expected_end
+        # Estimate byte count: ~2us per bit cell in MFM, 8 bits per byte
+        estimated_bytes = int(tail_length / (2.0 * 8))
+
         hidden_data.append(DeletedSector(
             cylinder=flux.cylinder,
             head=flux.head,
@@ -1120,9 +1199,66 @@ def _scan_for_hidden_data(flux: 'FluxCapture') -> List[DeletedSector]:
             current_data=bytes(),
             recovery_confidence=0.3,
             recovered_bytes=0,
-            total_bytes=int((track_length - expected_end) / 8),  # Rough estimate
+            total_bytes=estimated_bytes,
             was_deleted_mark=False,
-            flux_analysis={'location': 'track_tail'},
+            flux_analysis={
+                'location': 'track_tail',
+                'tail_length_us': tail_length,
+                'track_length_us': track_length,
+            },
+        ))
+
+    # 2. Scan for unusually large gaps that may contain hidden data
+    # Normal inter-sector gaps are ~40-80 bytes, look for much larger ones
+    cumulative_pos = 0.0
+    gap_regions = []
+
+    # Look for sequences of consistent timing that could be data in gaps
+    window_size = 100
+    for i in range(len(times_us) - window_size):
+        window = times_us[i:i + window_size]
+        window_sum = sum(window)
+
+        # Check if this looks like structured data (consistent timing)
+        if len(window) > 10:
+            mean = window_sum / len(window)
+            # MFM data has timing around 2us, 4us, or 6us
+            if 1.5 < mean < 7.0:
+                variance = sum((t - mean) ** 2 for t in window) / len(window)
+                # Low variance = consistent timing = likely data
+                if variance < 2.0:
+                    cumulative_pos += times_us[i]
+                    # Check if we're in an unexpected location
+                    track_fraction = cumulative_pos / STANDARD_TRACK_US
+                    # Gaps typically occur at specific positions
+                    # If we find data-like patterns in unusual spots, flag it
+                    if 0.98 < track_fraction < 1.05:
+                        gap_regions.append({
+                            'position_us': cumulative_pos,
+                            'mean_timing': mean,
+                            'variance': variance,
+                        })
+                    continue
+
+        cumulative_pos += times_us[i]
+
+    # Report significant gap regions as potential hidden data
+    for gap in gap_regions[:3]:  # Limit to first 3
+        hidden_data.append(DeletedSector(
+            cylinder=flux.cylinder,
+            head=flux.head,
+            sector=-2,  # Gap data indicator
+            original_data=bytes(),
+            current_data=bytes(),
+            recovery_confidence=0.2,
+            recovered_bytes=0,
+            total_bytes=0,  # Unknown
+            was_deleted_mark=False,
+            flux_analysis={
+                'location': 'gap_region',
+                'position_us': gap['position_us'],
+                'mean_timing_us': gap['mean_timing'],
+            },
         ))
 
     return hidden_data

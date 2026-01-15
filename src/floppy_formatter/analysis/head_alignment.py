@@ -428,7 +428,7 @@ def measure_track_margins(
         ...         print("Track is well-centered")
     """
     # Import here to avoid circular imports
-    from floppy_formatter.hardware import read_track_flux, decode_flux_to_sectors
+    from floppy_formatter.hardware import read_track_flux, decode_flux_data
     from floppy_formatter.analysis.signal_quality import calculate_snr
 
     # Convert offsets to the format device expects
@@ -446,7 +446,7 @@ def measure_track_margins(
             # In a full implementation, this would use seek with offset
 
             flux = read_track_flux(device, cylinder, head, revolutions=1.2)
-            sectors = decode_flux_to_sectors(flux)
+            sectors = decode_flux_data(flux)
 
             # Count successful sectors
             good_sectors = sum(1 for s in sectors

@@ -27,7 +27,7 @@ from floppy_formatter.hardware import (
     FluxData,
     SectorData,
     SectorStatus,
-    decode_flux_to_sectors,
+    decode_flux_data,
     encode_sectors_to_flux,
     create_formatted_track,
     create_pattern_track,
@@ -147,7 +147,7 @@ def _cache_track(device: GreaseweazleDevice, cylinder: int, head: int,
     flux_data = read_track_flux(device, cylinder, head, revolutions)
 
     # Decode sectors from flux
-    decoded_sectors = decode_flux_to_sectors(flux_data)
+    decoded_sectors = decode_flux_data(flux_data)
 
     # Build sector dictionary (sector number -> SectorData)
     sectors_dict = {s.sector: s for s in decoded_sectors}
@@ -406,7 +406,7 @@ def read_sector_multiread(device: GreaseweazleDevice, cylinder: int, head: int,
             for rev in range(int(revolutions)):
                 try:
                     rev_flux = flux_data.get_revolution_data(rev)
-                    decoded = decode_flux_to_sectors(rev_flux)
+                    decoded = decode_flux_data(rev_flux)
 
                     # Find our target sector
                     for s in decoded:

@@ -118,8 +118,46 @@ class FluxData:
             FluxData instance containing the flux data
         """
         # Extract the timing data from Greaseweazle's format
-        # gw_flux.list contains the raw timing values
+        # gw_flux.list contains the raw timing values in sample ticks
         flux_times = list(gw_flux.list)
+
+        # Diagnostic logging for flux data interpretation
+        sample_freq = gw_flux.sample_freq
+        logger.info("Greaseweazle Flux data: sample_freq=%d Hz (%.2f MHz)",
+                    sample_freq, sample_freq / 1_000_000)
+
+        if flux_times:
+            # Show raw sample counts
+            raw_samples = flux_times[:10]
+            logger.info("First 10 raw flux_times (sample ticks): %s", raw_samples)
+
+            # Show min/max/mean of raw values
+            raw_min = min(flux_times)
+            raw_max = max(flux_times)
+            raw_mean = sum(flux_times) / len(flux_times)
+            logger.info("Raw flux_times stats: min=%d, max=%d, mean=%.1f ticks",
+                        raw_min, raw_max, raw_mean)
+
+            # Convert to microseconds for verification
+            us_factor = 1_000_000 / sample_freq
+            us_values = [t * us_factor for t in flux_times[:10]]
+            us_min = raw_min * us_factor
+            us_max = raw_max * us_factor
+            us_mean = raw_mean * us_factor
+            logger.info("First 10 as microseconds: %s",
+                        [f"{v:.2f}" for v in us_values])
+            logger.info("Microsecond stats: min=%.2fµs, max=%.2fµs, mean=%.2fµs",
+                        us_min, us_max, us_mean)
+
+            # Categorize by expected MFM pulse widths
+            short_count = sum(1 for t in flux_times if 3.0 <= t * us_factor < 5.0)
+            medium_count = sum(1 for t in flux_times if 5.0 <= t * us_factor < 7.0)
+            long_count = sum(1 for t in flux_times if 7.0 <= t * us_factor < 9.0)
+            noise_count = sum(1 for t in flux_times if t * us_factor < 3.0)
+            other_count = sum(1 for t in flux_times if t * us_factor >= 9.0)
+            logger.info("MFM pulse distribution: noise(<3µs)=%d, short(4µs)=%d, "
+                        "medium(6µs)=%d, long(8µs)=%d, other(>9µs)=%d",
+                        noise_count, short_count, medium_count, long_count, other_count)
 
         # Get index positions
         index_positions = list(gw_flux.index_list) if gw_flux.index_list else []
@@ -129,7 +167,7 @@ class FluxData:
 
         return cls(
             flux_times=flux_times,
-            sample_freq=gw_flux.sample_freq,
+            sample_freq=sample_freq,
             index_positions=index_positions,
             cylinder=cylinder,
             head=head,
@@ -372,7 +410,7 @@ class FluxData:
         Detect the three MFM peak positions from the flux histogram.
 
         For properly encoded MFM data, there should be peaks at
-        approximately 4us, 6us, and 8us (for HD).
+        approximately 4us, 6us, and 8us (for HD) or 2us, 3us, 4us (for ED/1µs bit cell).
 
         Returns:
             Tuple of (short_peak, medium_peak, long_peak) in microseconds,
@@ -405,21 +443,103 @@ class FluxData:
         """
         Estimate the bit cell width from detected MFM peaks.
 
+        Uses adaptive peak detection to handle both standard HD (2µs bit cell)
+        and ED/non-standard formats (1µs bit cell).
+
         Returns:
             Estimated bit cell width in microseconds, or None if detection fails
         """
-        short, medium, long = self.detect_mfm_peaks()
+        # First check if there's significant data below 3 µs - indicates 1µs bit cell
+        times_us = self.get_times_microseconds()
+        if times_us:
+            below_3us = sum(1 for t in times_us if 1.5 < t < 3.0)
+            total = len(times_us)
+            # If more than 20% of pulses are in 1.5-3µs range, this is likely 1µs bit cell
+            if total > 0 and below_3us / total > 0.20:
+                logger.debug("Detected high proportion of sub-3µs pulses (%.1f%%) - likely 1µs bit cell",
+                            (below_3us / total) * 100)
+                # Skip standard detection and go straight to adaptive
+                pass
+            else:
+                # Try standard HD peak positions (4/6/8 µs)
+                short, medium, long = self.detect_mfm_peaks()
 
+                estimates = []
+                if short is not None:
+                    estimates.append(short / 2.0)  # Short = 2 bit cells
+                if medium is not None:
+                    estimates.append(medium / 3.0)  # Medium = 3 bit cells
+                if long is not None:
+                    estimates.append(long / 4.0)  # Long = 4 bit cells
+
+                # Only trust standard detection if we found at least 2 peaks
+                if len(estimates) >= 2:
+                    return statistics.mean(estimates)
+
+        # If standard detection failed, try finding actual peaks in the data
+        # This handles non-standard bit rates like 1µs (ED format)
+        logger.debug("Standard peak detection failed, trying adaptive detection")
+
+        # Get histogram with wider range to catch 1µs bit cell (peaks at 2/3/4 µs)
+        bin_centers, counts = self.get_pulse_histogram(bins=100, min_us=1.0, max_us=10.0)
+        if not counts or max(counts) == 0:
+            return None
+
+        # Find the three highest peaks
+        peaks = []
+        threshold = max(counts) * 0.15  # Peaks must be at least 15% of max
+
+        # Simple peak finding: local maxima above threshold
+        for i in range(1, len(counts) - 1):
+            if counts[i] > threshold:
+                if counts[i] >= counts[i-1] and counts[i] >= counts[i+1]:
+                    peaks.append((bin_centers[i], counts[i]))
+
+        # Sort by count (highest first) and take top 3
+        peaks.sort(key=lambda x: x[1], reverse=True)
+        peaks = peaks[:3]
+
+        if len(peaks) < 2:
+            return None
+
+        # Sort by position (lowest first) - these should be short, medium, long
+        peaks.sort(key=lambda x: x[0])
+        peak_positions = [p[0] for p in peaks]
+
+        logger.debug("Adaptive peak detection found peaks at: %s µs",
+                    [f"{p:.2f}" for p in peak_positions])
+
+        # Calculate bit cell from peak spacing
+        # Short = 2 bit cells, Medium = 3, Long = 4
+        # So Medium - Short = 1 bit cell, Long - Medium = 1 bit cell
         estimates = []
-        if short is not None:
-            estimates.append(short / 2.0)  # Short = 2 bit cells
-        if medium is not None:
-            estimates.append(medium / 3.0)  # Medium = 3 bit cells
-        if long is not None:
-            estimates.append(long / 4.0)  # Long = 4 bit cells
+
+        if len(peak_positions) >= 2:
+            # Shortest peak / 2 gives bit cell estimate
+            estimates.append(peak_positions[0] / 2.0)
+
+        if len(peak_positions) >= 2:
+            # Gap between first two peaks should be 1 bit cell
+            gap = peak_positions[1] - peak_positions[0]
+            if 0.5 < gap < 3.0:  # Reasonable gap
+                estimates.append(gap)
+
+        if len(peak_positions) >= 3:
+            # Second peak / 3 gives bit cell estimate
+            estimates.append(peak_positions[1] / 3.0)
+            # Gap between second and third peaks should be 1 bit cell
+            gap = peak_positions[2] - peak_positions[1]
+            if 0.5 < gap < 3.0:
+                estimates.append(gap)
+            # Third peak / 4 gives bit cell estimate
+            estimates.append(peak_positions[2] / 4.0)
 
         if estimates:
-            return statistics.mean(estimates)
+            bit_cell = statistics.mean(estimates)
+            logger.debug("Adaptive bit cell estimate: %.2f µs (from %d estimates)",
+                        bit_cell, len(estimates))
+            return bit_cell
+
         return None
 
     def __len__(self) -> int:

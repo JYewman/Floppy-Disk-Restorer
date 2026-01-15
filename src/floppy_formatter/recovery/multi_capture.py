@@ -774,7 +774,7 @@ def _decode_reconstructed_sectors(
         List of ReconstructedSector objects
     """
     try:
-        from floppy_formatter.hardware import FluxData, decode_flux_to_sectors
+        from floppy_formatter.hardware import FluxData, decode_flux_data
 
         # Convert microseconds back to sample counts
         factor = sample_rate / 1_000_000
@@ -789,7 +789,7 @@ def _decode_reconstructed_sectors(
             revolutions=1.0
         )
 
-        decoded = decode_flux_to_sectors(flux_data)
+        decoded = decode_flux_data(flux_data)
 
         sectors = []
         for sector_data in decoded:
@@ -905,11 +905,11 @@ def compare_multi_capture_to_single(
     Returns:
         Dictionary with comparison results
     """
-    from floppy_formatter.hardware import read_track_flux, decode_flux_to_sectors
+    from floppy_formatter.hardware import read_track_flux, decode_flux_data
 
     # Single read
     single_flux = read_track_flux(device, cyl, head, revolutions=1.2)
-    single_sectors = decode_flux_to_sectors(single_flux)
+    single_sectors = decode_flux_data(single_flux)
     single_good = sum(1 for s in single_sectors if s.is_good)
 
     # Multi-capture recovery

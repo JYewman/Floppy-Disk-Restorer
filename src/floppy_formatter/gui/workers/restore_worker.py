@@ -27,6 +27,39 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+def decode_flux_data(flux_data):
+    """
+    Decode flux data to sectors using PLL decoder (preferred) or simple decoder (fallback).
+
+    Args:
+        flux_data: FluxData from track read
+
+    Returns:
+        List of SectorData objects
+    """
+    # Try PLL decoder first
+    try:
+        from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
+        sectors = decode_flux_with_pll(flux_data)
+        if sectors:
+            logger.debug("PLL decoder returned %d sectors", len(sectors))
+            return sectors
+    except ImportError:
+        logger.debug("PLL decoder not available, using simple decoder")
+    except Exception as e:
+        logger.warning("PLL decoder failed: %s, falling back to simple decoder", e)
+
+    # Fall back to simple decoder
+    from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
+    sectors = decode_flux_to_sectors(flux_data)
+    logger.debug("Simple decoder returned %d sectors", len(sectors))
+    return sectors
+
+
+# =============================================================================
 # Enums
 # =============================================================================
 
@@ -369,11 +402,9 @@ class RestoreWorker(GreaseweazleWorker):
             List of bad sector numbers
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
 
         bad_sectors = []
-        total_sectors = self._geometry.total_sectors
-        scanned = 0
+        sectors_per_track = self._geometry.sectors_per_track
 
         for cylinder in range(self._geometry.cylinders):
             for head in range(self._geometry.heads):
@@ -383,22 +414,39 @@ class RestoreWorker(GreaseweazleWorker):
                 # Seek and read track
                 self._device.seek(cylinder, head)
                 flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
-                sectors = decode_flux_to_sectors(flux)
+                sectors = decode_flux_data(flux)
 
-                base_sector = (cylinder * self._geometry.heads + head) * self._geometry.sectors_per_track
+                base_sector = (cylinder * self._geometry.heads + head) * sectors_per_track
 
+                # Deduplicate sectors by sector number
+                best_sectors = {}
                 for sector in sectors:
-                    linear = base_sector + (sector.sector_num - 1)
-                    is_good = sector.data is not None and sector.crc_valid
+                    sector_num = sector.sector
+                    if sector_num < 1 or sector_num > sectors_per_track:
+                        continue
+                    if sector_num not in best_sectors:
+                        best_sectors[sector_num] = sector
+                    elif sector.crc_valid and not best_sectors[sector_num].crc_valid:
+                        best_sectors[sector_num] = sector
+
+                # Check all expected sectors
+                for sector_num in range(1, sectors_per_track + 1):
+                    linear = base_sector + (sector_num - 1)
+                    if sector_num in best_sectors:
+                        sector = best_sectors[sector_num]
+                        is_good = sector.data is not None and sector.crc_valid
+                    else:
+                        is_good = False
 
                     if not is_good:
                         bad_sectors.append(linear)
 
                     self.initial_scan_sector.emit(linear, is_good)
-                    scanned += 1
 
                 # Update progress
-                progress = int((scanned / total_sectors) * 50)  # 0-50% for scan
+                track_num = cylinder * self._geometry.heads + head
+                total_tracks = self._geometry.cylinders * self._geometry.heads
+                progress = int((track_num / total_tracks) * 50)  # 0-50% for scan
                 self.progress.emit(progress)
 
         return bad_sectors
@@ -576,7 +624,7 @@ class RestoreWorker(GreaseweazleWorker):
         Returns:
             True if track now reads better
         """
-        from floppy_formatter.hardware import erase_track, write_track_flux
+        from floppy_formatter.hardware import erase_track_flux, write_track_flux
         from floppy_formatter.hardware.mfm_codec import encode_sectors_to_flux
 
         try:
@@ -584,7 +632,7 @@ class RestoreWorker(GreaseweazleWorker):
             self._device.seek(cylinder, head)
 
             # DC erase
-            erase_track(self._device, cylinder, head)
+            erase_track_flux(self._device, cylinder, head)
 
             # Write with pattern rotation
             patterns = [0x00, 0xFF, 0xAA, 0x55]
@@ -625,7 +673,6 @@ class RestoreWorker(GreaseweazleWorker):
             True if sector recovered
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
 
         try:
             # Seek to track
@@ -635,13 +682,12 @@ class RestoreWorker(GreaseweazleWorker):
             revolutions = self._config.multiread_attempts
             flux = read_track_flux(self._device, cylinder, head, revolutions=revolutions)
 
-            # Decode with multi-pass processing
-            # The MFM decoder should handle multiple revolutions internally
-            sectors = decode_flux_to_sectors(flux)
+            # Decode with PLL decoder (preferred) or fallback
+            sectors = decode_flux_data(flux)
 
             # Check if our target sector decoded
             for s in sectors:
-                if s.sector_num == sector and s.data is not None and s.crc_valid:
+                if s.sector == sector and s.data is not None and s.crc_valid:
                     return True
 
             return False
@@ -740,7 +786,6 @@ class RestoreWorker(GreaseweazleWorker):
 
         # Then try multi-capture with extra revolutions
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
 
         try:
             self._device.seek(cylinder, head)
@@ -748,10 +793,10 @@ class RestoreWorker(GreaseweazleWorker):
             # Maximum revolutions
             flux = read_track_flux(self._device, cylinder, head, revolutions=20)
 
-            sectors = decode_flux_to_sectors(flux)
+            sectors = decode_flux_data(flux)
 
             for s in sectors:
-                if s.sector_num == sector and s.data is not None and s.crc_valid:
+                if s.sector == sector and s.data is not None and s.crc_valid:
                     return True
 
             return False
@@ -773,14 +818,13 @@ class RestoreWorker(GreaseweazleWorker):
             True if sector reads correctly
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
 
         try:
             flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
-            sectors = decode_flux_to_sectors(flux)
+            sectors = decode_flux_data(flux)
 
             for s in sectors:
-                if s.sector_num == sector:
+                if s.sector == sector:
                     return s.data is not None and s.crc_valid
 
             return False

@@ -26,6 +26,39 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+def decode_flux_data(flux_data):
+    """
+    Decode flux data to sectors using PLL decoder (preferred) or simple decoder (fallback).
+
+    Args:
+        flux_data: FluxData from track read
+
+    Returns:
+        List of SectorData objects
+    """
+    # Try PLL decoder first
+    try:
+        from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
+        sectors = decode_flux_with_pll(flux_data)
+        if sectors:
+            logger.debug("PLL decoder returned %d sectors", len(sectors))
+            return sectors
+    except ImportError:
+        logger.debug("PLL decoder not available, using simple decoder")
+    except Exception as e:
+        logger.warning("PLL decoder failed: %s, falling back to simple decoder", e)
+
+    # Fall back to simple decoder
+    from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
+    sectors = decode_flux_to_sectors(flux_data)
+    logger.debug("Simple decoder returned %d sectors", len(sectors))
+    return sectors
+
+
+# =============================================================================
 # Constants
 # =============================================================================
 
@@ -212,9 +245,7 @@ class FormatWorker(GreaseweazleWorker):
         from floppy_formatter.hardware import (
             erase_track, write_track_flux, read_track_flux
         )
-        from floppy_formatter.hardware.mfm_codec import (
-            encode_sectors_to_flux, decode_flux_to_sectors
-        )
+        from floppy_formatter.hardware.mfm_codec import encode_sectors_to_flux
 
         start_time = time.time()
 
@@ -339,7 +370,7 @@ class FormatWorker(GreaseweazleWorker):
         Returns:
             TrackFormatResult with format data
         """
-        from floppy_formatter.hardware import erase_track, write_track_flux
+        from floppy_formatter.hardware import erase_track_flux, write_track_flux
         from floppy_formatter.hardware.mfm_codec import encode_sectors_to_flux
 
         track_start = time.time()
@@ -351,7 +382,7 @@ class FormatWorker(GreaseweazleWorker):
 
         try:
             # Step 1: Bulk erase the track (DC erase)
-            erase_track(self._device, cylinder, head)
+            erase_track_flux(self._device, cylinder, head)
 
             # Step 2: Write each pattern
             for pattern in patterns:
@@ -401,19 +432,30 @@ class FormatWorker(GreaseweazleWorker):
             True if verification passed
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
 
         try:
             # Seek and read
             self._device.seek(cylinder, head)
             flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
 
-            # Decode sectors
-            sectors = decode_flux_to_sectors(flux)
+            # Decode sectors with PLL decoder
+            sectors = decode_flux_data(flux)
 
-            # Check all sectors
+            # Deduplicate by sector number, keep best result
+            best_sectors = {}
+            sectors_per_track = self._geometry.sectors_per_track
+            for s in sectors:
+                sector_num = s.sector
+                if sector_num < 1 or sector_num > sectors_per_track:
+                    continue
+                if sector_num not in best_sectors:
+                    best_sectors[sector_num] = s
+                elif s.crc_valid and not best_sectors[sector_num].crc_valid:
+                    best_sectors[sector_num] = s
+
+            # Check how many unique sectors are good
             good_count = sum(
-                1 for s in sectors
+                1 for s in best_sectors.values()
                 if s.data is not None and s.crc_valid
             )
 
@@ -469,18 +511,35 @@ class FormatWorker(GreaseweazleWorker):
             List of linear sector numbers that are bad
         """
         from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
 
         bad_sectors = []
-        base_sector = (cylinder * self._geometry.heads + head) * self._geometry.sectors_per_track
+        sectors_per_track = self._geometry.sectors_per_track
+        base_sector = (cylinder * self._geometry.heads + head) * sectors_per_track
 
         try:
             flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
-            sectors = decode_flux_to_sectors(flux)
+            sectors = decode_flux_data(flux)
 
-            for sector in sectors:
-                if sector.data is None or not sector.crc_valid:
-                    linear = base_sector + (sector.sector_num - 1)
+            # Deduplicate by sector number, keep best result
+            best_sectors = {}
+            for s in sectors:
+                sector_num = s.sector
+                if sector_num < 1 or sector_num > sectors_per_track:
+                    continue
+                if sector_num not in best_sectors:
+                    best_sectors[sector_num] = s
+                elif s.crc_valid and not best_sectors[sector_num].crc_valid:
+                    best_sectors[sector_num] = s
+
+            # Check all expected sectors
+            for sector_num in range(1, sectors_per_track + 1):
+                linear = base_sector + (sector_num - 1)
+                if sector_num in best_sectors:
+                    sector = best_sectors[sector_num]
+                    if sector.data is None or not sector.crc_valid:
+                        bad_sectors.append(linear)
+                else:
+                    # Sector not found at all
                     bad_sectors.append(linear)
 
         except Exception:
