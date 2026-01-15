@@ -265,8 +265,12 @@ class AnalyzeWorker(GreaseweazleWorker):
             total_tracks=total_tracks,
         )
 
-        # Ensure motor is on
+        # Ensure drive is properly initialized and motor is on
         if not self._device.is_motor_on():
+            logger.info("Motor not running, reinitializing drive before analysis...")
+            self._device.reinitialize_drive()
+        else:
+            # Just ensure motor is on with standard method
             self._device.motor_on()
 
         # Get tracks to analyze based on depth

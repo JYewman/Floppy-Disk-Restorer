@@ -280,18 +280,27 @@ class OperationToolbar(QWidget):
 
     def _on_operation_clicked(self, operation: OperationType) -> None:
         """Handle operation button click."""
+        logger.info("Operation button clicked: %s", operation.value)
+
         # Uncheck other buttons
         for btn in self._operation_buttons:
             if btn != self._get_button_for_operation(operation):
                 btn.setChecked(False)
 
         button = self._get_button_for_operation(operation)
-        if button.isChecked():
+        is_checked = button.isChecked()
+        logger.info("Button %s isChecked=%s", operation.value, is_checked)
+
+        if is_checked:
             self._selected_operation = operation
-            logger.debug("Operation selected: %s", operation.value)
+            logger.info("Operation selected: %s", operation.value)
             self.operation_requested.emit(operation.value)
         else:
             self._selected_operation = None
+            logger.info("Operation deselected")
+
+        # Update control states so Start button enables/disables appropriately
+        self._update_control_states()
 
     def _get_button_for_operation(self, operation: OperationType) -> LargeOperationButton:
         """Get button widget for operation type."""
@@ -342,6 +351,13 @@ class OperationToolbar(QWidget):
         is_running = self._state == OperationState.RUNNING
         is_paused = self._state == OperationState.PAUSED
 
+        # Debug logging to diagnose button state issues
+        logger.debug(
+            "Control states: state=%s, is_enabled=%s, selected_op=%s",
+            self._state.name, self._is_enabled,
+            self._selected_operation.value if self._selected_operation else None
+        )
+
         # Operation buttons - only enabled when idle and connected
         for btn in self._operation_buttons:
             btn.setEnabled(is_idle and self._is_enabled)
@@ -349,11 +365,12 @@ class OperationToolbar(QWidget):
         # Mode selector - only enabled when idle
         self._mode_combo.setEnabled(is_idle and self._is_enabled)
 
-        # Start button
-        self._start_button.setEnabled(
-            (is_idle and self._selected_operation is not None and self._is_enabled) or
-            is_paused
-        )
+        # Start button - enabled when operation selected and idle, or when paused
+        start_enabled = (is_idle and self._selected_operation is not None and self._is_enabled) or is_paused
+        logger.debug("Start button: enabled=%s (idle=%s, op_selected=%s, toolbar_enabled=%s)",
+                    start_enabled, is_idle, self._selected_operation is not None, self._is_enabled)
+        self._start_button.setEnabled(start_enabled)
+
         if is_paused:
             self._start_button.setText("Resume")
         else:
@@ -393,6 +410,7 @@ class OperationToolbar(QWidget):
         Args:
             enabled: True to enable, False to disable
         """
+        logger.info("Toolbar set_enabled(%s)", enabled)
         self._is_enabled = enabled
         self._update_control_states()
 
@@ -435,6 +453,9 @@ class OperationToolbar(QWidget):
             button.setChecked(True)
             self._selected_operation = op_type
 
+            # Update control states so Start button enables
+            self._update_control_states()
+
         except ValueError:
             logger.warning("Unknown operation type: %s", operation)
 
@@ -443,6 +464,7 @@ class OperationToolbar(QWidget):
         for btn in self._operation_buttons:
             btn.setChecked(False)
         self._selected_operation = None
+        self._update_control_states()
 
     def start_operation(self) -> None:
         """

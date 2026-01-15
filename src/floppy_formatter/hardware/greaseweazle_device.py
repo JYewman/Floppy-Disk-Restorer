@@ -721,6 +721,89 @@ class GreaseweazleDevice(IFloppyDevice):
     # Drive Information
     # =========================================================================
 
+    def reinitialize_drive(self) -> None:
+        """
+        Reinitialize the drive connection to a known good state.
+
+        This is useful when the drive state may be out of sync with the
+        Greaseweazle controller (e.g., after motor auto-start from disk
+        insertion). It ensures proper bus configuration without doing
+        a full reset (which can conflict with motor auto-start drives).
+
+        Raises:
+            ConnectionError: If not connected
+            GreaseweazleError: If reinitialization fails
+        """
+        self._ensure_connected()
+
+        logger.info("Reinitializing drive connection...")
+
+        # Save current state
+        drive_unit = self._selected_drive if self._selected_drive is not None else 0
+
+        try:
+            # DON'T use power_on_reset() - it can conflict with drives that
+            # have motor auto-start (motor already spinning when we connect).
+            # Instead, just ensure proper configuration without resetting.
+
+            # Set bus type (safe to call even if already set)
+            self._unit.set_bus_type(BusType.IBMPC.value)
+            logger.debug("Bus type set to IBM PC")
+
+            # Select drive (asserts DRIVE SELECT line)
+            self._unit.drive_select(drive_unit)
+            self._selected_drive = drive_unit
+            logger.debug("Drive %d selected", drive_unit)
+
+            # Turn on motor (asserts MOTOR ENABLE line)
+            # Even if motor is physically running due to auto-start,
+            # we need to assert the MOTOR ENABLE line for the Greaseweazle
+            # to properly communicate with the drive
+            self._unit.drive_motor(drive_unit, True)
+            self._motor_running = True
+            logger.debug("Motor command sent")
+
+            # Wait for motor to stabilize (even if already running)
+            time.sleep(MOTOR_SPINUP_TIME)
+
+            # Try to seek to track 0 - helps with index pulse detection
+            # but not critical for basic operations like RPM measurement.
+            # Some drives may fail TRK00 detection but still work fine.
+            try:
+                logger.debug("Seeking to track 0...")
+                self._unit.seek(0, 0)
+                self._current_cylinder = 0
+                self._current_head = 0
+                logger.debug("Seek to track 0 complete")
+            except Exception as seek_error:
+                # TRK00 sensor issue - log warning but continue
+                logger.warning("Seek to track 0 failed: %s (continuing anyway)", seek_error)
+                # Head position unknown, but motor is running
+                self._current_cylinder = None
+                self._current_head = None
+
+            # Additional delay for head to settle
+            time.sleep(0.2)
+
+            # Verify drive state using firmware query
+            try:
+                drive_info = self._unit.get_current_drive_info()
+                logger.info("Drive info: motor_on=%s, cyl=%s",
+                           drive_info.motor_on, drive_info.cyl)
+                if not drive_info.motor_on:
+                    logger.warning("Drive reports motor is off after motor_on command")
+            except Exception as e:
+                logger.debug("Could not query drive info: %s", e)
+
+            logger.info("Drive reinitialized successfully")
+
+        except Exception as e:
+            logger.error("Failed to reinitialize drive: %s", e)
+            raise GreaseweazleError(
+                f"Failed to reinitialize drive: {e}",
+                device_info=self._device_info
+            ) from e
+
     def get_rpm(self) -> float:
         """
         Measure the current drive RPM.
@@ -739,49 +822,153 @@ class GreaseweazleDevice(IFloppyDevice):
         self._ensure_connected()
         self._ensure_drive_selected()
 
-        if not self._motor_running:
-            raise GreaseweazleError(
-                "Motor must be running to measure RPM. Call motor_on() first.",
-                device_info=self._device_info
-            )
-
         logger.debug("Measuring drive RPM...")
 
+        # If motor isn't marked as running, reinitialize the entire drive
+        # connection to ensure proper state synchronization
+        if not self._motor_running:
+            logger.info("Motor not running, reinitializing drive...")
+            self.reinitialize_drive()
+
+        # Seek to track 0 for reliable RPM measurement
         try:
-            # Read a track and use the index timing to calculate RPM
-            # Greaseweazle records index positions in the flux data
-            flux = self._unit.read_track(revs=2)
+            self._unit.seek(0, 0)
+            self._current_cylinder = 0
+            self._current_head = 0
+        except Exception as e:
+            logger.debug("Seek to track 0 failed: %s", e)
+            # If seek fails, try reinitializing and seek again
+            self.reinitialize_drive()
+            try:
+                self._unit.seek(0, 0)
+                self._current_cylinder = 0
+                self._current_head = 0
+            except Exception as e2:
+                logger.warning("Seek to track 0 failed after reinit: %s", e2)
 
-            if not flux.index_list or len(flux.index_list) < 2:
-                raise TimeoutError(
-                    "Could not detect index pulse for RPM measurement",
-                    operation="rpm_measurement",
-                    device_info=self._device_info
-                )
+        # Retry logic for index pulse detection
+        max_attempts = 3
+        last_error = None
 
-            # Calculate time between index pulses
-            # index_list contains sample counts at each index
-            index_times = []
-            for i in range(1, len(flux.index_list)):
-                samples = flux.index_list[i] - flux.index_list[i - 1]
-                time_seconds = samples / flux.sample_freq
-                index_times.append(time_seconds)
+        for attempt in range(max_attempts):
+            try:
+                # Read 1 revolution - same approach as official 'gw rpm' command
+                # The index_list[-1] value represents total samples from start
+                # to the final INDEX pulse, which equals one rotation period
+                flux = self._unit.read_track(revs=1)
 
-            # Average the times and convert to RPM
-            avg_revolution_time = sum(index_times) / len(index_times)
-            rpm = 60.0 / avg_revolution_time
+                if not flux.index_list or len(flux.index_list) < 1:
+                    if attempt < max_attempts - 1:
+                        logger.debug("No index pulse detected, retrying (attempt %d/%d)...",
+                                     attempt + 1, max_attempts)
+                        # On failure, try reinitializing
+                        if attempt == 1:
+                            logger.info("Reinitializing drive after index detection failure...")
+                            self.reinitialize_drive()
+                        time.sleep(0.3)
+                        continue
+                    raise TimeoutError(
+                        "Could not detect index pulse for RPM measurement. "
+                        "Check that a disk is inserted and the drive is working.",
+                        operation="rpm_measurement",
+                        device_info=self._device_info
+                    )
 
-            logger.info("Measured RPM: %.1f", rpm)
+                # Use the same calculation as official 'gw rpm' command:
+                # time_per_revolution = index_list[-1] / sample_freq
+                # This gives the time from start of capture to the final INDEX pulse
+                logger.debug("RPM calc: sample_freq=%s, index_list=%s",
+                            flux.sample_freq, flux.index_list)
+
+                time_per_rev = flux.index_list[-1] / flux.sample_freq
+                rpm = 60.0 / time_per_rev
+
+                logger.debug("RPM calc: time_per_rev=%.3f ms, rpm=%.1f",
+                            time_per_rev * 1000, rpm)
+
+                # Sanity check - if RPM is way off, log detailed diagnostics
+                if rpm < 100 or rpm > 500:
+                    logger.warning(
+                        "RPM calculation seems wrong (%.1f): sample_freq=%s, "
+                        "time_per_rev=%.6f, index_list=%s",
+                        rpm, flux.sample_freq, time_per_rev, flux.index_list
+                    )
+
+                logger.info("Measured RPM: %.1f", rpm)
+                return rpm
+
+            except Exception as e:
+                last_error = e
+                if attempt < max_attempts - 1:
+                    logger.debug("RPM measurement failed (attempt %d/%d): %s",
+                                 attempt + 1, max_attempts, e)
+                    # On second attempt, reinitialize
+                    if attempt == 0:
+                        logger.info("Reinitializing drive after RPM measurement failure...")
+                        try:
+                            self.reinitialize_drive()
+                        except Exception as reinit_error:
+                            logger.warning("Reinitialize failed: %s", reinit_error)
+                    time.sleep(0.3)
+                else:
+                    break
+
+        # All retries failed
+        if last_error:
+            logger.error("RPM measurement failed after %d attempts: %s", max_attempts, last_error)
+            raise GreaseweazleError(
+                f"Failed to measure RPM: {last_error}",
+                device_info=self._device_info
+            ) from last_error
+
+        # Should never reach here
+        raise GreaseweazleError(
+            "RPM measurement failed unexpectedly",
+            device_info=self._device_info
+        )
+
+    def try_get_rpm(self) -> Optional[float]:
+        """
+        Try to measure drive RPM without aggressive retry/reinitialize.
+
+        This is a lightweight version of get_rpm() suitable for background
+        polling. It makes a single attempt and returns None on failure
+        instead of raising exceptions or triggering reinitialization.
+
+        Returns:
+            Measured RPM value, or None if measurement failed
+        """
+        if not self.is_connected() or self._unit is None:
+            return None
+
+        if self._selected_drive is None:
+            return None
+
+        if not self._motor_running:
+            return None
+
+        try:
+            # Single attempt to read flux - same approach as official 'gw rpm'
+            flux = self._unit.read_track(revs=1)
+
+            if not flux.index_list or len(flux.index_list) < 1:
+                return None
+
+            # Use the same calculation as official 'gw rpm' command:
+            # time_per_revolution = index_list[-1] / sample_freq
+            time_per_rev = flux.index_list[-1] / flux.sample_freq
+            rpm = 60.0 / time_per_rev
+
+            # Basic sanity check - reject obviously wrong values
+            if rpm < 100 or rpm > 500:
+                return None
+
+            logger.debug("Polled RPM: %.1f", rpm)
             return rpm
 
-        except TimeoutError:
-            raise
-        except Exception as e:
-            logger.error("Failed to measure RPM: %s", e)
-            raise GreaseweazleError(
-                f"Failed to measure RPM: {e}",
-                device_info=self._device_info
-            ) from e
+        except Exception:
+            # Silent failure for polling - caller handles display
+            return None
 
     def get_drive_info(self) -> DriveInfo:
         """

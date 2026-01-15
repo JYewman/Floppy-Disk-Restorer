@@ -153,6 +153,7 @@ class DriveControlPanel(QWidget):
         self._current_rpm = 0.0
         self._current_cylinder = 0
         self._current_head = 0
+        self._rpm_fail_count = 0
 
         # RPM update timer
         self._rpm_timer = QTimer(self)
@@ -186,6 +187,7 @@ class DriveControlPanel(QWidget):
 
         self._drive_combo = QComboBox()
         self._drive_combo.addItems(["0", "1"])
+        self._drive_combo.setCurrentIndex(1)  # Default to Drive B (for straight cable + DS1 drive)
         self._drive_combo.setFixedWidth(50)
         self._drive_combo.currentIndexChanged.connect(self._on_drive_changed)
         main_layout.addWidget(self._drive_combo)
@@ -347,6 +349,36 @@ class DriveControlPanel(QWidget):
             drive_unit = self._drive_combo.currentIndex()
             self._device.select_drive(drive_unit)
 
+            # Initialize drive - this sets up bus type and selects drive
+            # but we don't require a disk to be present yet
+            logger.info("Initializing drive...")
+            try:
+                self._device.reinitialize_drive()
+                # Motor is now on
+                self._motor_on = True
+                self._motor_button.setChecked(True)
+                self._motor_button.setText("Motor ON")
+                self._motor_button.setProperty("variant", "success")
+                self._rpm_timer.start(500)
+
+                # Try to measure RPM to check if disk is present
+                try:
+                    rpm = self._device.get_rpm()
+                    self._current_rpm = rpm
+                    logger.info("Disk detected, RPM: %.1f", rpm)
+                except Exception:
+                    # No disk or can't read - that's OK, user can insert later
+                    logger.info("No disk detected (or disk not readable) - insert disk and click Calibrate")
+                    self._calibration_status.setText("Insert disk")
+                    self._calibration_status.setStyleSheet("color: #cccc33;")
+
+            except Exception as e:
+                # If reinitialize fails, still mark as connected but motor off
+                logger.warning("Drive initialization failed: %s - connect anyway", e)
+                self._motor_on = False
+                self._motor_button.setChecked(False)
+                self._motor_button.setText("Motor OFF")
+
             # Update state
             self._connection_state = ConnectionState.CONNECTED
             self._connection_led.set_state(ConnectionState.CONNECTED)
@@ -469,16 +501,16 @@ class DriveControlPanel(QWidget):
                 logger.info("Motor turned ON")
 
             else:
-                # Turn motor off
-                self._device.motor_off()
-                self._motor_on = False
-                self._motor_button.setText("Motor OFF")
-                self._motor_button.setProperty("variant", "")
-
-                # Stop RPM monitoring
+                # Stop RPM monitoring FIRST to prevent race condition
                 self._rpm_timer.stop()
+                self._motor_on = False
                 self._rpm_value_label.setText("---")
                 self._current_rpm = 0.0
+
+                # Now turn motor off
+                self._device.motor_off()
+                self._motor_button.setText("Motor OFF")
+                self._motor_button.setProperty("variant", "")
 
                 logger.info("Motor turned OFF")
 
@@ -505,28 +537,52 @@ class DriveControlPanel(QWidget):
         if self._device is None or not self._motor_on:
             return
 
-        try:
-            rpm = self._device.get_rpm()
+        # Use lightweight try_get_rpm() for polling - avoids aggressive
+        # retry/reinitialize logic that spams logs when no disk present
+        rpm = self._device.try_get_rpm()
+
+        if rpm is not None and rpm > 0:
             self._current_rpm = rpm
+            self._rpm_fail_count = 0  # Reset fail counter on success
 
-            if rpm > 0:
-                self._rpm_value_label.setText(f"{rpm:.0f}")
+            self._rpm_value_label.setText(f"{rpm:.0f}")
 
-                # Color code based on RPM (nominal 300 RPM)
-                if 290 <= rpm <= 310:
-                    self._rpm_value_label.setStyleSheet("color: #33cc33; font-weight: bold;")
-                elif 280 <= rpm <= 320:
-                    self._rpm_value_label.setStyleSheet("color: #cccc33; font-weight: bold;")
-                else:
-                    self._rpm_value_label.setStyleSheet("color: #cc3333; font-weight: bold;")
+            # Color code based on RPM (nominal 300 RPM)
+            if 290 <= rpm <= 310:
+                self._rpm_value_label.setStyleSheet("color: #33cc33; font-weight: bold;")
+            elif 280 <= rpm <= 320:
+                self._rpm_value_label.setStyleSheet("color: #cccc33; font-weight: bold;")
+            else:
+                self._rpm_value_label.setStyleSheet("color: #cc3333; font-weight: bold;")
 
-                # Update motor button text - keep it short
-                self._motor_button.setText("Motor ON")
+            # Clear "Insert disk" message if we got a valid RPM
+            if self._calibration_status.text() == "Insert disk":
+                self._calibration_status.setText("Not calibrated")
+                self._calibration_status.setStyleSheet("color: #858585;")
+
+            # Restore normal polling interval if it was slowed
+            if self._rpm_timer.interval() > 500:
+                self._rpm_timer.setInterval(500)
+        else:
+            # Track consecutive failures
+            self._rpm_fail_count = getattr(self, '_rpm_fail_count', 0) + 1
+
+            if self._rpm_fail_count >= 3:
+                # After 3 failures, assume no disk
+                self._rpm_value_label.setText("---")
+                self._rpm_value_label.setStyleSheet("color: #858585; font-weight: bold;")
+
+                # Show "Insert disk" hint if not already shown
+                if self._calibration_status.text() not in ("Insert disk", "Calibrating..."):
+                    self._calibration_status.setText("Insert disk")
+                    self._calibration_status.setStyleSheet("color: #cccc33;")
+
+                # Slow down polling when no disk (every 2 seconds instead of 500ms)
+                if self._rpm_timer.interval() < 2000:
+                    self._rpm_timer.setInterval(2000)
+                    logger.debug("No disk detected - slowing RPM polling")
             else:
                 self._rpm_value_label.setText("---")
-
-        except Exception as e:
-            logger.warning("Failed to get RPM: %s", e)
 
     def _on_cylinder_slider_changed(self, value: int) -> None:
         """Handle cylinder slider change."""
@@ -592,44 +648,56 @@ class DriveControlPanel(QWidget):
         self._calibration_status.setStyleSheet("color: #cccc33;")
 
         try:
-            # Ensure motor is on
+            # If motor is off, reinitialize drive first
             if not self._motor_on:
-                self._device.motor_on()
+                logger.info("Motor off, reinitializing drive for calibration...")
+                self._device.reinitialize_drive()
                 self._motor_on = True
                 self._motor_button.setChecked(True)
                 self._motor_button.setText("Motor ON")
+                self._motor_button.setProperty("variant", "success")
+                self._motor_button.style().unpolish(self._motor_button)
+                self._motor_button.style().polish(self._motor_button)
                 self._rpm_timer.start(500)
 
-            # Wait for motor to spin up
-            import time
-            time.sleep(0.5)
-
-            # Measure RPM
+            # Measure RPM - the device's get_rpm() already has retry logic
             rpm = self._device.get_rpm()
             self._current_rpm = rpm
 
-            # Seek to track 0 for calibration
-            self._device.seek(0, 0)
-            self._current_cylinder = 0
-            self._current_head = 0
-            self._position_label.setText("C:00 H:0")
+            # Try to seek to track 0 for calibration
+            # Some drives may have TRK00 sensor issues but still work
+            seek_ok = True
+            try:
+                self._device.seek(0, 0)
+                self._current_cylinder = 0
+                self._current_head = 0
+                self._position_label.setText("C:00 H:0")
 
-            # Update cylinder controls
-            self._cylinder_slider.setValue(0)
-            self._cylinder_spinbox.setValue(0)
-            self._head_combo.setCurrentIndex(0)
+                # Update cylinder controls
+                self._cylinder_slider.setValue(0)
+                self._cylinder_spinbox.setValue(0)
+                self._head_combo.setCurrentIndex(0)
+            except Exception as seek_error:
+                logger.warning("Seek to track 0 failed: %s (TRK00 sensor issue?)", seek_error)
+                seek_ok = False
+                self._position_label.setText("C:?? H:?")
 
-            # Check RPM
+            # Check RPM and build status message
+            trk0_warning = "" if seek_ok else " (TRK00 sensor issue)"
             if 290 <= rpm <= 310:
-                status = f"OK - {rpm:.0f} RPM"
-                color = "#33cc33"
+                if seek_ok:
+                    status = f"OK - {rpm:.0f} RPM"
+                    color = "#33cc33"
+                else:
+                    status = f"OK - {rpm:.0f} RPM (no TRK00)"
+                    color = "#cccc33"
                 success = True
-                message = f"Calibration successful. RPM: {rpm:.0f}"
+                message = f"Calibration successful. RPM: {rpm:.0f}{trk0_warning}"
             elif 280 <= rpm <= 320:
                 status = f"Warning - {rpm:.0f} RPM"
                 color = "#cccc33"
                 success = True
-                message = f"Calibration complete with warnings. RPM: {rpm:.0f} (nominal: 300)"
+                message = f"Calibration complete with warnings. RPM: {rpm:.0f} (nominal: 300){trk0_warning}"
             else:
                 status = f"Error - {rpm:.0f} RPM"
                 color = "#cc3333"

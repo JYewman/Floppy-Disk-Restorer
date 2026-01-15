@@ -590,6 +590,8 @@ class MainWindow(QMainWindow):
         is_connected = self._drive_control.is_connected()
 
         # Enable/disable operation toolbar
+        logger.debug("_update_state: is_connected=%s, is_idle=%s, enabling toolbar=%s",
+                    is_connected, is_idle, is_connected and is_idle)
         self._operation_toolbar.set_enabled(is_connected and is_idle)
 
         # Update status strip based on connection

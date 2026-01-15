@@ -241,9 +241,17 @@ class ScanWorker(GreaseweazleWorker):
             mode=self._mode,
         )
 
-        # Ensure motor is on
+        # Ensure drive is properly initialized and motor is on
+        # Use reinitialize_drive() to ensure proper bus state synchronization
         if not self._device.is_motor_on():
+            logger.info("Motor not running, reinitializing drive before scan...")
+            self._device.reinitialize_drive()
+        else:
+            # Even if motor is marked as running, ensure proper state
+            logger.debug("Motor marked as running, verifying drive state...")
+            # Just ensure motor is on with standard method
             self._device.motor_on()
+            time.sleep(0.5)
 
         # Get tracks to scan based on mode
         tracks_to_scan = self._get_tracks_to_scan()
