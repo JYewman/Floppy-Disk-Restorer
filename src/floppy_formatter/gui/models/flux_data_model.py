@@ -801,17 +801,46 @@ class FluxDataModel(QObject):
             True if successful
         """
         try:
-            # Placeholder: actual file loading implementation
-            # Would parse SCP/HFE format and create TrackFluxData
-
             logger.info("Loading flux from file: %s", filepath)
 
-            # Create mock data for now
+            # Determine format by extension
+            ext = filepath.lower().split('.')[-1]
+
+            raw_flux = None
+            flux_transitions = []
+
+            if ext == 'scp':
+                # Load SCP format
+                from floppy_formatter.imaging.image_formats import load_scp_track
+                flux_transitions = load_scp_track(filepath, cyl, head)
+                raw_flux = flux_transitions
+
+            elif ext == 'hfe':
+                # Load HFE format
+                from floppy_formatter.imaging.image_formats import load_hfe_track
+                flux_transitions = load_hfe_track(filepath, cyl, head)
+                raw_flux = flux_transitions
+
+            elif ext == 'raw':
+                # Load raw flux data
+                with open(filepath, 'rb') as f:
+                    raw_data = f.read()
+                # Parse as array of 32-bit transition times
+                import struct
+                flux_transitions = list(struct.unpack(f'<{len(raw_data)//4}I', raw_data))
+                raw_flux = flux_transitions
+
+            else:
+                raise ValueError(f"Unsupported flux format: {ext}")
+
+            # Create track data
             track_data = TrackFluxData(
                 cyl=cyl,
                 head=head,
                 state=TrackState.LOADED,
                 capture_time=datetime.now(),
+                raw_flux=raw_flux,
+                flux_transitions=flux_transitions,
             )
 
             self._cache.put(track_data)
@@ -841,8 +870,29 @@ class FluxDataModel(QObject):
             return False
 
         try:
-            # Placeholder: actual file saving implementation
             logger.info("Saving flux to file: %s", filepath)
+
+            # Determine format by extension
+            ext = filepath.lower().split('.')[-1]
+
+            if ext == 'scp':
+                # Save as SCP format
+                from floppy_formatter.imaging.image_formats import save_scp_track
+                save_scp_track(filepath, cyl, head, track_data.raw_flux)
+
+            elif ext == 'raw':
+                # Save as raw flux data
+                import struct
+                with open(filepath, 'wb') as f:
+                    if isinstance(track_data.raw_flux, (list, tuple)):
+                        f.write(struct.pack(f'<{len(track_data.raw_flux)}I', *track_data.raw_flux))
+                    else:
+                        f.write(track_data.raw_flux)
+
+            else:
+                raise ValueError(f"Unsupported save format: {ext}")
+
+            logger.info("Flux saved successfully: %s", filepath)
             return True
 
         except Exception as e:
@@ -914,19 +964,44 @@ class FluxDataModel(QObject):
             self.error_occurred.emit("No device connected")
             return
 
-        # In real implementation, this would use the device to capture flux
         logger.info("Capturing flux for track %d/%d (%d revolutions)", cyl, head, revolutions)
 
-        # Placeholder: create mock capture
-        track_data = TrackFluxData(
-            cyl=cyl,
-            head=head,
-            state=TrackState.LOADED,
-            capture_time=datetime.now(),
-        )
+        try:
+            from floppy_formatter.hardware import read_track_flux
+            from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
-        self._cache.put(track_data)
-        self.capture_complete.emit(cyl, head, track_data)
+            # Ensure motor is on
+            if not self._device.is_motor_on():
+                self._device.motor_on()
+
+            # Seek to track
+            self._device.seek(cyl, head)
+
+            # Capture flux
+            flux_data = read_track_flux(self._device, cyl, head, revolutions=revolutions)
+            capture = FluxCapture.from_flux_data(flux_data)
+
+            # Extract transition times
+            flux_transitions = list(capture.flux_times) if hasattr(capture, 'flux_times') else []
+
+            # Create track data
+            track_data = TrackFluxData(
+                cyl=cyl,
+                head=head,
+                state=TrackState.LOADED,
+                capture_time=datetime.now(),
+                raw_flux=flux_data,
+                flux_transitions=flux_transitions,
+            )
+
+            self._cache.put(track_data)
+            self.capture_complete.emit(cyl, head, track_data)
+
+            logger.info("Flux capture complete for track %d/%d", cyl, head)
+
+        except Exception as e:
+            logger.error("Flux capture failed: %s", e)
+            self.error_occurred.emit(f"Capture failed: {e}")
 
     # =========================================================================
     # Public API - Cache Management
@@ -967,15 +1042,36 @@ class FluxDataModel(QObject):
         key = (cyl, head)
 
         try:
-            # In real implementation, would use device to read flux
+            from floppy_formatter.hardware import read_track_flux
+            from floppy_formatter.analysis.flux_analyzer import FluxCapture
+
             logger.info("Loading track %d/%d from device", cyl, head)
 
-            # Create track data (placeholder)
+            if self._device is None:
+                raise RuntimeError("No device connected")
+
+            # Ensure motor is on
+            if not self._device.is_motor_on():
+                self._device.motor_on()
+
+            # Seek to track
+            self._device.seek(cyl, head)
+
+            # Capture flux
+            flux_data = read_track_flux(self._device, cyl, head, revolutions=2)
+            capture = FluxCapture.from_flux_data(flux_data)
+
+            # Extract transition times
+            flux_transitions = list(capture.flux_times) if hasattr(capture, 'flux_times') else []
+
+            # Create track data with actual flux
             track_data = TrackFluxData(
                 cyl=cyl,
                 head=head,
                 state=TrackState.LOADED,
                 capture_time=datetime.now(),
+                raw_flux=flux_data,
+                flux_transitions=flux_transitions,
             )
 
             self._cache.put(track_data)

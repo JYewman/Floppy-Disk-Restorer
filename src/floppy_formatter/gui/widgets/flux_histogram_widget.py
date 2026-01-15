@@ -255,6 +255,9 @@ class FluxHistogramWidget(QWidget):
         self._peak_separation: float = 0.0
         self._avg_jitter: float = 0.0
 
+        # Custom expected peaks (uses MFM defaults if None)
+        self._custom_expected_peaks: Optional[List[float]] = None
+
     # =========================================================================
     # Public API
     # =========================================================================
@@ -398,10 +401,14 @@ class FluxHistogramWidget(QWidget):
         Set expected peak positions for reference lines.
 
         Args:
-            peaks: List of expected peak positions in microseconds
+            peaks: List of expected peak positions in microseconds.
+                   Pass None or empty list to restore MFM defaults.
         """
-        # Store custom expected peaks (currently not implemented, uses MFM defaults)
-        pass
+        if peaks and len(peaks) > 0:
+            self._custom_expected_peaks = sorted(peaks)
+        else:
+            self._custom_expected_peaks = None
+        self.update()
 
     def update_histogram(self) -> None:
         """Force recalculation and redraw of histogram."""
@@ -875,18 +882,28 @@ class FluxHistogramWidget(QWidget):
                 painter.drawLine(int(x), int(plot_top), int(x), int(plot_bottom))
 
     def _draw_mfm_reference(self, painter: QPainter) -> None:
-        """Draw MFM reference lines."""
+        """Draw MFM reference lines (or custom peaks if set)."""
         if not self._show_mfm_reference:
             return
 
         plot_top = MARGIN_TOP
         plot_bottom = self.height() - MARGIN_BOTTOM
 
-        references = [
-            (MFM_HD_2T_US, "2T", COLOR_PEAK_2T),
-            (MFM_HD_3T_US, "3T", COLOR_PEAK_3T),
-            (MFM_HD_4T_US, "4T", COLOR_PEAK_4T),
-        ]
+        # Use custom peaks if set, otherwise use MFM defaults
+        if self._custom_expected_peaks:
+            # Generate colors for custom peaks
+            colors = [COLOR_PEAK_2T, COLOR_PEAK_3T, COLOR_PEAK_4T]
+            references = []
+            for i, us in enumerate(self._custom_expected_peaks):
+                color = colors[i % len(colors)]
+                label = f"P{i+1}"
+                references.append((us, label, color))
+        else:
+            references = [
+                (MFM_HD_2T_US, "2T", COLOR_PEAK_2T),
+                (MFM_HD_3T_US, "3T", COLOR_PEAK_3T),
+                (MFM_HD_4T_US, "4T", COLOR_PEAK_4T),
+            ]
 
         painter.setFont(self._font_small)
 

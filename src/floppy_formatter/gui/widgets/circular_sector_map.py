@@ -552,15 +552,48 @@ class SectorWedgeItem(QGraphicsItem):
         return self.DIMMED_COLOR
 
     def _get_data_pattern_color(self) -> QColor:
-        """Get color based on data pattern (placeholder)."""
-        # In a full implementation, this would analyze sector data
-        # For now, return status color with slight modification
+        """Get color based on data pattern analysis."""
         base = self._get_status_color()
-        if self._metadata and self._metadata.data:
-            # Simple visualization: color based on first byte value
-            first_byte = self._metadata.data[0] if self._metadata.data else 0
-            hue = (first_byte / 255.0) * 360
-            return QColor.fromHslF(hue / 360.0, 0.7, 0.5)
+        if self._metadata and self._metadata.data and len(self._metadata.data) > 0:
+            data = self._metadata.data
+            data_len = len(data)
+
+            # Analyze data pattern for visualization
+            # Calculate entropy-like measure and dominant pattern
+
+            # Check for common fill patterns
+            first_byte = data[0]
+            if all(b == first_byte for b in data[:min(32, data_len)]):
+                # Uniform fill pattern - use a distinctive color
+                if first_byte == 0x00:
+                    return QColor(40, 40, 60)      # Dark blue-gray for zeros
+                elif first_byte == 0xFF:
+                    return QColor(200, 200, 220)  # Light gray for FF
+                elif first_byte == 0xE5:
+                    return QColor(100, 150, 100)  # Green for formatted (E5)
+                elif first_byte == 0xF6:
+                    return QColor(150, 100, 100)  # Red-ish for F6
+                else:
+                    # Other uniform pattern - base on byte value
+                    hue = (first_byte / 255.0) * 0.8  # 0-288 degrees (avoid red)
+                    return QColor.fromHslF(hue, 0.5, 0.4)
+
+            # Non-uniform data - calculate simple entropy indicator
+            unique_bytes = len(set(data[:min(64, data_len)]))
+            entropy_ratio = unique_bytes / min(64, data_len)
+
+            if entropy_ratio > 0.8:
+                # High entropy (compressed/encrypted data) - purple tones
+                return QColor.fromHslF(0.75, 0.6, 0.45)
+            elif entropy_ratio > 0.4:
+                # Medium entropy (normal data) - blue tones
+                avg_byte = sum(data[:min(64, data_len)]) // min(64, data_len)
+                lightness = 0.3 + (avg_byte / 255.0) * 0.4
+                return QColor.fromHslF(0.58, 0.5, lightness)
+            else:
+                # Low entropy (repetitive data) - green tones
+                return QColor.fromHslF(0.35, 0.5, 0.45)
+
         return base
 
     def paint(self, painter: QPainter, option, widget=None) -> None:

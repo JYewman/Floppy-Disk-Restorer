@@ -461,9 +461,10 @@ class DriveControlPanel(QWidget):
                 self._motor_button.setText("Motor ON")
                 self._motor_button.setProperty("variant", "success")
 
-                # Start RPM monitoring
+                # Start RPM monitoring after spin-up delay (500ms for motor to reach speed)
                 self._rpm_timer.start(500)  # Update every 500ms
-                self._update_rpm_display()
+                # Don't measure RPM immediately - wait for first timer tick
+                # The motor needs ~500ms to spin up before index pulses are detectable
 
                 logger.info("Motor turned ON")
 

@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QToolBar,
     QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, QUrl
+from PyQt6.QtCore import Qt, QSize, QTimer, QUrl, QThread
 from PyQt6.QtGui import QIcon, QAction, QKeySequence, QDesktopServices, QShortcut
 
 from floppy_formatter.gui.panels import (
@@ -64,7 +64,13 @@ from floppy_formatter.gui.utils import (
     play_success_sound,
 )
 from floppy_formatter.core.geometry import DiskGeometry
-from floppy_formatter.hardware import GreaseweazleDevice
+from floppy_formatter.hardware import GreaseweazleDevice, read_track_flux
+from floppy_formatter.gui.workers.scan_worker import ScanWorker, ScanMode, ScanResult, TrackResult
+from floppy_formatter.gui.workers.format_worker import FormatWorker, FormatType, FormatResult
+from floppy_formatter.gui.workers.restore_worker import RestoreWorker, RestoreConfig, RecoveryLevel, RecoveryStats
+from floppy_formatter.gui.workers.analyze_worker import AnalyzeWorker, AnalysisConfig, AnalysisDepth, DiskAnalysisResult
+from floppy_formatter.gui.workers.flux_capture_worker import FluxCaptureWorker, CaptureConfig, FluxSample
+from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +318,18 @@ class MainWindow(QMainWindow):
         # Scan/operation results
         self._last_scan_result = None
         self._disk_health: Optional[int] = None
+
+        # Worker and thread for background operations
+        self._scan_worker: Optional[ScanWorker] = None
+        self._scan_thread: Optional[QThread] = None
+        self._format_worker: Optional[FormatWorker] = None
+        self._format_thread: Optional[QThread] = None
+        self._restore_worker: Optional[RestoreWorker] = None
+        self._restore_thread: Optional[QThread] = None
+        self._analyze_worker: Optional[AnalyzeWorker] = None
+        self._analyze_thread: Optional[QThread] = None
+        self._flux_capture_worker: Optional[FluxCaptureWorker] = None
+        self._flux_capture_thread: Optional[QThread] = None
 
         # Build UI
         self._init_menu_bar()
@@ -576,12 +594,17 @@ class MainWindow(QMainWindow):
             device_info = self._drive_control.get_device_info()
             self._status_strip.set_connection_status(True, device_info)
 
-            # Update drive status
+            # Update drive status - assume disk present when connected
+            # (actual disk presence is detected during read operations)
             if self._drive_control.is_motor_on():
-                rpm = self._drive_control.get_rpm()
-                self._status_strip.set_drive_status("3.5\" HD", rpm, True)
+                try:
+                    rpm = self._drive_control.get_rpm()
+                    self._status_strip.set_drive_status("3.5\" HD", rpm, True)
+                except Exception:
+                    # RPM measurement can fail during spin-up
+                    self._status_strip.set_drive_status("3.5\" HD", None, True)
             else:
-                self._status_strip.set_drive_status("3.5\" HD", None, False)
+                self._status_strip.set_drive_status("3.5\" HD", None, True)
         else:
             self._status_strip.set_connection_status(False)
             self._status_strip.set_drive_status(None)
@@ -630,10 +653,15 @@ class MainWindow(QMainWindow):
         logger.debug("Motor changed: %s", "ON" if is_on else "OFF")
 
         if is_on:
-            rpm = self._drive_control.get_rpm()
-            self._status_strip.set_drive_status("3.5\" HD", rpm, True)
+            try:
+                rpm = self._drive_control.get_rpm()
+                self._status_strip.set_drive_status("3.5\" HD", rpm, True)
+            except Exception:
+                # RPM measurement can fail during spin-up
+                self._status_strip.set_drive_status("3.5\" HD", None, True)
         else:
-            self._status_strip.set_drive_status("3.5\" HD", None, False)
+            # Keep has_disk=True since we don't know if disk was removed
+            self._status_strip.set_drive_status("3.5\" HD", None, True)
 
     def _on_position_changed(self, cylinder: int, head: int) -> None:
         """Handle head position change."""
@@ -671,6 +699,24 @@ class MainWindow(QMainWindow):
 
         logger.info("Starting operation: %s", operation)
 
+        # Check device is connected
+        if not self._device:
+            self._status_strip.set_error("No device connected")
+            QMessageBox.warning(
+                self, "No Device",
+                "Please connect to a Greaseweazle device first."
+            )
+            return
+
+        # Check geometry is set
+        if not self._geometry:
+            self._status_strip.set_error("No disk geometry")
+            QMessageBox.warning(
+                self, "No Geometry",
+                "Disk geometry not configured."
+            )
+            return
+
         # Map operation to state
         state_map = {
             "scan": WorkbenchState.SCANNING,
@@ -683,27 +729,535 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.start_operation()
         self._update_state()
 
-        # Update status strip
+        # Update status strip and start operation
         if operation == "scan":
             self._status_strip.set_scanning(0, 160)
+            self._start_scan_operation()
         elif operation == "format":
             self._status_strip.set_formatting(0, 160)
+            self._start_format_operation()
         elif operation == "restore":
             self._status_strip.set_restoring(1, 5, 0, 2880)
+            self._start_restore_operation()
         elif operation == "analyze":
             self._status_strip.set_analyzing("flux data")
+            self._start_analyze_operation()
 
-        # Placeholder: actual worker implementation in Phase 9
-        # For now, simulate operation completion after delay
-        QTimer.singleShot(2000, self._on_operation_complete)
+    def _start_scan_operation(self) -> None:
+        """Start the actual scan operation with worker thread."""
+        # Clean up any existing worker
+        self._cleanup_scan_worker()
+
+        # Reset sector map to pending state
+        total_sectors = self._geometry.total_sectors
+        for sector in range(total_sectors):
+            self._sector_map.update_sector(sector, SectorStatus.PENDING)
+
+        # Create thread and worker
+        self._scan_thread = QThread()
+        self._scan_worker = ScanWorker(
+            device=self._device,
+            geometry=self._geometry,
+            capture_flux=False,
+            mode=ScanMode.STANDARD,
+        )
+        self._scan_worker.moveToThread(self._scan_thread)
+
+        # Connect worker signals
+        self._scan_thread.started.connect(self._scan_worker.run)
+        self._scan_worker.track_scanned.connect(self._on_track_scanned)
+        self._scan_worker.sector_status.connect(self._on_sector_status)
+        self._scan_worker.scan_complete.connect(self._on_scan_complete)
+        self._scan_worker.progress.connect(self._on_scan_progress)
+        self._scan_worker.error.connect(self._on_scan_error)
+        self._scan_worker.finished.connect(self._on_scan_finished)
+
+        # Start the scan
+        logger.info("Starting scan worker thread")
+        self._scan_thread.start()
+
+    def _cleanup_scan_worker(self) -> None:
+        """Clean up scan worker and thread."""
+        if self._scan_worker:
+            self._scan_worker.cancel()
+            self._scan_worker = None
+
+        if self._scan_thread:
+            if self._scan_thread.isRunning():
+                self._scan_thread.quit()
+                self._scan_thread.wait(3000)
+            self._scan_thread = None
+
+    def _on_track_scanned(self, cylinder: int, head: int, track_result: TrackResult) -> None:
+        """Handle track scan completion."""
+        logger.debug("Track scanned: cyl=%d, head=%d, good=%d, bad=%d",
+                     cylinder, head, track_result.good_count, track_result.bad_count)
+
+        # Update sector map with track results
+        for sector_result in track_result.sector_results:
+            if sector_result.is_good:
+                status = SectorStatus.GOOD
+            else:
+                status = SectorStatus.BAD
+            self._sector_map.update_sector(sector_result.linear_sector, status)
+
+        # Show activity on current track
+        track_number = cylinder * 2 + head
+        start_sector = track_number * self._geometry.sectors_per_track
+        self._sector_map.show_activity(start_sector, ActivityType.READ)
+
+    def _on_sector_status(self, sector_num: int, is_good: bool, error_type: str) -> None:
+        """Handle individual sector status update."""
+        status = SectorStatus.GOOD if is_good else SectorStatus.BAD
+        self._sector_map.update_sector(sector_num, status)
+
+    def _on_scan_complete(self, result: ScanResult) -> None:
+        """Handle scan operation completion."""
+        logger.info("Scan complete: %d good, %d bad sectors",
+                    len(result.good_sectors), len(result.bad_sectors))
+
+        # Store result
+        self._last_scan_result = result
+
+        # Calculate disk health percentage
+        total = result.total_sectors
+        good = len(result.good_sectors)
+        if total > 0:
+            self._disk_health = int((good / total) * 100)
+            self._status_strip.set_disk_health(self._disk_health)
+
+        # Update status
+        if len(result.bad_sectors) == 0:
+            self._status_strip.set_success(
+                f"Scan complete: All {total} sectors OK"
+            )
+            play_success_sound()
+        else:
+            self._status_strip.set_warning(
+                f"Scan complete: {len(result.bad_sectors)} bad sectors found"
+            )
+            play_error_sound()
+
+        # Update analytics panel with results
+        self._analytics_panel.update_scan_results(
+            good_sectors=len(result.good_sectors),
+            bad_sectors=len(result.bad_sectors),
+            weak_sectors=0,
+        )
+
+    def _on_scan_progress(self, progress: int) -> None:
+        """Handle scan progress update."""
+        # Update status strip with progress
+        total_tracks = self._geometry.cylinders * self._geometry.heads
+        current_track = int((progress / 100) * total_tracks)
+        self._status_strip.set_scanning(current_track, total_tracks)
+
+    def _on_scan_error(self, error_message: str) -> None:
+        """Handle scan error."""
+        logger.error("Scan error: %s", error_message)
+        self._status_strip.set_error(f"Scan error: {error_message}")
+        play_error_sound()
+
+    def _on_scan_finished(self) -> None:
+        """Handle scan worker finished (cleanup)."""
+        logger.debug("Scan worker finished")
+        self._on_operation_complete()
+        self._cleanup_scan_worker()
+
+    # =========================================================================
+    # Format Operation
+    # =========================================================================
+
+    def _start_format_operation(self) -> None:
+        """Start the format operation with worker thread."""
+        self._cleanup_format_worker()
+
+        # Reset sector map to pending state
+        total_sectors = self._geometry.total_sectors
+        for sector in range(total_sectors):
+            self._sector_map.update_sector(sector, SectorStatus.PENDING)
+
+        # Create thread and worker
+        self._format_thread = QThread()
+        self._format_worker = FormatWorker(
+            device=self._device,
+            geometry=self._geometry,
+            fill_pattern=0xE5,
+            verify=True,
+            format_type=FormatType.STANDARD,
+        )
+        self._format_worker.moveToThread(self._format_thread)
+
+        # Connect worker signals
+        self._format_thread.started.connect(self._format_worker.run)
+        self._format_worker.track_formatted.connect(self._on_track_formatted)
+        self._format_worker.track_verified.connect(self._on_track_verified)
+        self._format_worker.format_complete.connect(self._on_format_complete)
+        self._format_worker.progress.connect(self._on_format_progress)
+        self._format_worker.error.connect(self._on_format_error)
+        self._format_worker.finished.connect(self._on_format_finished)
+
+        logger.info("Starting format worker thread")
+        self._format_thread.start()
+
+    def _cleanup_format_worker(self) -> None:
+        """Clean up format worker and thread."""
+        if self._format_worker:
+            self._format_worker.cancel()
+            self._format_worker = None
+
+        if self._format_thread:
+            if self._format_thread.isRunning():
+                self._format_thread.quit()
+                self._format_thread.wait(3000)
+            self._format_thread = None
+
+    def _on_track_formatted(self, cylinder: int, head: int, success: bool) -> None:
+        """Handle track format completion."""
+        logger.debug("Track formatted: cyl=%d, head=%d, success=%s", cylinder, head, success)
+        track_number = cylinder * 2 + head
+        start_sector = track_number * self._geometry.sectors_per_track
+
+        status = SectorStatus.GOOD if success else SectorStatus.BAD
+        for i in range(self._geometry.sectors_per_track):
+            self._sector_map.update_sector(start_sector + i, status)
+
+        self._sector_map.show_activity(start_sector, ActivityType.WRITE)
+
+    def _on_track_verified(self, cylinder: int, head: int, verified_ok: bool) -> None:
+        """Handle track verification completion."""
+        logger.debug("Track verified: cyl=%d, head=%d, ok=%s", cylinder, head, verified_ok)
+        if not verified_ok:
+            track_number = cylinder * 2 + head
+            start_sector = track_number * self._geometry.sectors_per_track
+            for i in range(self._geometry.sectors_per_track):
+                self._sector_map.update_sector(start_sector + i, SectorStatus.WEAK)
+
+    def _on_format_complete(self, result: FormatResult) -> None:
+        """Handle format operation completion."""
+        logger.info("Format complete: %d/%d tracks OK, %d bad sectors",
+                    result.tracks_formatted, result.total_tracks, len(result.bad_sectors))
+
+        if result.success:
+            self._status_strip.set_success(
+                f"Format complete: {result.tracks_formatted} tracks formatted"
+            )
+            play_success_sound()
+        else:
+            self._status_strip.set_warning(
+                f"Format complete with errors: {result.tracks_failed} tracks failed"
+            )
+            play_error_sound()
+
+    def _on_format_progress(self, progress: int) -> None:
+        """Handle format progress update."""
+        total_tracks = self._geometry.cylinders * self._geometry.heads
+        current_track = int((progress / 100) * total_tracks)
+        self._status_strip.set_formatting(current_track, total_tracks)
+
+    def _on_format_error(self, error_message: str) -> None:
+        """Handle format error."""
+        logger.error("Format error: %s", error_message)
+        self._status_strip.set_error(f"Format error: {error_message}")
+        play_error_sound()
+
+    def _on_format_finished(self) -> None:
+        """Handle format worker finished (cleanup)."""
+        logger.debug("Format worker finished")
+        self._on_operation_complete()
+        self._cleanup_format_worker()
+
+    # =========================================================================
+    # Restore Operation
+    # =========================================================================
+
+    def _start_restore_operation(self) -> None:
+        """Start the restore operation with worker thread."""
+        self._cleanup_restore_worker()
+
+        # Create restore config
+        config = RestoreConfig(
+            convergence_mode=True,
+            passes=10,
+            convergence_threshold=3,
+            multiread_mode=True,
+            multiread_attempts=5,
+            recovery_level=RecoveryLevel.AGGRESSIVE,
+            pll_tuning=True,
+            bit_slip_recovery=True,
+        )
+
+        # Create thread and worker
+        self._restore_thread = QThread()
+        self._restore_worker = RestoreWorker(
+            device=self._device,
+            geometry=self._geometry,
+            config=config,
+        )
+        self._restore_worker.moveToThread(self._restore_thread)
+
+        # Connect worker signals
+        self._restore_thread.started.connect(self._restore_worker.run)
+        self._restore_worker.pass_started.connect(self._on_restore_pass_started)
+        self._restore_worker.pass_complete.connect(self._on_restore_pass_complete)
+        self._restore_worker.sector_recovered.connect(self._on_sector_recovered)
+        self._restore_worker.sector_failed.connect(self._on_sector_failed)
+        self._restore_worker.initial_scan_sector.connect(self._on_restore_initial_scan_sector)
+        self._restore_worker.restore_complete.connect(self._on_restore_complete)
+        self._restore_worker.progress.connect(self._on_restore_progress)
+        self._restore_worker.error.connect(self._on_restore_error)
+        self._restore_worker.finished.connect(self._on_restore_finished)
+
+        logger.info("Starting restore worker thread")
+        self._restore_thread.start()
+
+    def _cleanup_restore_worker(self) -> None:
+        """Clean up restore worker and thread."""
+        if self._restore_worker:
+            self._restore_worker.cancel()
+            self._restore_worker = None
+
+        if self._restore_thread:
+            if self._restore_thread.isRunning():
+                self._restore_thread.quit()
+                self._restore_thread.wait(3000)
+            self._restore_thread = None
+
+    def _on_restore_pass_started(self, pass_num: int, total_passes: int) -> None:
+        """Handle restore pass start."""
+        logger.debug("Restore pass started: %d/%d", pass_num, total_passes)
+        self._status_strip.set_restoring(pass_num, total_passes, 0, self._geometry.total_sectors)
+
+    def _on_restore_pass_complete(self, pass_num: int, bad_count: int, recovered_count: int) -> None:
+        """Handle restore pass completion."""
+        logger.debug("Restore pass complete: pass=%d, bad=%d, recovered=%d",
+                     pass_num, bad_count, recovered_count)
+
+    def _on_sector_recovered(self, sector_num: int, technique: str) -> None:
+        """Handle sector recovery success."""
+        logger.debug("Sector recovered: %d using %s", sector_num, technique)
+        self._sector_map.update_sector(sector_num, SectorStatus.RECOVERED)
+        self._sector_map.show_activity(sector_num, ActivityType.WRITE)
+
+    def _on_sector_failed(self, sector_num: int, reason: str) -> None:
+        """Handle sector recovery failure."""
+        logger.debug("Sector failed: %d - %s", sector_num, reason)
+        self._sector_map.update_sector(sector_num, SectorStatus.BAD)
+
+    def _on_restore_initial_scan_sector(self, sector_num: int, is_good: bool) -> None:
+        """Handle initial scan sector result during restore."""
+        status = SectorStatus.GOOD if is_good else SectorStatus.BAD
+        self._sector_map.update_sector(sector_num, status)
+
+    def _on_restore_complete(self, stats: RecoveryStats) -> None:
+        """Handle restore operation completion."""
+        logger.info("Restore complete: %d/%d sectors recovered",
+                    stats.sectors_recovered, stats.initial_bad_sectors)
+
+        if stats.final_bad_sectors == 0:
+            self._status_strip.set_success(
+                f"Restore complete: All {stats.sectors_recovered} bad sectors recovered"
+            )
+            play_success_sound()
+        elif stats.sectors_recovered > 0:
+            self._status_strip.set_warning(
+                f"Restore complete: {stats.sectors_recovered} recovered, "
+                f"{stats.final_bad_sectors} unrecoverable"
+            )
+            play_complete_sound()
+        else:
+            self._status_strip.set_error(
+                f"Restore failed: {stats.final_bad_sectors} sectors unrecoverable"
+            )
+            play_error_sound()
+
+        # Update health based on recovery
+        if self._geometry.total_sectors > 0:
+            good_sectors = self._geometry.total_sectors - stats.final_bad_sectors
+            self._disk_health = int((good_sectors / self._geometry.total_sectors) * 100)
+            self._status_strip.set_disk_health(self._disk_health)
+
+    def _on_restore_progress(self, progress: int) -> None:
+        """Handle restore progress update."""
+        pass  # Progress is handled by pass_started signal
+
+    def _on_restore_error(self, error_message: str) -> None:
+        """Handle restore error."""
+        logger.error("Restore error: %s", error_message)
+        self._status_strip.set_error(f"Restore error: {error_message}")
+        play_error_sound()
+
+    def _on_restore_finished(self) -> None:
+        """Handle restore worker finished (cleanup)."""
+        logger.debug("Restore worker finished")
+        self._on_operation_complete()
+        self._cleanup_restore_worker()
+
+    # =========================================================================
+    # Analyze Operation
+    # =========================================================================
+
+    def _start_analyze_operation(self) -> None:
+        """Start the analyze operation with worker thread."""
+        self._cleanup_analyze_worker()
+
+        # Create analysis config
+        config = AnalysisConfig(
+            depth=AnalysisDepth.STANDARD,
+            capture_revolutions=2,
+            save_flux=False,
+        )
+
+        # Create thread and worker
+        self._analyze_thread = QThread()
+        self._analyze_worker = AnalyzeWorker(
+            device=self._device,
+            geometry=self._geometry,
+            config=config,
+        )
+        self._analyze_worker.moveToThread(self._analyze_thread)
+
+        # Connect worker signals
+        self._analyze_thread.started.connect(self._analyze_worker.run)
+        self._analyze_worker.track_analyzed.connect(self._on_track_analyzed)
+        self._analyze_worker.flux_quality_update.connect(self._on_flux_quality_update)
+        self._analyze_worker.analysis_complete.connect(self._on_analysis_complete)
+        self._analyze_worker.progress.connect(self._on_analyze_progress)
+        self._analyze_worker.error.connect(self._on_analyze_error)
+        self._analyze_worker.finished.connect(self._on_analyze_finished)
+
+        logger.info("Starting analyze worker thread")
+        self._analyze_thread.start()
+
+    def _cleanup_analyze_worker(self) -> None:
+        """Clean up analyze worker and thread."""
+        if self._analyze_worker:
+            self._analyze_worker.cancel()
+            self._analyze_worker = None
+
+        if self._analyze_thread:
+            if self._analyze_thread.isRunning():
+                self._analyze_thread.quit()
+                self._analyze_thread.wait(3000)
+            self._analyze_thread = None
+
+    def _on_track_analyzed(self, cylinder: int, head: int, result) -> None:
+        """Handle track analysis completion."""
+        logger.debug("Track analyzed: cyl=%d, head=%d, grade=%s",
+                     cylinder, head, result.grade)
+
+        track_number = cylinder * 2 + head
+        start_sector = track_number * self._geometry.sectors_per_track
+
+        # Map grade to sector status
+        grade_status = {
+            'A': SectorStatus.GOOD,
+            'B': SectorStatus.GOOD,
+            'C': SectorStatus.WEAK,
+            'D': SectorStatus.WEAK,
+            'F': SectorStatus.BAD,
+        }
+        status = grade_status.get(result.grade, SectorStatus.UNKNOWN)
+
+        for i in range(self._geometry.sectors_per_track):
+            self._sector_map.update_sector(start_sector + i, status)
+
+        self._sector_map.show_activity(start_sector, ActivityType.READ)
+
+    def _on_flux_quality_update(self, cylinder: int, head: int, score: float) -> None:
+        """Handle flux quality update."""
+        pass  # Quality is displayed via track_analyzed
+
+    def _on_analysis_complete(self, result: DiskAnalysisResult) -> None:
+        """Handle analysis operation completion."""
+        logger.info("Analysis complete: grade=%s, score=%.1f",
+                    result.overall_grade, result.overall_quality_score)
+
+        # Update disk health
+        self._disk_health = int(result.overall_quality_score)
+        self._status_strip.set_disk_health(self._disk_health)
+
+        grade = result.overall_grade
+        if grade in ('A', 'B'):
+            self._status_strip.set_success(
+                f"Analysis complete: Grade {grade} ({result.overall_quality_score:.0f}%)"
+            )
+            play_success_sound()
+        elif grade == 'C':
+            self._status_strip.set_warning(
+                f"Analysis complete: Grade {grade} - Some degradation detected"
+            )
+            play_complete_sound()
+        else:
+            self._status_strip.set_error(
+                f"Analysis complete: Grade {grade} - Significant issues found"
+            )
+            play_error_sound()
+
+        # Update analytics panel with results
+        self._analytics_panel.update_analysis_results(result)
+
+    def _on_analyze_progress(self, progress: int) -> None:
+        """Handle analyze progress update."""
+        total_tracks = self._geometry.cylinders * self._geometry.heads
+        current_track = int((progress / 100) * total_tracks)
+        self._status_strip.set_analyzing(f"track {current_track}/{total_tracks}")
+
+    def _on_analyze_error(self, error_message: str) -> None:
+        """Handle analyze error."""
+        logger.error("Analyze error: %s", error_message)
+        self._status_strip.set_error(f"Analysis error: {error_message}")
+        play_error_sound()
+
+    def _on_analyze_finished(self) -> None:
+        """Handle analyze worker finished (cleanup)."""
+        logger.debug("Analyze worker finished")
+        self._on_operation_complete()
+        self._cleanup_analyze_worker()
 
     def _on_stop_clicked(self) -> None:
         """Handle stop button click."""
         logger.info("Stopping operation")
+
+        # Cancel any running workers
+        if self._scan_worker:
+            self._scan_worker.cancel()
+        if self._format_worker:
+            self._format_worker.cancel()
+        if self._restore_worker:
+            self._restore_worker.cancel()
+        if self._analyze_worker:
+            self._analyze_worker.cancel()
+        if self._flux_capture_worker:
+            self._flux_capture_worker.cancel()
+
         self._state = WorkbenchState.IDLE
         self._operation_toolbar.stop_operation()
         self._status_strip.set_warning("Operation cancelled")
         self._update_state()
+
+        # Cleanup all workers after a short delay to let them finish
+        QTimer.singleShot(500, self._cleanup_all_workers)
+
+    def _cleanup_all_workers(self) -> None:
+        """Clean up all worker threads."""
+        self._cleanup_scan_worker()
+        self._cleanup_format_worker()
+        self._cleanup_restore_worker()
+        self._cleanup_analyze_worker()
+        self._cleanup_flux_capture_worker()
+
+    def _cleanup_flux_capture_worker(self) -> None:
+        """Clean up flux capture worker and thread."""
+        if self._flux_capture_worker:
+            self._flux_capture_worker.cancel()
+            self._flux_capture_worker = None
+
+        if self._flux_capture_thread:
+            if self._flux_capture_thread.isRunning():
+                self._flux_capture_thread.quit()
+                self._flux_capture_thread.wait(3000)
+            self._flux_capture_thread = None
 
     def _on_pause_clicked(self) -> None:
         """Handle pause button click."""
@@ -875,7 +1429,28 @@ class MainWindow(QMainWindow):
             return
 
         self._status_strip.set_analyzing("flux data")
-        # Placeholder: actual flux capture implementation in Phase 9
+
+        try:
+            # Ensure motor is on
+            if not self._device.is_motor_on():
+                self._device.motor_on()
+
+            # Seek and capture flux
+            self._device.seek(cylinder, head)
+            flux_data = read_track_flux(self._device, cylinder, head, revolutions=2)
+            capture = FluxCapture.from_flux_data(flux_data)
+            capture.cylinder = cylinder
+            capture.head = head
+
+            # Update flux tab with captured data
+            self._analytics_panel.update_flux_data(capture, cylinder, head)
+
+            self._status_strip.set_success(f"Flux loaded: C{cylinder}:H{head}")
+            logger.info("Flux capture complete for C%d:H%d", cylinder, head)
+
+        except Exception as e:
+            logger.error("Flux capture failed: %s", e)
+            self._status_strip.set_error(f"Flux capture failed: {e}")
 
     def _on_capture_flux_requested(self, cylinder: int, head: int) -> None:
         """
@@ -892,7 +1467,28 @@ class MainWindow(QMainWindow):
             return
 
         self._status_strip.set_analyzing("flux capture")
-        # Placeholder: actual flux capture implementation in Phase 9
+
+        try:
+            # Ensure motor is on
+            if not self._device.is_motor_on():
+                self._device.motor_on()
+
+            # Seek and capture flux with multiple revolutions
+            self._device.seek(cylinder, head)
+            flux_data = read_track_flux(self._device, cylinder, head, revolutions=3)
+            capture = FluxCapture.from_flux_data(flux_data)
+            capture.cylinder = cylinder
+            capture.head = head
+
+            # Update flux tab with captured data
+            self._analytics_panel.update_flux_data(capture, cylinder, head)
+
+            self._status_strip.set_success(f"Flux captured: C{cylinder}:H{head}")
+            logger.info("Flux capture complete for C%d:H%d", cylinder, head)
+
+        except Exception as e:
+            logger.error("Flux capture failed: %s", e)
+            self._status_strip.set_error(f"Flux capture failed: {e}")
 
     def _on_export_flux_requested(self, file_path: str) -> None:
         """
@@ -903,7 +1499,30 @@ class MainWindow(QMainWindow):
         """
         logger.info("Export flux requested: %s", file_path)
         self._status_strip.set_operation_status(f"Exporting flux to {file_path}")
-        # Placeholder: actual export implementation in Phase 11
+
+        try:
+            from floppy_formatter.imaging.image_formats import export_flux_to_scp
+
+            # Get current flux data from analytics panel
+            flux_data = self._analytics_panel.get_current_flux_data()
+            if flux_data is None:
+                self._status_strip.set_error("No flux data to export")
+                return
+
+            # Export based on file extension
+            if file_path.lower().endswith('.scp'):
+                export_flux_to_scp(flux_data, file_path)
+            else:
+                # Default to raw flux export
+                with open(file_path, 'wb') as f:
+                    f.write(flux_data.to_bytes())
+
+            self._status_strip.set_success(f"Flux exported to {file_path}")
+            logger.info("Flux export complete: %s", file_path)
+
+        except Exception as e:
+            logger.error("Flux export failed: %s", e)
+            self._status_strip.set_error(f"Export failed: {e}")
 
     def _on_run_alignment_requested(self) -> None:
         """Handle alignment test request from diagnostics tab."""
@@ -914,7 +1533,43 @@ class MainWindow(QMainWindow):
             return
 
         self._status_strip.set_analyzing("head alignment")
-        # Placeholder: actual alignment test implementation in Phase 9
+
+        try:
+            from floppy_formatter.hardware.drive_calibration import check_track_alignment
+
+            # Ensure motor is on
+            if not self._device.is_motor_on():
+                self._device.motor_on()
+
+            # Run alignment check on sample tracks
+            results = []
+            test_tracks = [0, 39, 79]  # Inner, middle, outer tracks
+
+            for track in test_tracks:
+                result = check_track_alignment(self._device, track, 0)
+                results.append(result)
+
+            # Calculate overall alignment score
+            avg_offset = sum(r.offset_us for r in results) / len(results)
+            alignment_ok = all(abs(r.offset_us) < 5.0 for r in results)
+
+            if alignment_ok:
+                self._status_strip.set_success(
+                    f"Head alignment OK (avg offset: {avg_offset:.1f}µs)"
+                )
+            else:
+                self._status_strip.set_warning(
+                    f"Head alignment marginal (avg offset: {avg_offset:.1f}µs)"
+                )
+
+            # Update diagnostics tab with results
+            self._analytics_panel.update_alignment_results(results)
+
+            logger.info("Alignment test complete: avg_offset=%.1fµs", avg_offset)
+
+        except Exception as e:
+            logger.error("Alignment test failed: %s", e)
+            self._status_strip.set_error(f"Alignment test failed: {e}")
 
     def _on_run_self_test_requested(self) -> None:
         """Handle self-test request from diagnostics tab."""
@@ -925,7 +1580,35 @@ class MainWindow(QMainWindow):
             return
 
         self._status_strip.set_analyzing("drive self-test")
-        # Placeholder: actual self-test implementation in Phase 9
+
+        try:
+            from floppy_formatter.hardware.drive_calibration import quick_calibration
+
+            # Ensure motor is on
+            if not self._device.is_motor_on():
+                self._device.motor_on()
+
+            # Run quick calibration/self-test
+            result = quick_calibration(self._device)
+
+            if result.success:
+                self._status_strip.set_success(
+                    f"Self-test passed: RPM={result.rpm:.0f}, "
+                    f"seek time={result.seek_time_ms:.0f}ms"
+                )
+            else:
+                self._status_strip.set_warning(
+                    f"Self-test completed with warnings: {result.message}"
+                )
+
+            # Update diagnostics tab with results
+            self._analytics_panel.update_self_test_results(result)
+
+            logger.info("Self-test complete: success=%s", result.success)
+
+        except Exception as e:
+            logger.error("Self-test failed: %s", e)
+            self._status_strip.set_error(f"Self-test failed: {e}")
 
     # =========================================================================
     # Keyboard Shortcut Handlers
