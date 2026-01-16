@@ -78,6 +78,13 @@ from floppy_formatter.gui.workers.flux_capture_worker import (
     DEFAULT_CAPTURE_INTERVAL_MS,
 )
 
+# Disk image worker (Write Image feature)
+from floppy_formatter.gui.workers.disk_image_worker import (
+    DiskImageWorker,
+    TrackWriteResult,
+    WriteImageResult,
+)
+
 # Worker pool
 from floppy_formatter.gui.workers.worker_pool import (
     WorkerPool,
@@ -146,6 +153,11 @@ __all__ = [
     'DEFAULT_BUFFER_SIZE',
     'DEFAULT_REVOLUTIONS',
     'DEFAULT_CAPTURE_INTERVAL_MS',
+
+    # Disk image worker (Write Image feature)
+    'DiskImageWorker',
+    'TrackWriteResult',
+    'WriteImageResult',
 
     # Worker pool
     'WorkerPool',

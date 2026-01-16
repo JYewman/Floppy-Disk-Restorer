@@ -893,14 +893,26 @@ class CircularSectorMap(QGraphicsView):
     double_clicked = pyqtSignal(int)  # cylinder number
 
     # Layout constants
-    CENTER_HOLE_RADIUS = 40
-    INNER_RADIUS = 60
-    OUTER_RADIUS = 350
-    RING_WIDTH = (350 - 60) / 80  # ~3.625 pixels per cylinder
+    # Center hole should be large enough to represent the physical spindle hole
+    # INNER_RADIUS is where cylinder 0 (outermost data area) starts
+    CENTER_HOLE_RADIUS = 50  # Spindle hole visual
+    INNER_RADIUS = 55        # Where cylinder 79 (innermost) starts
+    OUTER_RADIUS = 350       # Where cylinder 0 (outermost) ends
+    RING_WIDTH = (350 - 55) / 80  # ~3.6875 pixels per cylinder
 
-    def __init__(self, parent=None):
-        """Initialize circular sector map."""
+    def __init__(self, parent=None, head_filter: Optional[int] = None):
+        """
+        Initialize circular sector map.
+
+        Args:
+            parent: Parent widget
+            head_filter: If specified (0 or 1), only show sectors for that head.
+                        If None, show both heads (legacy mode with 180-degree halves).
+        """
         super().__init__(parent)
+
+        # Head filter: None = both heads, 0 = head 0 only, 1 = head 1 only
+        self._head_filter = head_filter
 
         # Create scene
         self.scene = QGraphicsScene()
@@ -943,7 +955,7 @@ class CircularSectorMap(QGraphicsView):
         self._trail_duration = 2.0  # seconds
         self._trail_timer: Optional[QTimer] = None
 
-        # Data cache
+        # Data cache - only cache sectors for the filtered head if applicable
         self._data_cache = SectorDataCache()
 
         # Create the disk visualization
@@ -1001,15 +1013,47 @@ class CircularSectorMap(QGraphicsView):
         self.scene.addItem(metal_ring)
 
     def _create_wedges(self) -> None:
-        """Create all 2,880 sector wedge items."""
+        """Create sector wedge items.
+
+        When head_filter is None (both heads mode):
+            - Creates 2,880 wedges (80 cylinders × 2 heads × 18 sectors)
+            - Each head occupies 180 degrees (head 0: -90 to 90, head 1: 90 to 270)
+            - Each sector spans 10 degrees
+
+        When head_filter is 0 or 1 (single head mode):
+            - Creates 1,440 wedges for the specified head only
+            - Uses full 360 degrees
+            - Each sector spans 20 degrees (360/18)
+        """
         total_sectors = 2880
+        sectors_per_track = 18
+
+        # Determine angle span based on mode
+        if self._head_filter is not None:
+            # Single head mode: full circle, 20 degrees per sector
+            sector_span = 360.0 / sectors_per_track  # 20 degrees
+        else:
+            # Both heads mode: each head gets 180 degrees, 10 degrees per sector
+            sector_span = 180.0 / sectors_per_track  # 10 degrees
 
         for sector_num in range(total_sectors):
-            cylinder = sector_num // (18 * 2)
-            head = (sector_num // 18) % 2
-            sector_offset = sector_num % 18
+            cylinder = sector_num // (sectors_per_track * 2)
+            head = (sector_num // sectors_per_track) % 2
+            sector_offset = sector_num % sectors_per_track
 
-            angle = (head * 180) + (sector_offset * 10) - 90
+            # Skip sectors not matching the head filter
+            if self._head_filter is not None and head != self._head_filter:
+                continue
+
+            # Calculate angle based on mode
+            if self._head_filter is not None:
+                # Single head mode: use full 360 degrees
+                # Start at top (-90 degrees) and go clockwise
+                angle = (sector_offset * sector_span) - 90
+            else:
+                # Both heads mode: head 0 on one half, head 1 on other half
+                angle = (head * 180) + (sector_offset * sector_span) - 90
+
             inner_radius = self.INNER_RADIUS + (cylinder * self.RING_WIDTH)
             outer_radius = inner_radius + self.RING_WIDTH
 
@@ -1021,7 +1065,7 @@ class CircularSectorMap(QGraphicsView):
                 inner_radius=inner_radius,
                 outer_radius=outer_radius,
                 start_angle=angle,
-                span_angle=10,
+                span_angle=sector_span,
             )
 
             self.scene.addItem(wedge)
@@ -1070,6 +1114,32 @@ class CircularSectorMap(QGraphicsView):
     def get_view_mode(self) -> ViewMode:
         """Get current view mode."""
         return self._view_mode
+
+    def get_head_filter(self) -> Optional[int]:
+        """Get the head filter (0, 1, or None for both)."""
+        return self._head_filter
+
+    def select_sector(self, sector_num: int) -> None:
+        """Select a single sector (clearing previous selection)."""
+        self.clear_selection()
+        if sector_num in self._wedges:
+            self._selected_sectors.add(sector_num)
+            self._wedges[sector_num].set_selected(True)
+            self.selection_changed.emit(self.get_selected_sectors())
+
+    def center_on_sector(self, sector_num: int) -> None:
+        """Center the view on a specific sector."""
+        if sector_num not in self._wedges:
+            return
+
+        wedge = self._wedges[sector_num]
+        # Calculate center of wedge
+        mid_radius = (wedge.inner_radius + wedge.outer_radius) / 2
+        mid_angle = math.radians(wedge.start_angle + wedge.span_angle / 2)
+        cx = mid_radius * math.cos(mid_angle)
+        cy = mid_radius * math.sin(mid_angle)
+
+        self.centerOn(cx, cy)
 
     # =========================================================================
     # Public API - Sector Status

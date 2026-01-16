@@ -64,9 +64,9 @@ JITTER_POOR_NS = 400        # Marginal
 WEAK_BIT_VARIANCE_THRESHOLD = 0.3  # 30% timing variance indicates weak bit
 WEAK_BIT_MIN_SAMPLES = 5           # Minimum samples to detect weak bit
 
-# MFM timing constants
-HD_BIT_CELL_US = 2.0
-HD_BIT_CELL_NS = 2000.0
+# MFM timing constants for HD (500 kbps data rate)
+HD_BIT_CELL_US = 1.0    # 1µs bit cell for HD
+HD_BIT_CELL_NS = 1000.0  # 1000ns bit cell for HD
 
 
 # =============================================================================
@@ -393,11 +393,11 @@ def calculate_snr(flux: 'FluxCapture') -> SNRResult:
     is_hd = mean_timing < 10.0
 
     if is_hd:
-        expected_peaks = [4.0, 6.0, 8.0]  # 2T, 3T, 4T for HD MFM
-        peak_window = 0.8  # Window around each peak
+        expected_peaks = [2.0, 3.0, 4.0]  # 2T, 3T, 4T for HD MFM (1µs bit cell)
+        peak_window = 0.5  # Window around each peak
     else:
-        expected_peaks = [8.0, 12.0, 16.0]  # 2T, 3T, 4T for DD MFM
-        peak_window = 1.5
+        expected_peaks = [4.0, 6.0, 8.0]  # 2T, 3T, 4T for DD MFM (2µs bit cell)
+        peak_window = 1.0
 
     # Calculate signal power (energy in peak regions)
     signal_samples = []
@@ -516,18 +516,18 @@ def measure_jitter(
 
     if is_hd:
         expected_timings_ns = {
-            '2T': 4000,   # 4us = 4000ns
-            '3T': 6000,   # 6us
-            '4T': 8000,   # 8us
+            '2T': 2000,   # 2µs = 2000ns (1µs bit cell)
+            '3T': 3000,   # 3µs
+            '4T': 4000,   # 4µs
         }
-        tolerance_ns = 1500  # 1.5us window
+        tolerance_ns = 1000  # 1µs window
     else:
         expected_timings_ns = {
-            '2T': 8000,
-            '3T': 12000,
-            '4T': 16000,
+            '2T': 4000,   # 4µs = 4000ns (2µs bit cell)
+            '3T': 6000,   # 6µs
+            '4T': 8000,   # 8µs
         }
-        tolerance_ns = 3000
+        tolerance_ns = 2000  # 2µs window
 
     # Categorize each timing and calculate deviation from ideal
     deviations = []

@@ -71,6 +71,12 @@ from floppy_formatter.gui.dialogs.export_dialog import (
     show_export_dialog,
 )
 
+# Write Image configuration (Write Image feature)
+from floppy_formatter.gui.dialogs.write_image_config_dialog import (
+    WriteImageConfigDialog,
+    WriteImageConfig,
+)
+
 # Phase 14: Splash Screen
 from floppy_formatter.gui.dialogs.splash_screen import (
     SplashScreen,
@@ -129,6 +135,9 @@ __all__ = [
     "ExportConfig",
     "ExportType",
     "show_export_dialog",
+    # Write Image configuration
+    "WriteImageConfigDialog",
+    "WriteImageConfig",
     # Splash screen (Phase 14)
     "SplashScreen",
     "LoadingSequence",

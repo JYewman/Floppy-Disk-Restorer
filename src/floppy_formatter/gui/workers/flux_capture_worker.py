@@ -317,6 +317,7 @@ class FluxCaptureWorker(GreaseweazleWorker):
             "Flux capture complete: %d captures in %.1fs",
             self._stats.total_captures, self._stats.session_duration
         )
+        self.finished.emit()
 
     def seek_to(self, cylinder: int, head: int) -> None:
         """

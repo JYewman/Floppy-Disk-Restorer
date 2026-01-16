@@ -110,7 +110,7 @@ class PLLConfig:
     """Configuration for the PLL decoder."""
     period_adj_pct: float = 5.0    # Clock frequency adjustment rate (%)
     phase_adj_pct: float = 60.0    # Clock phase adjustment rate (%)
-    clock_max_adj: float = 0.10    # Maximum clock adjustment (±10%)
+    clock_max_adj: float = 0.30    # Maximum clock adjustment (±30%) - matches GW decoder
     lowpass_thresh: Optional[float] = None  # Optional noise filter threshold
 
 
@@ -440,13 +440,13 @@ class PLLMFMDecoder:
     Combines PLL flux-to-bits conversion with MFM sector decoding.
     """
 
-    def __init__(self, bit_cell_us: float = 2.0,
+    def __init__(self, bit_cell_us: float = 1.0,
                  pll_config: Optional[PLLConfig] = None):
         """
         Initialize decoder.
 
         Args:
-            bit_cell_us: Expected bit cell width in microseconds
+            bit_cell_us: Expected bit cell width in microseconds (1.0 for HD, 2.0 for DD)
             pll_config: Optional PLL configuration
         """
         self.bit_cell_us = bit_cell_us
@@ -517,13 +517,13 @@ class PLLMFMDecoder:
 
 
 def decode_flux_with_pll(flux_data: FluxData,
-                         bit_cell_us: float = 2.0) -> List[SectorData]:
+                         bit_cell_us: float = 1.0) -> List[SectorData]:
     """
     High-level function to decode flux data using PLL decoder.
 
     Args:
         flux_data: Raw flux capture from a track
-        bit_cell_us: Expected bit cell width (default 2.0µs for HD)
+        bit_cell_us: Expected bit cell width (default 1.0µs for HD, use 2.0 for DD)
 
     Returns:
         List of SectorData for each decoded sector

@@ -358,6 +358,7 @@ class AlignmentWorker(GreaseweazleWorker):
         )
 
         self.alignment_complete.emit(report)
+        self.finished.emit()
 
     def _generate_recommendations(
         self,

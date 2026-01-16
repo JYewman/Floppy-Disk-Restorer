@@ -67,11 +67,15 @@ from floppy_formatter.core.geometry import DiskGeometry
 from floppy_formatter.hardware import GreaseweazleDevice, read_track_flux
 from floppy_formatter.gui.workers.scan_worker import ScanWorker, ScanMode, ScanResult, TrackResult
 from floppy_formatter.gui.workers.format_worker import FormatWorker, FormatType, FormatResult
-from floppy_formatter.gui.workers.restore_worker import RestoreWorker, RestoreConfig, RecoveryLevel, RecoveryStats
+from floppy_formatter.gui.workers.restore_worker import RestoreWorker, RestoreConfig, RecoveryLevel, RecoveryStats, PassStats as WorkerPassStats
+from floppy_formatter.gui.tabs.recovery_tab import PassStats as RecoveryTabPassStats, RecoveredSector
+from floppy_formatter.gui.tabs.errors_tab import SectorError, ErrorType
 from floppy_formatter.gui.workers.analyze_worker import (
     AnalyzeWorker, AnalysisConfig, AnalysisDepth, AnalysisComponent, DiskAnalysisResult
 )
 from floppy_formatter.gui.workers.flux_capture_worker import FluxCaptureWorker, CaptureConfig, FluxSample
+from floppy_formatter.gui.workers.disk_image_worker import DiskImageWorker, WriteImageResult
+from floppy_formatter.gui.dialogs.write_image_config_dialog import WriteImageConfigDialog, WriteImageConfig
 from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
 logger = logging.getLogger(__name__)
@@ -84,6 +88,7 @@ class WorkbenchState(Enum):
     FORMATTING = auto()
     RESTORING = auto()
     ANALYZING = auto()
+    WRITING_IMAGE = auto()
 
 
 class ThemeManager:
@@ -179,11 +184,11 @@ class ThemeManager:
 
 class SectorMapPanel(QWidget):
     """
-    Center panel containing the sector map with toolbar and info panel.
+    Center panel containing dual sector maps (one per head) with toolbar and info panel.
 
     Layout:
     - Top: SectorMapToolbar
-    - Center: CircularSectorMap (expandable)
+    - Center: Two CircularSectorMap widgets side by side (Head 0 and Head 1)
     - Right: SectorInfoPanel (collapsible sidebar)
 
     Part of Phase 6: Enhanced Sector Map Visualization
@@ -210,7 +215,7 @@ class SectorMapPanel(QWidget):
         self._toolbar = SectorMapToolbar()
         main_layout.addWidget(self._toolbar)
 
-        # Horizontal splitter for map and info panel
+        # Horizontal splitter for maps and info panel
         content_splitter = QSplitter(Qt.Orientation.Horizontal)
         content_splitter.setHandleWidth(3)
         content_splitter.setStyleSheet("""
@@ -222,16 +227,70 @@ class SectorMapPanel(QWidget):
             }
         """)
 
-        # Sector map (main content)
-        self._sector_map = CircularSectorMap()
-        content_splitter.addWidget(self._sector_map)
+        # Container for dual sector maps
+        maps_container = QWidget()
+        maps_layout = QHBoxLayout(maps_container)
+        maps_layout.setContentsMargins(4, 4, 4, 4)
+        maps_layout.setSpacing(8)
+
+        # Head 0 sector map with label
+        head0_container = QWidget()
+        head0_layout = QVBoxLayout(head0_container)
+        head0_layout.setContentsMargins(0, 0, 0, 0)
+        head0_layout.setSpacing(2)
+
+        head0_label = QLabel("Head 0 (Side A)")
+        head0_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        head0_label.setStyleSheet("""
+            QLabel {
+                color: #cccccc;
+                font-weight: bold;
+                font-size: 11px;
+                padding: 2px;
+                background-color: #2d2d30;
+                border: 1px solid #3a3d41;
+                border-radius: 3px;
+            }
+        """)
+        head0_layout.addWidget(head0_label)
+
+        self._sector_map_h0 = CircularSectorMap(head_filter=0)
+        head0_layout.addWidget(self._sector_map_h0, 1)
+        maps_layout.addWidget(head0_container, 1)
+
+        # Head 1 sector map with label
+        head1_container = QWidget()
+        head1_layout = QVBoxLayout(head1_container)
+        head1_layout.setContentsMargins(0, 0, 0, 0)
+        head1_layout.setSpacing(2)
+
+        head1_label = QLabel("Head 1 (Side B)")
+        head1_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        head1_label.setStyleSheet("""
+            QLabel {
+                color: #cccccc;
+                font-weight: bold;
+                font-size: 11px;
+                padding: 2px;
+                background-color: #2d2d30;
+                border: 1px solid #3a3d41;
+                border-radius: 3px;
+            }
+        """)
+        head1_layout.addWidget(head1_label)
+
+        self._sector_map_h1 = CircularSectorMap(head_filter=1)
+        head1_layout.addWidget(self._sector_map_h1, 1)
+        maps_layout.addWidget(head1_container, 1)
+
+        content_splitter.addWidget(maps_container)
 
         # Sector info panel (collapsible sidebar)
         self._info_panel = SectorInfoPanel()
         content_splitter.addWidget(self._info_panel)
 
-        # Set initial sizes (map takes most space)
-        content_splitter.setSizes([700, 280])
+        # Set initial sizes (maps take most space)
+        content_splitter.setSizes([700, 250])
 
         # Don't allow info panel to be completely hidden
         content_splitter.setCollapsible(0, False)
@@ -239,15 +298,28 @@ class SectorMapPanel(QWidget):
 
         main_layout.addWidget(content_splitter, 1)
 
-        # Connect toolbar to sector map
-        self._toolbar.connect_to_sector_map(self._sector_map)
+        # Connect toolbar to both sector maps
+        self._toolbar.connect_to_sector_map(self._sector_map_h0)
+        self._toolbar.connect_to_sector_map(self._sector_map_h1)
 
-        # Connect info panel to sector map
-        self._info_panel.connect_to_sector_map(self._sector_map)
+        # Connect info panel to head 0 map (primary)
+        self._info_panel.connect_to_sector_map(self._sector_map_h0)
+
+        # Also connect head 1 map signals to info panel for hover/click updates
+        self._sector_map_h1.sector_hovered.connect(self._info_panel.update_for_sector)
+        self._sector_map_h1.sector_clicked.connect(self._info_panel.update_for_sector)
 
     def get_sector_map(self) -> CircularSectorMap:
-        """Get the sector map widget."""
-        return self._sector_map
+        """Get the primary sector map widget (Head 0 for backwards compatibility)."""
+        return self._sector_map_h0
+
+    def get_sector_map_h0(self) -> CircularSectorMap:
+        """Get the Head 0 sector map widget."""
+        return self._sector_map_h0
+
+    def get_sector_map_h1(self) -> CircularSectorMap:
+        """Get the Head 1 sector map widget."""
+        return self._sector_map_h1
 
     def get_toolbar(self) -> SectorMapToolbar:
         """Get the toolbar widget."""
@@ -256,6 +328,48 @@ class SectorMapPanel(QWidget):
     def get_info_panel(self) -> SectorInfoPanel:
         """Get the info panel widget."""
         return self._info_panel
+
+    def set_sector_status(self, sector_num: int, status, animate: bool = True) -> None:
+        """Set sector status on the appropriate map based on sector head."""
+        # Determine which head this sector belongs to
+        sectors_per_track = 18
+        head = (sector_num // sectors_per_track) % 2
+
+        if head == 0:
+            self._sector_map_h0.set_sector_status(sector_num, status, animate)
+        else:
+            self._sector_map_h1.set_sector_status(sector_num, status, animate)
+
+    def set_active_sector(self, sector_num: int, activity) -> None:
+        """Set active sector on the appropriate map."""
+        sectors_per_track = 18
+        head = (sector_num // sectors_per_track) % 2
+
+        # Clear active on both maps first
+        self._sector_map_h0.clear_active_sectors()
+        self._sector_map_h1.clear_active_sectors()
+
+        if head == 0:
+            self._sector_map_h0.set_active_sector(sector_num, activity)
+        else:
+            self._sector_map_h1.set_active_sector(sector_num, activity)
+
+    def update_scenes(self) -> None:
+        """Update both sector map scenes."""
+        self._sector_map_h0.scene.update()
+        self._sector_map_h1.scene.update()
+
+    def reset_all_sectors(self) -> None:
+        """Reset all sectors on both maps to pending state."""
+        self._sector_map_h0.reset_all_sectors()
+        self._sector_map_h1.reset_all_sectors()
+
+    def set_all_sectors_pending(self, total_sectors: int) -> None:
+        """Set all sectors to pending state on both maps."""
+        from floppy_formatter.gui.widgets.circular_sector_map import SectorStatus
+        for sector in range(total_sectors):
+            self.set_sector_status(sector, SectorStatus.PENDING, animate=False)
+        self.update_scenes()
 
 
 class MainWindow(QMainWindow):
@@ -289,8 +403,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.APP_TITLE)
         self.setMinimumSize(QSize(800, 600))
 
-        # Center window on screen
-        self._center_on_screen()
+        # Start maximized (full size with title bar and taskbar visible)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         # Initialize theme manager
         app = QApplication.instance()
@@ -319,6 +433,10 @@ class MainWindow(QMainWindow):
 
         # Scan/operation results
         self._last_scan_result = None
+        self._last_format_result = None
+        self._last_restore_stats = None
+        self._last_analysis_result = None
+        self._last_operation_type: Optional[str] = None  # "scan", "format", "restore", "analyze"
         self._disk_health: Optional[int] = None
 
         # Worker and thread for background operations
@@ -332,6 +450,9 @@ class MainWindow(QMainWindow):
         self._analyze_thread: Optional[QThread] = None
         self._flux_capture_worker: Optional[FluxCaptureWorker] = None
         self._flux_capture_thread: Optional[QThread] = None
+        self._disk_image_worker: Optional[DiskImageWorker] = None
+        self._disk_image_thread: Optional[QThread] = None
+        self._write_image_config: Optional[WriteImageConfig] = None
 
         # Build UI
         self._init_menu_bar()
@@ -343,19 +464,6 @@ class MainWindow(QMainWindow):
 
         # Initial state
         self._update_state()
-
-    def _center_on_screen(self) -> None:
-        """Center the window on the screen."""
-        screen = QApplication.primaryScreen()
-        if screen is None:
-            return
-
-        screen_geometry = screen.availableGeometry()
-        window_geometry = self.frameGeometry()
-
-        center_point = screen_geometry.center()
-        window_geometry.moveCenter(center_point)
-        self.move(window_geometry.topLeft())
 
     def _init_menu_bar(self) -> None:
         """Initialize the menu bar."""
@@ -516,6 +624,7 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.start_clicked.connect(self._on_start_clicked)
         self._operation_toolbar.stop_clicked.connect(self._on_stop_clicked)
         self._operation_toolbar.pause_clicked.connect(self._on_pause_clicked)
+        self._operation_toolbar.report_export_clicked.connect(self._on_report_export_clicked)
 
         # Sector map signals
         sector_map = self._sector_map_panel.get_sector_map()
@@ -763,6 +872,9 @@ class MainWindow(QMainWindow):
 
         logger.info("Starting operation: %s", operation)
 
+        # Clear sector map from previous operation
+        self._sector_map_panel.reset_all_sectors()
+
         # Check device is connected
         if not self._device:
             self._status_strip.set_error("No device connected")
@@ -787,6 +899,7 @@ class MainWindow(QMainWindow):
             "format": WorkbenchState.FORMATTING,
             "restore": WorkbenchState.RESTORING,
             "analyze": WorkbenchState.ANALYZING,
+            "write_image": WorkbenchState.WRITING_IMAGE,
         }
 
         self._state = state_map.get(operation, WorkbenchState.IDLE)
@@ -810,6 +923,8 @@ class MainWindow(QMainWindow):
         elif operation == "analyze":
             self._status_strip.set_analyzing("flux data")
             self._start_analyze_operation()
+        elif operation == "write_image":
+            self._start_write_image_operation()
 
     def _start_scan_operation(self) -> None:
         """Start the actual scan operation with worker thread."""
@@ -818,9 +933,10 @@ class MainWindow(QMainWindow):
 
         # Reset sector map to pending state (no animation for instant visual update)
         total_sectors = self._geometry.total_sectors
-        for sector in range(total_sectors):
-            self._sector_map.set_sector_status(sector, SectorStatus.PENDING, animate=False)
-        self._sector_map.scene.update()
+        self._sector_map_panel.set_all_sectors_pending(total_sectors)
+
+        # Clear errors from previous scan
+        self._analytics_panel.clear_errors()
 
         # Create thread and worker
         self._scan_thread = QThread()
@@ -883,21 +999,53 @@ class MainWindow(QMainWindow):
                 status = SectorStatus.GOOD
             else:
                 status = SectorStatus.BAD
-            self._sector_map.set_sector_status(sector_result.linear_sector, status, animate=False)
+                # Add error to analytics panel for bad sectors
+                error_type_enum = self._map_error_type(sector_result.error_type)
+                error = SectorError.from_chs(
+                    cyl=cylinder,
+                    head=head,
+                    sector=sector_result.sector_num,
+                    error_type=error_type_enum,
+                    details=sector_result.error_type or "Read failed",
+                    sectors_per_track=self._geometry.sectors_per_track,
+                )
+                self._analytics_panel.add_error(error)
+            self._sector_map_panel.set_sector_status(sector_result.linear_sector, status, animate=False)
 
         # Show activity on current track
         track_number = cylinder * 2 + head
         start_sector = track_number * self._geometry.sectors_per_track
-        self._sector_map.set_active_sector(start_sector, ActivityType.READING)
+        self._sector_map_panel.set_active_sector(start_sector, ActivityType.READING)
 
         # Force scene repaint after each track for visual feedback
-        self._sector_map.scene.update()
+        self._sector_map_panel.update_scenes()
+
+    def _map_error_type(self, error_str: Optional[str]) -> ErrorType:
+        """Map error type string to ErrorType enum."""
+        if not error_str:
+            return ErrorType.OTHER
+
+        error_lower = error_str.lower()
+        if "crc" in error_lower and "header" in error_lower:
+            return ErrorType.HEADER_CRC
+        elif "crc" in error_lower:
+            return ErrorType.CRC
+        elif "missing" in error_lower or "not found" in error_lower:
+            return ErrorType.MISSING
+        elif "weak" in error_lower:
+            return ErrorType.WEAK
+        elif "address" in error_lower or "idam" in error_lower:
+            return ErrorType.NO_ADDRESS
+        elif "deleted" in error_lower:
+            return ErrorType.DELETED
+        else:
+            return ErrorType.OTHER
 
     def _on_sector_status(self, sector_num: int, is_good: bool, error_type: str) -> None:
         """Handle individual sector status update."""
         status = SectorStatus.GOOD if is_good else SectorStatus.BAD
         # Disable animation for immediate visual feedback during scanning
-        self._sector_map.set_sector_status(sector_num, status, animate=False)
+        self._sector_map_panel.set_sector_status(sector_num, status, animate=False)
 
     def _on_scan_complete(self, result: ScanResult) -> None:
         """Handle scan operation completion."""
@@ -907,7 +1055,11 @@ class MainWindow(QMainWindow):
 
             # Store result
             self._last_scan_result = result
+            self._last_operation_type = "scan"
             logger.debug("Scan result stored")
+
+            # Enable report export
+            self._operation_toolbar.set_report_enabled(True)
 
             # Calculate disk health percentage
             total = result.total_sectors
@@ -954,6 +1106,30 @@ class MainWindow(QMainWindow):
                 health_score=self._disk_health,
             )
             logger.debug("Analytics panel updated")
+
+            # Show completion dialog
+            if len(result.bad_sectors) == 0 and good > 0:
+                self._show_completion_dialog(
+                    "Scan Successful",
+                    f"All {total} sectors are readable.",
+                    success=True,
+                    details=f"Disk health: {self._disk_health}%"
+                )
+            elif good == 0 and len(result.bad_sectors) == 0:
+                self._show_completion_dialog(
+                    "Scan Error",
+                    "No sectors could be decoded.",
+                    success=False,
+                    details="This may indicate a flux read issue or incompatible disk format."
+                )
+            else:
+                self._show_completion_dialog(
+                    "Bad Sectors Found",
+                    f"Found {len(result.bad_sectors)} bad sector(s) out of {total}.",
+                    success=False,
+                    details=f"Disk health: {self._disk_health}%\n\nConsider running a Restore operation to attempt recovery."
+                )
+
             logger.info("_on_scan_complete finished successfully")
         except Exception as e:
             logger.exception("Error in _on_scan_complete: %s", e)
@@ -997,9 +1173,7 @@ class MainWindow(QMainWindow):
 
         # Reset sector map to pending state (no animation for instant visual update)
         total_sectors = self._geometry.total_sectors
-        for sector in range(total_sectors):
-            self._sector_map.set_sector_status(sector, SectorStatus.PENDING, animate=False)
-        self._sector_map.scene.update()
+        self._sector_map_panel.set_all_sectors_pending(total_sectors)
 
         # Create thread and worker
         self._format_thread = QThread()
@@ -1044,12 +1218,12 @@ class MainWindow(QMainWindow):
 
         status = SectorStatus.GOOD if success else SectorStatus.BAD
         for i in range(self._geometry.sectors_per_track):
-            self._sector_map.set_sector_status(start_sector + i, status, animate=False)
+            self._sector_map_panel.set_sector_status(start_sector + i, status, animate=False)
 
-        self._sector_map.set_active_sector(start_sector, ActivityType.WRITING)
+        self._sector_map_panel.set_active_sector(start_sector, ActivityType.WRITING)
 
         # Force scene repaint for visual feedback
-        self._sector_map.scene.update()
+        self._sector_map_panel.update_scenes()
 
     def _on_track_verified(self, cylinder: int, head: int, verified_ok: bool) -> None:
         """Handle track verification completion."""
@@ -1058,25 +1232,42 @@ class MainWindow(QMainWindow):
             track_number = cylinder * 2 + head
             start_sector = track_number * self._geometry.sectors_per_track
             for i in range(self._geometry.sectors_per_track):
-                self._sector_map.set_sector_status(start_sector + i, SectorStatus.WEAK, animate=False)
+                self._sector_map_panel.set_sector_status(start_sector + i, SectorStatus.WEAK, animate=False)
             # Force scene repaint
-            self._sector_map.scene.update()
+            self._sector_map_panel.update_scenes()
 
     def _on_format_complete(self, result: FormatResult) -> None:
         """Handle format operation completion."""
         logger.info("Format complete: %d/%d tracks OK, %d bad sectors",
                     result.tracks_formatted, result.total_tracks, len(result.bad_sectors))
 
+        # Store result and enable report export
+        self._last_format_result = result
+        self._last_operation_type = "format"
+        self._operation_toolbar.set_report_enabled(True)
+
         if result.success:
             self._status_strip.set_success(
                 f"Format complete: {result.tracks_formatted} tracks formatted"
             )
             play_success_sound()
+            self._show_completion_dialog(
+                "Format Successful",
+                f"Successfully formatted {result.tracks_formatted} tracks.",
+                success=True,
+                details=f"Total sectors: {result.tracks_formatted * 18}"
+            )
         else:
             self._status_strip.set_warning(
                 f"Format complete with errors: {result.tracks_failed} tracks failed"
             )
             play_error_sound()
+            self._show_completion_dialog(
+                "Format Error",
+                f"Format completed with errors.",
+                success=False,
+                details=f"Tracks formatted: {result.tracks_formatted}\nTracks failed: {result.tracks_failed}\nBad sectors: {len(result.bad_sectors)}"
+            )
 
     def _on_format_progress(self, progress: int) -> None:
         """Handle format progress update."""
@@ -1107,6 +1298,14 @@ class MainWindow(QMainWindow):
     def _start_restore_operation(self) -> None:
         """Start the restore operation with worker thread."""
         self._cleanup_restore_worker()
+
+        # Clear analytics tabs for fresh restore data
+        self._analytics_panel.clear_recovery_data()
+        self._analytics_panel.clear_errors()
+
+        # Initialize restore tracking state
+        self._restore_previous_bad_count = 0
+        self._restore_initial_bad_count = 0
 
         # Get operation mode from toolbar and map to recovery level
         mode_text = self._operation_toolbar.get_selected_mode()
@@ -1170,6 +1369,7 @@ class MainWindow(QMainWindow):
         self._restore_worker.sector_recovered.connect(self._on_sector_recovered)
         self._restore_worker.sector_failed.connect(self._on_sector_failed)
         self._restore_worker.initial_scan_sector.connect(self._on_restore_initial_scan_sector)
+        self._restore_worker.initial_scan_completed.connect(self._on_restore_initial_scan_completed)
         self._restore_worker.restore_complete.connect(self._on_restore_complete)
         self._restore_worker.progress.connect(self._on_restore_progress)
         self._restore_worker.error.connect(self._on_restore_error)
@@ -1200,51 +1400,195 @@ class MainWindow(QMainWindow):
         logger.debug("Restore pass complete: pass=%d, bad=%d, recovered=%d",
                      pass_num, bad_count, recovered_count)
 
+        # Update recovery tab with pass stats
+        # Convert to recovery tab's PassStats format
+        previous_bad = getattr(self, '_restore_previous_bad_count', bad_count + recovered_count)
+        delta = previous_bad - bad_count
+
+        pass_stats = RecoveryTabPassStats(
+            pass_num=pass_num,
+            bad_sectors=bad_count,
+            recovered=recovered_count,
+            failed=0,  # Will be updated on completion
+            delta=-delta,  # Negative delta = improvement
+            duration_seconds=0.0,  # Not available from signal
+            technique="standard",
+        )
+
+        self._analytics_panel.update_recovery_progress(pass_num, pass_stats)
+        self._analytics_panel.add_convergence_point(pass_num, bad_count)
+
+        # Store for next pass delta calculation
+        self._restore_previous_bad_count = bad_count
+
+        # Update overview tab with current progress
+        total_sectors = self._geometry.total_sectors
+        good_sectors = total_sectors - bad_count
+        self._analytics_panel.update_overview(
+            total_sectors=total_sectors,
+            good_sectors=good_sectors,
+            bad_sectors=bad_count,
+            recovered_sectors=recovered_count,
+        )
+
     def _on_sector_recovered(self, sector_num: int, technique: str) -> None:
         """Handle sector recovery success."""
         logger.debug("Sector recovered: %d using %s", sector_num, technique)
-        self._sector_map.set_sector_status(sector_num, SectorStatus.RECOVERED, animate=False)
-        self._sector_map.set_active_sector(sector_num, ActivityType.WRITING)
-        self._sector_map.scene.update()
+        self._sector_map_panel.set_sector_status(sector_num, SectorStatus.RECOVERED, animate=False)
+        self._sector_map_panel.set_active_sector(sector_num, ActivityType.WRITING)
+        self._sector_map_panel.update_scenes()
 
     def _on_sector_failed(self, sector_num: int, reason: str) -> None:
         """Handle sector recovery failure."""
         logger.debug("Sector failed: %d - %s", sector_num, reason)
-        self._sector_map.set_sector_status(sector_num, SectorStatus.BAD, animate=False)
-        self._sector_map.scene.update()
+        self._sector_map_panel.set_sector_status(sector_num, SectorStatus.BAD, animate=False)
+        self._sector_map_panel.update_scenes()
+
+        # Add error to errors tab
+        sectors_per_track = self._geometry.sectors_per_track
+        cyl = sector_num // (sectors_per_track * 2)
+        head = (sector_num // sectors_per_track) % 2
+        sector = (sector_num % sectors_per_track) + 1
+
+        error = SectorError.from_chs(
+            cyl=cyl,
+            head=head,
+            sector=sector,
+            error_type=ErrorType.CRC,  # Default to CRC error
+            details=reason,
+            sectors_per_track=sectors_per_track,
+        )
+        self._analytics_panel.add_error(error)
 
     def _on_restore_initial_scan_sector(self, sector_num: int, is_good: bool) -> None:
         """Handle initial scan sector result during restore."""
         status = SectorStatus.GOOD if is_good else SectorStatus.BAD
-        self._sector_map.set_sector_status(sector_num, status, animate=False)
+        self._sector_map_panel.set_sector_status(sector_num, status, animate=False)
+
+        # Track bad sectors in errors tab
+        if not is_good:
+            sectors_per_track = self._geometry.sectors_per_track
+            cyl = sector_num // (sectors_per_track * 2)
+            head = (sector_num // sectors_per_track) % 2
+            sector = (sector_num % sectors_per_track) + 1
+
+            error = SectorError.from_chs(
+                cyl=cyl,
+                head=head,
+                sector=sector,
+                error_type=ErrorType.CRC,
+                details="Initial scan - sector unreadable",
+                sectors_per_track=sectors_per_track,
+            )
+            self._analytics_panel.add_error(error)
+
+            # Track initial bad count for recovery tab
+            if not hasattr(self, '_restore_initial_bad_count'):
+                self._restore_initial_bad_count = 0
+            self._restore_initial_bad_count += 1
+
+    def _on_restore_initial_scan_completed(self, initial_bad_count: int) -> None:
+        """Handle initial scan completion during restore."""
+        logger.info("Restore initial scan complete: %d bad sectors found", initial_bad_count)
+
+        # Set up recovery tab with initial bad sector count
+        self._analytics_panel.set_initial_bad_sectors(initial_bad_count)
+        self._restore_previous_bad_count = initial_bad_count
+        self._restore_initial_bad_count = initial_bad_count
+
+        # Add initial convergence point (pass 0 = baseline before recovery)
+        # This establishes the starting point so the chart can draw lines
+        self._analytics_panel.add_convergence_point(0, initial_bad_count)
+
+        # Update overview with initial scan results
+        total_sectors = self._geometry.total_sectors
+        good_sectors = total_sectors - initial_bad_count
+        self._analytics_panel.update_overview(
+            total_sectors=total_sectors,
+            good_sectors=good_sectors,
+            bad_sectors=initial_bad_count,
+            recovered_sectors=0,
+        )
 
     def _on_restore_complete(self, stats: RecoveryStats) -> None:
         """Handle restore operation completion."""
         logger.info("Restore complete: %d/%d sectors recovered",
                     stats.sectors_recovered, stats.initial_bad_sectors)
 
+        # Store result and enable report export
+        self._last_restore_stats = stats
+        self._last_operation_type = "restore"
+        self._operation_toolbar.set_report_enabled(True)
+
         if stats.final_bad_sectors == 0:
             self._status_strip.set_success(
                 f"Restore complete: All {stats.sectors_recovered} bad sectors recovered"
             )
             play_success_sound()
+            self._show_completion_dialog(
+                "Restore Successful",
+                f"All {stats.sectors_recovered} bad sector(s) have been recovered.",
+                success=True,
+                details=f"Passes completed: {stats.passes_completed}\nTime elapsed: {stats.elapsed_time:.1f}s"
+            )
         elif stats.sectors_recovered > 0:
             self._status_strip.set_warning(
                 f"Restore complete: {stats.sectors_recovered} recovered, "
                 f"{stats.final_bad_sectors} unrecoverable"
             )
             play_complete_sound()
+            self._show_completion_dialog(
+                "Partial Recovery",
+                f"Recovered {stats.sectors_recovered} of {stats.initial_bad_sectors} bad sector(s).",
+                success=False,
+                details=f"Remaining bad sectors: {stats.final_bad_sectors}\nPasses completed: {stats.passes_completed}\nTime elapsed: {stats.elapsed_time:.1f}s"
+            )
         else:
             self._status_strip.set_error(
                 f"Restore failed: {stats.final_bad_sectors} sectors unrecoverable"
             )
             play_error_sound()
+            self._show_completion_dialog(
+                "Restore Failed",
+                f"Could not recover any of the {stats.final_bad_sectors} bad sector(s).",
+                success=False,
+                details=f"The disk may have physical damage that cannot be repaired.\nPasses completed: {stats.passes_completed}"
+            )
 
         # Update health based on recovery
-        if self._geometry.total_sectors > 0:
-            good_sectors = self._geometry.total_sectors - stats.final_bad_sectors
-            self._disk_health = int((good_sectors / self._geometry.total_sectors) * 100)
+        total_sectors = self._geometry.total_sectors
+        if total_sectors > 0:
+            good_sectors = total_sectors - stats.final_bad_sectors
+            self._disk_health = int((good_sectors / total_sectors) * 100)
             self._status_strip.set_health(self._disk_health)
+
+            # Update overview tab with final results
+            self._analytics_panel.update_overview(
+                total_sectors=total_sectors,
+                good_sectors=good_sectors,
+                bad_sectors=stats.final_bad_sectors,
+                recovered_sectors=stats.sectors_recovered,
+                health_score=self._disk_health,
+            )
+
+        # Update recovery tab with final stats
+        from floppy_formatter.gui.tabs.recovery_tab import RecoveryStats as RecoveryTabStats
+        final_recovery_stats = RecoveryTabStats(
+            initial_bad_sectors=stats.initial_bad_sectors,
+            final_bad_sectors=stats.final_bad_sectors,
+            sectors_recovered=stats.sectors_recovered,
+            passes_completed=stats.passes_completed,
+            converged=stats.converged,
+            convergence_pass=stats.convergence_pass or 0,
+            elapsed_time=stats.elapsed_time,
+        )
+        self._analytics_panel.set_recovery_complete(final_recovery_stats)
+
+        # Clean up restore tracking state
+        if hasattr(self, '_restore_previous_bad_count'):
+            del self._restore_previous_bad_count
+        if hasattr(self, '_restore_initial_bad_count'):
+            del self._restore_initial_bad_count
 
     def _on_restore_progress(self, progress: int) -> None:
         """Handle restore progress update."""
@@ -1273,6 +1617,9 @@ class MainWindow(QMainWindow):
     def _start_analyze_operation(self) -> None:
         """Start the analyze operation with worker thread."""
         self._cleanup_analyze_worker()
+
+        # Clear errors from previous operations
+        self._analytics_panel.clear_errors()
 
         # Get operation mode from toolbar and map to analysis config
         mode_text = self._operation_toolbar.get_selected_mode()
@@ -1384,13 +1731,28 @@ class MainWindow(QMainWindow):
         }
         status = grade_status.get(result.grade, SectorStatus.UNKNOWN)
 
-        for i in range(self._geometry.sectors_per_track):
-            self._sector_map.set_sector_status(start_sector + i, status, animate=False)
+        # Add errors for bad (F) or weak (D) grades
+        if result.grade in ('F', 'D'):
+            error_type = ErrorType.WEAK if result.grade == 'D' else ErrorType.OTHER
+            details = f"Track grade: {result.grade} (quality: {getattr(result, 'quality_score', 0):.0%})"
+            for i in range(self._geometry.sectors_per_track):
+                error = SectorError.from_chs(
+                    cyl=cylinder,
+                    head=head,
+                    sector=i + 1,  # 1-based sector number
+                    error_type=error_type,
+                    details=details,
+                    sectors_per_track=self._geometry.sectors_per_track,
+                )
+                self._analytics_panel.add_error(error)
 
-        self._sector_map.set_active_sector(start_sector, ActivityType.READING)
+        for i in range(self._geometry.sectors_per_track):
+            self._sector_map_panel.set_sector_status(start_sector + i, status, animate=False)
+
+        self._sector_map_panel.set_active_sector(start_sector, ActivityType.READING)
 
         # Force scene repaint for visual feedback
-        self._sector_map.scene.update()
+        self._sector_map_panel.update_scenes()
 
     def _on_flux_quality_update(self, cylinder: int, head: int, score: float) -> None:
         """Handle flux quality update."""
@@ -1400,6 +1762,11 @@ class MainWindow(QMainWindow):
         """Handle analysis operation completion."""
         logger.info("Analysis complete: grade=%s, score=%.1f",
                     result.overall_grade, result.overall_quality_score)
+
+        # Store result and enable report export
+        self._last_analysis_result = result
+        self._last_operation_type = "analyze"
+        self._operation_toolbar.set_report_enabled(True)
 
         # Update disk health
         self._disk_health = int(result.overall_quality_score)
@@ -1411,16 +1778,34 @@ class MainWindow(QMainWindow):
                 f"Analysis complete: Grade {grade} ({result.overall_quality_score:.0f}%)"
             )
             play_success_sound()
+            self._show_completion_dialog(
+                "Analysis Successful",
+                f"Disk received grade {grade} ({result.overall_quality_score:.0f}%).",
+                success=True,
+                details="The disk is in good condition."
+            )
         elif grade == 'C':
             self._status_strip.set_warning(
                 f"Analysis complete: Grade {grade} - Some degradation detected"
             )
             play_complete_sound()
+            self._show_completion_dialog(
+                "Analysis Complete",
+                f"Disk received grade {grade} ({result.overall_quality_score:.0f}%).",
+                success=False,
+                details="Some degradation detected. Consider backing up the disk."
+            )
         else:
             self._status_strip.set_error(
                 f"Analysis complete: Grade {grade} - Significant issues found"
             )
             play_error_sound()
+            self._show_completion_dialog(
+                "Analysis Warning",
+                f"Disk received grade {grade} ({result.overall_quality_score:.0f}%).",
+                success=False,
+                details="Significant issues found. The disk may need restoration or data should be recovered immediately."
+            )
 
         # Update analytics panel with analysis results
         # Convert analysis result to overview format
@@ -1478,6 +1863,162 @@ class MainWindow(QMainWindow):
         self._on_operation_complete()
         self._cleanup_analyze_worker()
 
+    # =========================================================================
+    # Write Image Operation
+    # =========================================================================
+
+    def _start_write_image_operation(self) -> None:
+        """Start the write image operation with configuration dialog."""
+        # Show configuration dialog
+        dialog = WriteImageConfigDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            # User cancelled - reset state
+            self._state = WorkbenchState.IDLE
+            self._operation_toolbar.stop_operation()
+            self._drive_control.resume_rpm_polling()
+            self._update_state()
+            return
+
+        self._write_image_config = dialog.get_config()
+        if not self._write_image_config.format_spec:
+            self._state = WorkbenchState.IDLE
+            self._operation_toolbar.stop_operation()
+            self._drive_control.resume_rpm_polling()
+            self._update_state()
+            return
+
+        # Clean up any existing worker
+        self._cleanup_disk_image_worker()
+
+        # Get format spec details
+        spec = self._write_image_config.format_spec
+        format_name = spec.name
+        total_sectors = spec.total_sectors
+
+        # Initialize sector map with pending sectors
+        self._sector_map_panel.set_all_sectors_pending(total_sectors)
+
+        # Update status
+        self._status_strip.set_formatting(0, spec.total_tracks)
+
+        logger.info("Starting write image operation: %s", format_name)
+
+        # Create thread and worker
+        self._disk_image_thread = QThread()
+        self._disk_image_worker = DiskImageWorker(
+            device=self._device,
+            format_spec=self._write_image_config.format_spec,
+            verify=self._write_image_config.verify_after_write,
+        )
+        self._disk_image_worker.moveToThread(self._disk_image_thread)
+
+        # Connect worker signals
+        self._disk_image_thread.started.connect(self._disk_image_worker.run)
+        self._disk_image_worker.track_written.connect(self._on_image_track_written)
+        self._disk_image_worker.track_verified.connect(self._on_image_track_verified)
+        self._disk_image_worker.write_complete.connect(self._on_write_image_complete)
+        self._disk_image_worker.progress.connect(self._on_write_image_progress)
+        self._disk_image_worker.status_update.connect(self._on_write_image_status)
+        self._disk_image_worker.error.connect(self._on_write_image_error)
+        self._disk_image_worker.device_error.connect(self._on_write_image_error)
+        self._disk_image_worker.finished.connect(self._on_write_image_finished)
+
+        logger.info("Starting disk image worker thread")
+        self._disk_image_thread.start()
+
+    def _cleanup_disk_image_worker(self) -> None:
+        """Clean up disk image worker and thread."""
+        if self._disk_image_worker:
+            self._disk_image_worker.cancel()
+            self._disk_image_worker = None
+
+        if self._disk_image_thread:
+            if self._disk_image_thread.isRunning():
+                self._disk_image_thread.quit()
+                self._disk_image_thread.wait(3000)
+            self._disk_image_thread = None
+
+    def _on_image_track_written(self, cylinder: int, head: int, success: bool) -> None:
+        """Handle track written signal from disk image worker."""
+        track_number = cylinder * 2 + head
+
+        if self._write_image_config and self._write_image_config.format_spec:
+            spec = self._write_image_config.format_spec
+            start_sector = track_number * spec.sectors_per_track
+
+            # Update sector map
+            status = SectorStatus.GOOD if success else SectorStatus.BAD
+            for i in range(spec.sectors_per_track):
+                self._sector_map_panel.set_sector_status(
+                    start_sector + i, status, animate=False
+                )
+            self._sector_map_panel.update_scenes()
+
+    def _on_image_track_verified(self, cylinder: int, head: int, verified: bool) -> None:
+        """Handle track verified signal from disk image worker."""
+        if not verified:
+            track_number = cylinder * 2 + head
+            logger.warning("Track verification failed: C%d H%d (track %d)",
+                          cylinder, head, track_number)
+
+    def _on_write_image_complete(self, result: WriteImageResult) -> None:
+        """Handle write image completion."""
+        logger.info(
+            "Write image complete: %s, %d/%d tracks, %.1fs",
+            result.format_spec.name,
+            result.tracks_written,
+            result.total_tracks,
+            result.duration_seconds
+        )
+
+        # Show completion message
+        if result.cancelled:
+            self._status_strip.set_warning("Write cancelled")
+            play_error_sound()
+        elif result.tracks_failed > 0:
+            self._status_strip.set_error(
+                f"Write completed with {result.tracks_failed} failed tracks"
+            )
+            play_error_sound()
+            QMessageBox.warning(
+                self, "Write Completed with Errors",
+                f"Wrote {result.format_spec.name} image.\n\n"
+                f"Tracks written: {result.tracks_written}/{result.total_tracks}\n"
+                f"Failed tracks: {result.tracks_failed}\n"
+                f"Duration: {result.duration_seconds:.1f}s"
+            )
+        else:
+            self._status_strip.set_success(
+                f"Write complete: {result.format_spec.name}"
+            )
+            play_complete_sound()
+            QMessageBox.information(
+                self, "Write Complete",
+                f"Successfully wrote {result.format_spec.name} image.\n\n"
+                f"Platform: {result.format_spec.platform.value}\n"
+                f"Tracks: {result.tracks_written}\n"
+                f"Duration: {result.duration_seconds:.1f}s"
+            )
+
+    def _on_write_image_progress(self, progress: int) -> None:
+        """Handle write image progress update."""
+        self._operation_toolbar.set_progress(progress)
+
+    def _on_write_image_status(self, status: str) -> None:
+        """Handle write image status message."""
+        self._status_strip.set_operation_status(status)
+
+    def _on_write_image_error(self, error: str) -> None:
+        """Handle write image error."""
+        logger.error("Write image error: %s", error)
+        self._status_strip.set_error(error)
+
+    def _on_write_image_finished(self) -> None:
+        """Handle write image worker finished (cleanup)."""
+        logger.debug("Write image worker finished")
+        self._on_operation_complete()
+        self._cleanup_disk_image_worker()
+
     def _on_stop_clicked(self) -> None:
         """Handle stop button click."""
         logger.info("Stopping operation")
@@ -1493,6 +2034,8 @@ class MainWindow(QMainWindow):
             self._analyze_worker.cancel()
         if self._flux_capture_worker:
             self._flux_capture_worker.cancel()
+        if self._disk_image_worker:
+            self._disk_image_worker.cancel()
 
         self._state = WorkbenchState.IDLE
         self._operation_toolbar.stop_operation()
@@ -1520,6 +2063,7 @@ class MainWindow(QMainWindow):
         self._cleanup_restore_worker()
         self._cleanup_analyze_worker()
         self._cleanup_flux_capture_worker()
+        self._cleanup_disk_image_worker()
 
     def _cleanup_flux_capture_worker(self) -> None:
         """Clean up flux capture worker and thread."""
@@ -1543,6 +2087,12 @@ class MainWindow(QMainWindow):
         try:
             logger.debug("_on_operation_complete: setting state to IDLE")
             self._state = WorkbenchState.IDLE
+
+            # Update state FIRST to ensure toolbar is enabled before stop_operation
+            # This sets _is_enabled=True so stop_operation's _update_control_states works
+            logger.debug("_on_operation_complete: updating state to re-enable toolbar")
+            self._update_state()
+
             logger.debug("_on_operation_complete: stopping operation toolbar")
             self._operation_toolbar.stop_operation()
             self._operation_toolbar.set_progress(100)
@@ -1575,6 +2125,41 @@ class MainWindow(QMainWindow):
             logger.debug("_on_operation_complete: completed")
         except Exception as e:
             logger.exception("Error in _on_operation_complete: %s", e)
+
+    def _show_completion_dialog(
+        self,
+        title: str,
+        message: str,
+        success: bool = True,
+        details: Optional[str] = None
+    ) -> None:
+        """
+        Show a completion dialog for an operation.
+
+        Args:
+            title: Dialog title (e.g., "Scan Complete")
+            message: Main message to show
+            success: True for success icon, False for warning icon
+            details: Optional detailed information
+        """
+        try:
+            if success:
+                icon = QMessageBox.Icon.Information
+            else:
+                icon = QMessageBox.Icon.Warning
+
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(icon)
+            msg_box.setWindowTitle(title)
+            msg_box.setText(message)
+
+            if details:
+                msg_box.setInformativeText(details)
+
+            msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            msg_box.exec()
+        except Exception as e:
+            logger.exception("Error showing completion dialog: %s", e)
 
     def _on_operation_error(self, message: str) -> None:
         """
@@ -2243,6 +2828,404 @@ class MainWindow(QMainWindow):
         # Also update status strip health
         if health_score is not None:
             self._status_strip.set_health(int(health_score))
+
+    # =========================================================================
+    # Report Export
+    # =========================================================================
+
+    def _on_report_export_clicked(self) -> None:
+        """Handle Export Report button click - generate and export report for last operation."""
+        from PyQt6.QtWidgets import QFileDialog
+        from floppy_formatter.reports import ReportGenerator, DARK_THEME
+        from floppy_formatter.core.settings import get_settings
+        from datetime import datetime
+
+        if not self._last_operation_type:
+            QMessageBox.warning(
+                self,
+                "No Report Data",
+                "No operation has been completed yet. Run a scan, format, restore, or analyze operation first."
+            )
+            return
+
+        # Get settings to determine report format
+        settings = get_settings()
+        report_format = settings.export.get_report_format()
+
+        # Determine file extension and filter based on format
+        format_filters = {
+            "HTML": ("HTML Files (*.html)", ".html"),
+            "PDF": ("PDF Files (*.pdf)", ".pdf"),
+            "TXT": ("Text Files (*.txt)", ".txt"),
+        }
+        filter_text, extension = format_filters.get(report_format.value, ("HTML Files (*.html)", ".html"))
+
+        # Generate default filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"floppy_workbench_{self._last_operation_type}_{timestamp}{extension}"
+
+        # Show save dialog
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Report",
+            default_filename,
+            f"{filter_text};;All Files (*.*)"
+        )
+
+        if not filepath:
+            return  # User cancelled
+
+        try:
+            # Build report data based on operation type
+            report_type, report_data = self._build_report_data()
+
+            # Generate sector map images as base64
+            sector_map_h0_base64 = self._export_sector_map_as_base64(0)
+            sector_map_h1_base64 = self._export_sector_map_as_base64(1)
+
+            # Add sector maps to raw data
+            report_data.raw_data["sector_map_h0_image"] = sector_map_h0_base64
+            report_data.raw_data["sector_map_h1_image"] = sector_map_h1_base64
+
+            # Add app logo to raw data
+            logo_base64 = self._get_app_logo_base64()
+            if logo_base64:
+                report_data.raw_data["app_logo"] = logo_base64
+
+            # Create generator and generate report
+            generator = ReportGenerator(report_type, report_data, DARK_THEME)
+
+            # Export in appropriate format
+            if filepath.endswith(".html"):
+                generator.export_html(filepath)
+            elif filepath.endswith(".pdf"):
+                generator.export_pdf(filepath)
+            elif filepath.endswith(".txt"):
+                generator.export_text(filepath)
+            else:
+                # Default to HTML
+                generator.export_html(filepath)
+
+            self._status_strip.set_success(f"Report exported to: {filepath}")
+            logger.info("Report exported successfully to: %s", filepath)
+
+            # Offer to open the report
+            result = QMessageBox.question(
+                self,
+                "Report Exported",
+                f"Report has been exported to:\n{filepath}\n\nWould you like to open it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if result == QMessageBox.StandardButton.Yes:
+                from PyQt6.QtGui import QDesktopServices
+                from PyQt6.QtCore import QUrl
+                QDesktopServices.openUrl(QUrl.fromLocalFile(filepath))
+
+        except Exception as e:
+            logger.exception("Failed to export report: %s", e)
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"Failed to export report:\n{str(e)}"
+            )
+            self._status_strip.set_error(f"Report export failed: {e}")
+
+    def _build_report_data(self):
+        """Build ReportData based on the last operation type."""
+        from floppy_formatter.reports import (
+            ReportType,
+            ReportMetadata,
+            ReportData,
+            SummaryItem,
+            StatusLevel,
+        )
+        from datetime import datetime
+
+        device_path = ""
+        if self._device:
+            device_path = str(self._device.port) if hasattr(self._device, 'port') else "Greaseweazle"
+
+        geometry_str = ""
+        if self._geometry:
+            geometry_str = f"{self._geometry.cylinders}C × {self._geometry.heads}H × {self._geometry.sectors_per_track}S"
+
+        raw_data = {}
+
+        if self._last_operation_type == "scan":
+            report_type = ReportType.SCAN
+            result = self._last_scan_result
+
+            raw_data = {
+                "total_sectors": result.total_sectors,
+                "good_sectors": len(result.good_sectors),
+                "bad_sectors": len(result.bad_sectors),
+                "bad_sector_list": result.bad_sectors,
+                "good_sector_list": result.good_sectors,
+                "elapsed_ms": int(result.elapsed_time * 1000) if hasattr(result, 'elapsed_time') else 0,
+                "health_percentage": self._disk_health or 0,
+            }
+
+            status = StatusLevel.SUCCESS if len(result.bad_sectors) == 0 else StatusLevel.WARNING
+            status_message = "All sectors readable" if len(result.bad_sectors) == 0 else f"{len(result.bad_sectors)} bad sectors found"
+
+            summary_items = [
+                SummaryItem("Total Sectors", result.total_sectors),
+                SummaryItem("Good Sectors", len(result.good_sectors), StatusLevel.SUCCESS),
+                SummaryItem("Bad Sectors", len(result.bad_sectors),
+                           StatusLevel.SUCCESS if len(result.bad_sectors) == 0 else StatusLevel.ERROR),
+                SummaryItem("Disk Health", f"{self._disk_health or 0}%",
+                           StatusLevel.SUCCESS if (self._disk_health or 0) >= 95 else StatusLevel.WARNING),
+            ]
+
+            metadata = ReportMetadata(
+                title="Disk Scan Report",
+                subtitle=f"Scan completed on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                report_type=report_type,
+                device_path=device_path,
+                geometry=geometry_str,
+            )
+
+        elif self._last_operation_type == "format":
+            report_type = ReportType.FORMAT
+            result = self._last_format_result
+
+            raw_data = {
+                "tracks_formatted": result.tracks_formatted,
+                "total_tracks": result.total_tracks,
+                "tracks_failed": result.tracks_failed,
+                "bad_sectors": result.bad_sectors,
+                "success": result.success,
+                "verify_passed": getattr(result, 'verify_passed', True),
+            }
+
+            status = StatusLevel.SUCCESS if result.success else StatusLevel.ERROR
+            status_message = "Format completed successfully" if result.success else f"Format completed with {result.tracks_failed} failed tracks"
+
+            summary_items = [
+                SummaryItem("Total Tracks", result.total_tracks),
+                SummaryItem("Tracks Formatted", result.tracks_formatted, StatusLevel.SUCCESS),
+                SummaryItem("Tracks Failed", result.tracks_failed,
+                           StatusLevel.SUCCESS if result.tracks_failed == 0 else StatusLevel.ERROR),
+                SummaryItem("Status", "Success" if result.success else "Failed", status),
+            ]
+
+            metadata = ReportMetadata(
+                title="Disk Format Report",
+                subtitle=f"Format completed on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                report_type=report_type,
+                device_path=device_path,
+                geometry=geometry_str,
+            )
+
+        elif self._last_operation_type == "restore":
+            report_type = ReportType.RECOVERY
+            stats = self._last_restore_stats
+
+            # Get convergence data from analytics panel
+            convergence_history = []
+            try:
+                recovery_tab = self._analytics_panel._tabs.get("recovery")
+                if recovery_tab and hasattr(recovery_tab, '_convergence_points'):
+                    for pass_num, bad_count in recovery_tab._convergence_points:
+                        convergence_history.append({
+                            "pass": pass_num,
+                            "bad_sectors": bad_count,
+                        })
+            except Exception:
+                pass
+
+            raw_data = {
+                "initial_bad": stats.initial_bad_sectors,
+                "final_bad": stats.final_bad_sectors,
+                "sectors_recovered": stats.sectors_recovered,
+                "passes_executed": stats.passes_completed,
+                "converged": stats.converged,
+                "convergence_pass": stats.convergence_pass,
+                "elapsed_ms": int(stats.elapsed_time * 1000) if stats.elapsed_time else 0,
+                "convergence_history": convergence_history,
+                "recovery_percentage": int((stats.sectors_recovered / max(stats.initial_bad_sectors, 1)) * 100),
+            }
+
+            if stats.final_bad_sectors == 0:
+                status = StatusLevel.SUCCESS
+                status_message = "All sectors recovered successfully"
+            elif stats.sectors_recovered > 0:
+                status = StatusLevel.WARNING
+                status_message = f"Partial recovery: {stats.sectors_recovered} of {stats.initial_bad_sectors} sectors recovered"
+            else:
+                status = StatusLevel.ERROR
+                status_message = "Recovery failed - no sectors recovered"
+
+            summary_items = [
+                SummaryItem("Initial Bad Sectors", stats.initial_bad_sectors),
+                SummaryItem("Sectors Recovered", stats.sectors_recovered, StatusLevel.SUCCESS if stats.sectors_recovered > 0 else StatusLevel.ERROR),
+                SummaryItem("Final Bad Sectors", stats.final_bad_sectors,
+                           StatusLevel.SUCCESS if stats.final_bad_sectors == 0 else StatusLevel.ERROR),
+                SummaryItem("Passes Completed", stats.passes_completed),
+                SummaryItem("Converged", "Yes" if stats.converged else "No",
+                           StatusLevel.SUCCESS if stats.converged else StatusLevel.WARNING),
+                SummaryItem("Recovery Rate", f"{raw_data['recovery_percentage']}%",
+                           StatusLevel.SUCCESS if raw_data['recovery_percentage'] >= 80 else StatusLevel.WARNING),
+            ]
+
+            metadata = ReportMetadata(
+                title="Disk Recovery Report",
+                subtitle=f"Recovery completed on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                report_type=report_type,
+                device_path=device_path,
+                geometry=geometry_str,
+            )
+
+        elif self._last_operation_type == "analyze":
+            report_type = ReportType.ANALYSIS
+            result = self._last_analysis_result
+
+            grade_dist = result.get_grade_distribution()
+
+            raw_data = {
+                "overall_grade": result.overall_grade,
+                "overall_quality_score": result.overall_quality_score,
+                "grade_distribution": grade_dist,
+                "format_type": result.format_type,
+                "format_is_standard": result.format_is_standard,
+                "is_copy_protected": result.is_copy_protected,
+                "protection_types": result.protection_types,
+                "protected_track_count": result.protected_track_count,
+                "recommendations": result.recommendations,
+                "track_results": [
+                    {
+                        "cylinder": tr.cylinder,
+                        "head": tr.head,
+                        "quality_score": tr.quality_score,
+                        "grade": tr.grade,
+                    }
+                    for tr in result.track_results[:20]  # First 20 for summary
+                ] if result.track_results else [],
+            }
+
+            if result.overall_grade in ('A', 'B'):
+                status = StatusLevel.SUCCESS
+                status_message = f"Disk is in good condition (Grade {result.overall_grade})"
+            elif result.overall_grade == 'C':
+                status = StatusLevel.WARNING
+                status_message = f"Disk shows some degradation (Grade {result.overall_grade})"
+            else:
+                status = StatusLevel.ERROR
+                status_message = f"Disk has significant issues (Grade {result.overall_grade})"
+
+            summary_items = [
+                SummaryItem("Overall Grade", result.overall_grade, status),
+                SummaryItem("Quality Score", f"{result.overall_quality_score:.1f}%", status),
+                SummaryItem("Format Type", result.format_type or "Unknown"),
+                SummaryItem("Copy Protected", "Yes" if result.is_copy_protected else "No",
+                           StatusLevel.WARNING if result.is_copy_protected else StatusLevel.INFO),
+            ]
+
+            # Add grade distribution
+            for grade in ['A', 'B', 'C', 'D', 'F']:
+                count = grade_dist.get(grade, 0)
+                if count > 0:
+                    summary_items.append(SummaryItem(f"Grade {grade} Tracks", count))
+
+            metadata = ReportMetadata(
+                title="Disk Analysis Report",
+                subtitle=f"Analysis completed on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                report_type=report_type,
+                device_path=device_path,
+                geometry=geometry_str,
+            )
+
+        else:
+            raise ValueError(f"Unknown operation type: {self._last_operation_type}")
+
+        report_data = ReportData(
+            metadata=metadata,
+            summary_items=summary_items,
+            status=status,
+            status_message=status_message,
+            raw_data=raw_data,
+        )
+
+        return report_type, report_data
+
+    def _export_sector_map_as_base64(self, head: int) -> str:
+        """Export a sector map widget as base64 PNG image."""
+        from PyQt6.QtCore import QBuffer, QIODevice
+        from PyQt6.QtGui import QImage, QPainter
+        import base64
+
+        try:
+            # Get the appropriate sector map
+            if head == 0:
+                sector_map = self._sector_map_panel.get_sector_map_h0()
+            else:
+                sector_map = self._sector_map_panel.get_sector_map_h1()
+
+            # Render the widget to an image
+            size = sector_map.size()
+            # Use a reasonable export size
+            export_width = min(size.width(), 800)
+            export_height = min(size.height(), 800)
+
+            image = QImage(export_width, export_height, QImage.Format.Format_ARGB32)
+            image.fill(0xFF1e1e1e)  # Dark background
+
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            # Render the viewport
+            sector_map.render(painter)
+            painter.end()
+
+            # Convert to PNG bytes
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            image.save(buffer, "PNG")
+
+            # Encode to base64
+            png_data = bytes(buffer.data())
+            base64_data = base64.b64encode(png_data).decode('utf-8')
+
+            return f"data:image/png;base64,{base64_data}"
+
+        except Exception as e:
+            logger.warning("Failed to export sector map for head %d: %s", head, e)
+            return ""
+
+    def _get_app_logo_base64(self) -> str:
+        """Get the app logo as a base64-encoded PNG string."""
+        from PyQt6.QtCore import QBuffer, QIODevice
+        from PyQt6.QtGui import QImage
+        from floppy_formatter.gui.resources import get_icon_path
+        import base64
+
+        try:
+            logo_path = get_icon_path("app_logo")
+            if not logo_path or not logo_path.exists():
+                logger.warning("App logo not found")
+                return ""
+
+            # Load the image
+            image = QImage(str(logo_path))
+            if image.isNull():
+                logger.warning("Failed to load app logo image")
+                return ""
+
+            # Convert to PNG bytes
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+            image.save(buffer, "PNG")
+
+            # Encode to base64
+            png_data = bytes(buffer.data())
+            base64_data = base64.b64encode(png_data).decode('utf-8')
+
+            return f"data:image/png;base64,{base64_data}"
+
+        except Exception as e:
+            logger.warning("Failed to get app logo: %s", e)
+            return ""
 
     # =========================================================================
     # Event Handlers

@@ -11,7 +11,7 @@ Part of Phase 6: Enhanced Sector Map Visualization
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional, List, Set
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -171,8 +171,8 @@ class SectorMapToolbar(QWidget):
         """
         super().__init__(parent)
 
-        # Reference to sector map (set via connect_to_sector_map)
-        self._sector_map: Optional[CircularSectorMap] = None
+        # References to sector maps (can have multiple, e.g., one per head)
+        self._sector_maps: List[CircularSectorMap] = []
 
         # Current state
         self._current_view_mode = ViewMode.STATUS
@@ -427,60 +427,60 @@ class SectorMapToolbar(QWidget):
         mode = mode_map.get(button_id, ViewMode.STATUS)
         self._current_view_mode = mode
 
-        # Update sector map if connected
-        if self._sector_map:
-            self._sector_map.set_view_mode(mode)
+        # Update all connected sector maps
+        for sector_map in self._sector_maps:
+            sector_map.set_view_mode(mode)
 
         # Emit signal
         self.view_mode_changed.emit(mode.name.lower())
 
     def _on_fit_clicked(self) -> None:
         """Handle Fit button click."""
-        if self._sector_map:
-            self._sector_map.zoom_to_fit()
-            self._update_zoom_display(1.0)
+        for sector_map in self._sector_maps:
+            sector_map.zoom_to_fit()
+        self._update_zoom_display(1.0)
 
     def _on_zoom_100_clicked(self) -> None:
         """Handle 100% zoom button click."""
-        if self._sector_map:
-            self._sector_map.set_zoom_level(1.0)
-            self._update_zoom_display(1.0)
+        for sector_map in self._sector_maps:
+            sector_map.set_zoom_level(1.0)
+        self._update_zoom_display(1.0)
 
     def _on_zoom_200_clicked(self) -> None:
         """Handle 200% zoom button click."""
-        if self._sector_map:
-            self._sector_map.set_zoom_level(2.0)
-            self._update_zoom_display(2.0)
+        for sector_map in self._sector_maps:
+            sector_map.set_zoom_level(2.0)
+        self._update_zoom_display(2.0)
 
     def _on_zoom_slider_changed(self, value: int) -> None:
         """Handle zoom slider change."""
         zoom_level = value / 100.0
         self._current_zoom = zoom_level
 
-        if self._sector_map:
-            self._sector_map.set_zoom_level(zoom_level)
+        for sector_map in self._sector_maps:
+            sector_map.set_zoom_level(zoom_level)
 
         self._zoom_label.setText(f"{value}%")
         self.zoom_changed.emit(zoom_level)
 
     def _on_select_bad_clicked(self) -> None:
         """Handle Select Bad button click."""
-        if self._sector_map:
-            self._sector_map.select_all_bad_sectors()
+        for sector_map in self._sector_maps:
+            sector_map.select_all_bad_sectors()
 
     def _on_clear_clicked(self) -> None:
         """Handle Clear button click."""
-        if self._sector_map:
-            self._sector_map.clear_selection()
+        for sector_map in self._sector_maps:
+            sector_map.clear_selection()
 
     def _on_invert_clicked(self) -> None:
         """Handle Invert button click."""
-        if self._sector_map:
-            self._sector_map.invert_selection()
+        for sector_map in self._sector_maps:
+            sector_map.invert_selection()
 
     def _on_export_png_clicked(self) -> None:
         """Handle Export PNG button click."""
-        if not self._sector_map:
+        if not self._sector_maps:
             return
 
         # Show file dialog
@@ -495,21 +495,35 @@ class SectorMapToolbar(QWidget):
             if not filepath.lower().endswith('.png'):
                 filepath += '.png'
 
-            success = self._sector_map.export_to_png(filepath)
+            # Export each map with head suffix if multiple maps
+            all_success = True
+            for sector_map in self._sector_maps:
+                head_filter = sector_map.get_head_filter()
+                if head_filter is not None and len(self._sector_maps) > 1:
+                    # Add head suffix: sector_map.png -> sector_map_h0.png
+                    base = filepath[:-4]  # Remove .png
+                    export_path = f"{base}_h{head_filter}.png"
+                else:
+                    export_path = filepath
 
-            if success:
-                logger.info(f"Exported sector map to {filepath}")
+                success = sector_map.export_to_png(export_path)
+                if success:
+                    logger.info(f"Exported sector map to {export_path}")
+                else:
+                    all_success = False
+
+            if all_success:
                 self.export_requested.emit("png")
             else:
                 QMessageBox.warning(
                     self,
                     "Export Failed",
-                    f"Failed to export sector map to:\n{filepath}"
+                    f"Failed to export one or more sector maps"
                 )
 
     def _on_export_svg_clicked(self) -> None:
         """Handle Export SVG button click."""
-        if not self._sector_map:
+        if not self._sector_maps:
             return
 
         # Show file dialog
@@ -524,21 +538,39 @@ class SectorMapToolbar(QWidget):
             if not filepath.lower().endswith('.svg'):
                 filepath += '.svg'
 
-            success = self._sector_map.export_to_svg(filepath)
+            # Export each map with head suffix if multiple maps
+            all_success = True
+            for sector_map in self._sector_maps:
+                head_filter = sector_map.get_head_filter()
+                if head_filter is not None and len(self._sector_maps) > 1:
+                    # Add head suffix: sector_map.svg -> sector_map_h0.svg
+                    base = filepath[:-4]  # Remove .svg
+                    export_path = f"{base}_h{head_filter}.svg"
+                else:
+                    export_path = filepath
 
-            if success:
-                logger.info(f"Exported sector map to {filepath}")
+                success = sector_map.export_to_svg(export_path)
+                if success:
+                    logger.info(f"Exported sector map to {export_path}")
+                else:
+                    all_success = False
+
+            if all_success:
                 self.export_requested.emit("svg")
             else:
                 QMessageBox.warning(
                     self,
                     "Export Failed",
-                    f"Failed to export sector map to:\n{filepath}"
+                    f"Failed to export one or more sector maps"
                 )
 
     def _on_selection_changed(self, selected_sectors: List[int]) -> None:
-        """Handle selection changed from sector map."""
-        self._selection_count = len(selected_sectors)
+        """Handle selection changed from any sector map."""
+        # Count total selections across all maps
+        total_selected: Set[int] = set()
+        for sector_map in self._sector_maps:
+            total_selected.update(sector_map.get_selected_sectors())
+        self._selection_count = len(total_selected)
         self._selection_label.setText(f"Selected: {self._selection_count}")
 
     def _on_zoom_changed(self, zoom_level: float) -> None:
@@ -569,27 +601,46 @@ class SectorMapToolbar(QWidget):
         """
         Connect this toolbar to a CircularSectorMap instance.
 
+        Can be called multiple times to connect multiple sector maps
+        (e.g., one for each head).
+
         Args:
             sector_map: The sector map to control
         """
-        self._sector_map = sector_map
+        if sector_map not in self._sector_maps:
+            self._sector_maps.append(sector_map)
 
-        # Connect sector map signals
-        sector_map.selection_changed.connect(self._on_selection_changed)
-        sector_map.zoom_changed.connect(self._on_zoom_changed)
+            # Connect sector map signals
+            sector_map.selection_changed.connect(self._on_selection_changed)
+            sector_map.zoom_changed.connect(self._on_zoom_changed)
 
-        # Sync initial state
-        self._update_zoom_display(sector_map.get_zoom_level())
+            # Sync initial state from first map
+            if len(self._sector_maps) == 1:
+                self._update_zoom_display(sector_map.get_zoom_level())
 
-    def disconnect_from_sector_map(self) -> None:
-        """Disconnect from the current sector map."""
-        if self._sector_map:
+    def disconnect_from_sector_map(self, sector_map: Optional[CircularSectorMap] = None) -> None:
+        """
+        Disconnect from a sector map.
+
+        Args:
+            sector_map: Specific map to disconnect, or None to disconnect all
+        """
+        if sector_map is None:
+            # Disconnect all
+            for sm in self._sector_maps:
+                try:
+                    sm.selection_changed.disconnect(self._on_selection_changed)
+                    sm.zoom_changed.disconnect(self._on_zoom_changed)
+                except Exception:
+                    pass
+            self._sector_maps.clear()
+        elif sector_map in self._sector_maps:
             try:
-                self._sector_map.selection_changed.disconnect(self._on_selection_changed)
-                self._sector_map.zoom_changed.disconnect(self._on_zoom_changed)
+                sector_map.selection_changed.disconnect(self._on_selection_changed)
+                sector_map.zoom_changed.disconnect(self._on_zoom_changed)
             except Exception:
                 pass
-            self._sector_map = None
+            self._sector_maps.remove(sector_map)
 
     def get_view_mode(self) -> ViewMode:
         """Get current view mode."""
@@ -614,8 +665,8 @@ class SectorMapToolbar(QWidget):
             button.setChecked(True)
             self._current_view_mode = mode
 
-            if self._sector_map:
-                self._sector_map.set_view_mode(mode)
+            for sector_map in self._sector_maps:
+                sector_map.set_view_mode(mode)
 
     def get_zoom_level(self) -> float:
         """Get current zoom level."""
@@ -628,8 +679,8 @@ class SectorMapToolbar(QWidget):
         Args:
             level: Zoom level (1.0 = 100%)
         """
-        if self._sector_map:
-            self._sector_map.set_zoom_level(level)
+        for sector_map in self._sector_maps:
+            sector_map.set_zoom_level(level)
         self._update_zoom_display(level)
 
     def get_selection_count(self) -> int:

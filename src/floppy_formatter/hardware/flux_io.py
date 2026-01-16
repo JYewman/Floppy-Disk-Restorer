@@ -44,13 +44,20 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Standard MFM timing values for 3.5" HD at 300 RPM
-# Bit cell is 2.0 microseconds for HD
-HD_BIT_CELL_US = 2.0
+# HD uses 500 kbps data rate = 1 Mbps MFM cell rate = 1µs bit cell
+HD_BIT_CELL_US = 1.0  # 1µs bit cell for HD (500 kbps)
 
-# MFM pulse widths in microseconds (for HD)
-MFM_SHORT_US = 4.0    # 1-0 or 0-1 transition (2 bit cells)
-MFM_MEDIUM_US = 6.0   # 1-00 or 0-01 transition (3 bit cells)
-MFM_LONG_US = 8.0     # 1-000 or 0-001 transition (4 bit cells)
+# MFM pulse widths in microseconds (for HD - 1µs bit cell)
+# Flux transitions occur at 2T, 3T, 4T intervals
+MFM_SHORT_US = 2.0    # 2T transition (2 bit cells) = 2µs
+MFM_MEDIUM_US = 3.0   # 3T transition (3 bit cells) = 3µs
+MFM_LONG_US = 4.0     # 4T transition (4 bit cells) = 4µs
+
+# DD (Double Density) timing for reference (250 kbps = 2µs bit cell)
+DD_BIT_CELL_US = 2.0
+MFM_DD_SHORT_US = 4.0   # 2T = 4µs for DD
+MFM_DD_MEDIUM_US = 6.0  # 3T = 6µs for DD
+MFM_DD_LONG_US = 8.0    # 4T = 8µs for DD
 
 # Timing tolerance (percentage of bit cell)
 TIMING_TOLERANCE = 0.30  # 30% tolerance
@@ -149,15 +156,16 @@ class FluxData:
             logger.info("Microsecond stats: min=%.2fµs, max=%.2fµs, mean=%.2fµs",
                         us_min, us_max, us_mean)
 
-            # Categorize by expected MFM pulse widths
-            short_count = sum(1 for t in flux_times if 3.0 <= t * us_factor < 5.0)
-            medium_count = sum(1 for t in flux_times if 5.0 <= t * us_factor < 7.0)
-            long_count = sum(1 for t in flux_times if 7.0 <= t * us_factor < 9.0)
-            noise_count = sum(1 for t in flux_times if t * us_factor < 3.0)
-            other_count = sum(1 for t in flux_times if t * us_factor >= 9.0)
-            logger.info("MFM pulse distribution: noise(<3µs)=%d, short(4µs)=%d, "
-                        "medium(6µs)=%d, long(8µs)=%d, other(>9µs)=%d",
-                        noise_count, short_count, medium_count, long_count, other_count)
+            # Categorize by expected MFM pulse widths for HD (1µs bit cell)
+            # HD: 2T=2µs, 3T=3µs, 4T=4µs with 30% tolerance
+            short_count = sum(1 for t in flux_times if 1.4 <= t * us_factor < 2.6)   # ~2µs (2T)
+            medium_count = sum(1 for t in flux_times if 2.6 <= t * us_factor < 3.5)  # ~3µs (3T)
+            long_count = sum(1 for t in flux_times if 3.5 <= t * us_factor < 5.0)    # ~4µs (4T)
+            noise_count = sum(1 for t in flux_times if t * us_factor < 1.4)          # Too short
+            other_count = sum(1 for t in flux_times if t * us_factor >= 5.0)         # Too long
+            logger.info("MFM pulse distribution (HD): 2T(2µs)=%d, 3T(3µs)=%d, "
+                        "4T(4µs)=%d, noise(<1.4µs)=%d, other(>5µs)=%d",
+                        short_count, medium_count, long_count, noise_count, other_count)
 
         # Get index positions
         index_positions = list(gw_flux.index_list) if gw_flux.index_list else []
@@ -368,10 +376,10 @@ class FluxData:
 
         # 2. Calculate jitter score (lower is better)
         if len(times_us) > 10:
-            # Group by expected MFM values and measure variance
-            short = [t for t in times_us if 3.0 <= t < 5.0]
-            medium = [t for t in times_us if 5.0 <= t < 7.0]
-            long = [t for t in times_us if 7.0 <= t < 9.0]
+            # Group by expected MFM values for HD (1µs bit cell → 2/3/4µs pulses)
+            short = [t for t in times_us if 1.4 <= t < 2.6]   # ~2µs (2T)
+            medium = [t for t in times_us if 2.6 <= t < 3.5]  # ~3µs (3T)
+            long = [t for t in times_us if 3.5 <= t < 5.0]    # ~4µs (4T)
 
             jitter_scores = []
             for group, expected in [(short, MFM_SHORT_US),
@@ -396,8 +404,8 @@ class FluxData:
         return statistics.mean(scores) if scores else 0.0
 
     def get_pulse_histogram(self, bins: int = 50,
-                             min_us: float = 2.0,
-                             max_us: float = 10.0) -> Tuple[List[float], List[int]]:
+                             min_us: float = 1.0,
+                             max_us: float = 6.0) -> Tuple[List[float], List[int]]:
         """
         Generate a histogram of pulse widths.
 
@@ -467,25 +475,25 @@ class FluxData:
         """
         Estimate the bit cell width from detected MFM peaks.
 
-        Uses adaptive peak detection to handle both standard HD (2µs bit cell)
-        and ED/non-standard formats (1µs bit cell).
+        Uses adaptive peak detection to handle both standard HD (1µs bit cell,
+        with MFM pulses at 2/3/4 µs) and DD formats (2µs bit cell, pulses at 4/6/8 µs).
 
         Returns:
             Estimated bit cell width in microseconds, or None if detection fails
         """
-        # First check if there's significant data below 3 µs - indicates 1µs bit cell
+        # First check if there's significant data below 3 µs - indicates 1µs bit cell (HD)
         times_us = self.get_times_microseconds()
         if times_us:
             below_3us = sum(1 for t in times_us if 1.5 < t < 3.0)
             total = len(times_us)
-            # If more than 20% of pulses are in 1.5-3µs range, this is likely 1µs bit cell
+            # If more than 20% of pulses are in 1.5-3µs range, this is likely 1µs bit cell (HD)
             if total > 0 and below_3us / total > 0.20:
-                logger.debug("Detected high proportion of sub-3µs pulses (%.1f%%) - likely 1µs bit cell",
+                logger.debug("Detected high proportion of sub-3µs pulses (%.1f%%) - likely 1µs bit cell (HD)",
                             (below_3us / total) * 100)
                 # Skip standard detection and go straight to adaptive
                 pass
             else:
-                # Try standard HD peak positions (4/6/8 µs)
+                # Try standard HD peak positions (2/3/4 µs for 1µs bit cell)
                 short, medium, long = self.detect_mfm_peaks()
 
                 estimates = []
@@ -838,11 +846,11 @@ def analyze_flux_quality(flux_data: FluxData) -> dict:
     jitter_metrics = {}
 
     if times_us:
-        # Group by MFM pulse type
+        # Group by MFM pulse type for HD (1µs bit cell → 2/3/4µs pulses)
         groups = {
-            'short': [t for t in times_us if 3.0 <= t < 5.0],
-            'medium': [t for t in times_us if 5.0 <= t < 7.0],
-            'long': [t for t in times_us if 7.0 <= t < 9.0],
+            'short': [t for t in times_us if 1.4 <= t < 2.6],   # ~2µs (2T)
+            'medium': [t for t in times_us if 2.6 <= t < 3.5],  # ~3µs (3T)
+            'long': [t for t in times_us if 3.5 <= t < 5.0],    # ~4µs (4T)
         }
 
         for name, group in groups.items():

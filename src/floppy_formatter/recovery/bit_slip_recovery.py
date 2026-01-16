@@ -369,7 +369,7 @@ def detect_bit_slips(flux: FluxCapture) -> List[BitSlipEvent]:
             phase_state.lock_count = 0
 
         # Update cumulative sample count (rough estimate)
-        sample_rate = flux.sample_rate if flux.sample_rate else 72_000_000
+        sample_rate = flux.sample_freq if flux.sample_freq else 72_000_000
         cumulative_samples += int(timing * sample_rate / 1_000_000)
 
     logger.debug("Detected %d bit slips", len(slips))
@@ -802,9 +802,13 @@ def _try_decode_sector(flux: FluxCapture, sector_num: int) -> Optional[bytes]:
     try:
         from floppy_formatter.hardware import FluxData, decode_flux_data
 
+        # Handle both FluxCapture (sample_rate) and FluxData (sample_freq)
+        sample_freq = getattr(flux, 'sample_freq', None) or getattr(flux, 'sample_rate', 72_000_000)
+        flux_times = getattr(flux, 'flux_times', None) or getattr(flux, 'raw_timings', [])
+
         flux_data = FluxData(
-            flux_times=flux.raw_timings,
-            sample_freq=flux.sample_rate,
+            flux_times=flux_times,
+            sample_freq=sample_freq,
             index_positions=flux.index_positions,
             cylinder=flux.cylinder,
             head=flux.head,
@@ -838,7 +842,8 @@ def _decode_corrected_flux(
         from floppy_formatter.hardware import FluxData, decode_flux_data
 
         # Convert microseconds back to sample counts
-        sample_rate = original_flux.sample_rate or 72_000_000
+        # Handle both FluxCapture (sample_rate) and FluxData (sample_freq)
+        sample_rate = getattr(original_flux, 'sample_freq', None) or getattr(original_flux, 'sample_rate', 72_000_000)
         factor = sample_rate / 1_000_000
         flux_times = [max(1, int(t * factor)) for t in timings_us]
 

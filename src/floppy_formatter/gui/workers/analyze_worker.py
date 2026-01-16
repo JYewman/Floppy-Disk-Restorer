@@ -476,6 +476,7 @@ class AnalyzeWorker(GreaseweazleWorker):
         )
 
         self.analysis_complete.emit(result)
+        self.finished.emit()
 
     def _get_tracks_to_analyze(self) -> List[tuple]:
         """

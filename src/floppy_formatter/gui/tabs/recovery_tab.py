@@ -165,15 +165,19 @@ class ConvergenceChartWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def add_convergence_point(self, pass_num: int, bad_count: int) -> None:
-        """Add a data point."""
-        # Ensure we have enough entries
-        while len(self._data) < pass_num:
-            self._data.append(self._data[-1] if self._data else 0)
+        """
+        Add a data point to the convergence chart.
 
-        if pass_num <= len(self._data):
-            self._data[pass_num - 1] = bad_count
-        else:
-            self._data.append(bad_count)
+        Args:
+            pass_num: Pass number (0 = initial scan baseline, 1+ = recovery passes)
+            bad_count: Number of bad sectors at this point
+        """
+        # Ensure we have enough entries (pass_num is 0-based index)
+        while len(self._data) <= pass_num:
+            self._data.append(self._data[-1] if self._data else bad_count)
+
+        # Set the value at the corresponding index
+        self._data[pass_num] = bad_count
 
         self.update()
 
@@ -255,11 +259,11 @@ class ConvergenceChartWidget(QWidget):
             y = plot_top + i * plot_height / 4
             painter.drawText(5, int(y + 4), str(value))
 
-        # X axis labels
+        # X axis labels (pass 0 = initial/baseline, 1+ = recovery passes)
         step = max(1, n_passes // 10)
         for i in range(0, n_passes, step):
             x = plot_left + (i / (n_passes - 1)) * plot_width if n_passes > 1 else plot_left
-            painter.drawText(int(x - 5), int(plot_bottom + 15), str(i + 1))
+            painter.drawText(int(x - 5), int(plot_bottom + 15), str(i))
 
         # Axis titles
         painter.setFont(QFont("Segoe UI", 9))
@@ -306,9 +310,9 @@ class ConvergenceChartWidget(QWidget):
                 painter.setPen(QPen(COLOR_PANEL_BG, 2))
                 painter.drawEllipse(QPointF(x, y), 4, 4)
 
-            # Mark convergence point
-            if self._convergence_pass > 0 and self._convergence_pass <= len(self._data):
-                i = self._convergence_pass - 1
+            # Mark convergence point (pass_num is the direct array index)
+            if self._convergence_pass > 0 and self._convergence_pass < len(self._data):
+                i = self._convergence_pass
                 x = plot_left + (i / (n_passes - 1)) * plot_width if n_passes > 1 else plot_left
                 y = plot_bottom - (self._data[i] / max_count) * plot_height
 

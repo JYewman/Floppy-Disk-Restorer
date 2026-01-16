@@ -29,6 +29,55 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+def decode_flux_data(flux_data):
+    """
+    Decode flux data to sectors using the same decoder priority as restore worker.
+
+    This ensures consistency between restore verification and scanning -
+    both use the same decoder order to avoid false positives/negatives.
+
+    Args:
+        flux_data: FluxData from track read
+
+    Returns:
+        List of SectorData objects
+    """
+    # Use Greaseweazle-compatible decoder first (same as restore_worker)
+    try:
+        from floppy_formatter.hardware.gw_mfm_codec import decode_flux_to_sectors_gw
+        sectors = decode_flux_to_sectors_gw(flux_data)
+        if sectors:
+            logger.debug("GW decoder returned %d sectors", len(sectors))
+            return sectors
+        logger.debug("GW decoder returned 0 sectors, trying PLL decoder")
+    except ImportError:
+        logger.debug("GW decoder not available")
+    except Exception as e:
+        logger.warning("GW decoder failed: %s", e)
+
+    # Try PLL decoder as fallback
+    try:
+        from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
+        sectors = decode_flux_with_pll(flux_data)
+        if sectors:
+            logger.debug("PLL decoder returned %d sectors", len(sectors))
+            return sectors
+    except ImportError:
+        logger.debug("PLL decoder not available")
+    except Exception as e:
+        logger.warning("PLL decoder failed: %s", e)
+
+    # Fall back to simple decoder
+    from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
+    sectors = decode_flux_to_sectors(flux_data)
+    logger.debug("Simple decoder returned %d sectors", len(sectors))
+    return sectors
+
+
+# =============================================================================
 # Enums
 # =============================================================================
 
@@ -360,14 +409,6 @@ class ScanWorker(GreaseweazleWorker):
         from floppy_formatter.analysis.flux_analyzer import FluxCapture
         from floppy_formatter.analysis.signal_quality import calculate_snr
 
-        # Try to import PLL decoder (preferred method)
-        try:
-            from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
-            pll_available = True
-        except ImportError:
-            pll_available = False
-            logger.debug("PLL decoder not available, using simple decoder")
-
         track_start = time.time()
 
         # Seek to track
@@ -392,24 +433,9 @@ class ScanWorker(GreaseweazleWorker):
             self.flux_captured.emit(cylinder, head, capture)
             self._flux_cache[(cylinder, head)] = capture
 
-        # Decode sectors - try PLL decoder first, fall back to simple decoder
-        sectors = []
-        if pll_available:
-            try:
-                sectors = decode_flux_with_pll(flux)
-                logger.debug("PLL decoder returned %d sectors for C%d:H%d",
-                            len(sectors), cylinder, head)
-            except Exception as e:
-                logger.warning("PLL decoder failed for C%d:H%d: %s, trying simple decoder",
-                              cylinder, head, e)
-                sectors = []
-
-        # Fall back to simple decoder if PLL didn't work
-        if not sectors:
-            from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
-            sectors = decode_flux_to_sectors(flux)
-            logger.debug("Simple decoder returned %d sectors for C%d:H%d",
-                        len(sectors), cylinder, head)
+        # Decode sectors using same decoder priority as restore_worker
+        # This ensures consistency between restore verification and scanning
+        sectors = decode_flux_data(flux)
 
         # Log decode results for debugging
         logger.info("Track C%d:H%d: decoded %d sectors from flux (%d transitions)",

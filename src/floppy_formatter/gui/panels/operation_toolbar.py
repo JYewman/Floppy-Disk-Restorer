@@ -40,6 +40,7 @@ class OperationType(Enum):
     FORMAT = "format"
     RESTORE = "restore"
     ANALYZE = "analyze"
+    WRITE_IMAGE = "write_image"
 
 
 class OperationMode(Enum):
@@ -144,6 +145,7 @@ class OperationToolbar(QWidget):
     start_clicked = pyqtSignal()
     stop_clicked = pyqtSignal()
     pause_clicked = pyqtSignal()
+    report_export_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         """
@@ -206,11 +208,19 @@ class OperationToolbar(QWidget):
         self._analyze_button.clicked.connect(lambda: self._on_operation_clicked(OperationType.ANALYZE))
         main_layout.addWidget(self._analyze_button)
 
+        self._write_image_button = LargeOperationButton(
+            "Write Image", "disc", "Write blank formatted disk image"
+        )
+        self._write_image_button.setCheckable(True)
+        self._write_image_button.clicked.connect(lambda: self._on_operation_clicked(OperationType.WRITE_IMAGE))
+        main_layout.addWidget(self._write_image_button)
+
         self._operation_buttons = [
             self._scan_button,
             self._format_button,
             self._restore_button,
             self._analyze_button,
+            self._write_image_button,
         ]
 
         # Separator
@@ -234,20 +244,20 @@ class OperationToolbar(QWidget):
         # Control buttons - horizontal
         self._start_button = QPushButton("Start")
         self._start_button.setProperty("variant", "success")
-        self._start_button.setFixedWidth(55)
+        self._start_button.setFixedWidth(70)
         self._start_button.clicked.connect(self._on_start_clicked)
         main_layout.addWidget(self._start_button)
 
         self._pause_button = QPushButton("Pause")
         self._pause_button.setToolTip("Pause operation")
-        self._pause_button.setFixedWidth(55)
+        self._pause_button.setFixedWidth(70)
         self._pause_button.clicked.connect(self._on_pause_clicked)
         main_layout.addWidget(self._pause_button)
 
         self._stop_button = QPushButton("Stop")
         self._stop_button.setToolTip("Stop operation")
         self._stop_button.setProperty("variant", "error")
-        self._stop_button.setFixedWidth(50)
+        self._stop_button.setFixedWidth(65)
         self._stop_button.clicked.connect(self._on_stop_clicked)
         main_layout.addWidget(self._stop_button)
 
@@ -266,6 +276,20 @@ class OperationToolbar(QWidget):
         self._eta_label.setStyleSheet("color: #858585;")
         self._eta_label.setFixedWidth(70)
         main_layout.addWidget(self._eta_label)
+
+        # Separator
+        main_layout.addWidget(self._create_separator())
+
+        # Export Report button
+        self._report_button = QPushButton("Export Report")
+        self._report_button.setToolTip("Export report for the last completed operation")
+        report_icon = get_icon("file-text")
+        if not report_icon.isNull():
+            self._report_button.setIcon(report_icon)
+        self._report_button.setFixedWidth(110)
+        self._report_button.setEnabled(False)  # Disabled until operation completes
+        self._report_button.clicked.connect(self._on_report_clicked)
+        main_layout.addWidget(self._report_button)
 
         # Add stretch
         main_layout.addStretch(1)
@@ -309,6 +333,7 @@ class OperationToolbar(QWidget):
             OperationType.FORMAT: self._format_button,
             OperationType.RESTORE: self._restore_button,
             OperationType.ANALYZE: self._analyze_button,
+            OperationType.WRITE_IMAGE: self._write_image_button,
         }
         return mapping[operation]
 
@@ -482,10 +507,12 @@ class OperationToolbar(QWidget):
         """
         Called when operation stops (completed, cancelled, or error).
 
-        Updates UI to idle state.
+        Updates UI to idle state and clears selection.
         """
         self._state = OperationState.IDLE
         self._eta_timer.stop()
+        # Clear operation selection so user must explicitly start a new operation
+        self.clear_selection()
         self._update_control_states()
 
     def set_progress(self, progress: int, eta_seconds: Optional[int] = None) -> None:
@@ -525,3 +552,30 @@ class OperationToolbar(QWidget):
             Current OperationState
         """
         return self._state
+
+    def _on_report_clicked(self) -> None:
+        """Handle export report button click."""
+        logger.debug("Export Report button clicked")
+        self.report_export_clicked.emit()
+
+    def set_report_enabled(self, enabled: bool) -> None:
+        """
+        Enable or disable the Export Report button.
+
+        Args:
+            enabled: True to enable, False to disable
+        """
+        self._report_button.setEnabled(enabled)
+        if enabled:
+            self._report_button.setToolTip("Export report for the last completed operation")
+        else:
+            self._report_button.setToolTip("Complete an operation to enable report export")
+
+    def is_report_enabled(self) -> bool:
+        """
+        Check if report export is currently enabled.
+
+        Returns:
+            True if report export button is enabled
+        """
+        return self._report_button.isEnabled()

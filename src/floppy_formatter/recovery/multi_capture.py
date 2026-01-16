@@ -388,7 +388,7 @@ def capture_multiple_revolutions(
         cylinder=cyl,
         head=head,
         total_revolutions=len(captures),
-        sample_rate=captures[0].sample_rate if captures else 72_000_000,
+        sample_rate=(getattr(captures[0], 'sample_rate', None) or getattr(captures[0], 'sample_freq', 72_000_000)) if captures else 72_000_000,
         average_rpm=average_rpm,
         rpm_stability=rpm_stability,
     )
@@ -487,7 +487,7 @@ def align_flux_captures(captures: List[FluxCapture]) -> AlignedCaptures:
         reference_index=reference_index,
         alignment_offsets=alignment_offsets,
         common_length=common_length,
-        sample_rate=reference.sample_rate,
+        sample_rate=getattr(reference, 'sample_rate', None) or getattr(reference, 'sample_freq', 72_000_000),
         cylinder=reference.cylinder,
         head=reference.head,
         capture_count=len(captures),

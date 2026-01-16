@@ -223,7 +223,7 @@ class RestoreWorker(GreaseweazleWorker):
     multi-capture statistical analysis, PLL tuning, and bit-slip recovery.
 
     Features:
-    - Multi-pass format/write recovery with pattern rotation
+    - Multi-pass recovery with data preservation
     - Convergence-based recovery with automatic stopping
     - Targeted recovery for specific bad sectors
     - Multi-revolution flux capture for statistical bit voting
@@ -260,6 +260,10 @@ class RestoreWorker(GreaseweazleWorker):
     sector_failed = pyqtSignal(int, str)       # sector_num, reason
     convergence_update = pyqtSignal(int, int, bool)  # pass_num, bad_count, converged
     restore_complete = pyqtSignal(object)      # RecoveryStats
+
+    # Final verification signals
+    verification_started = pyqtSignal(int)     # attempt_num (1-3)
+    verification_complete = pyqtSignal(int, int, bool)  # attempt_num, bad_count, passed
 
     # Legacy signals for compatibility
     initial_scan_completed = pyqtSignal(int)   # initial_bad_count
@@ -300,8 +304,11 @@ class RestoreWorker(GreaseweazleWorker):
         Execute the recovery operation.
 
         Runs recovery passes according to configuration, using
-        increasingly aggressive techniques as needed.
+        increasingly aggressive techniques as needed. After recovery,
+        performs a final verification scan. If verification fails,
+        retries the entire restore up to 3 times.
         """
+        MAX_RESTORE_ATTEMPTS = 3
         start_time = time.time()
 
         # Initialize statistics
@@ -323,8 +330,8 @@ class RestoreWorker(GreaseweazleWorker):
 
         # Step 1: Initial scan to identify bad sectors
         logger.info("Starting initial scan")
-        self._bad_sectors = self._perform_initial_scan()
-        stats.initial_bad_sectors = len(self._bad_sectors)
+        initial_bad_sectors = self._perform_initial_scan()
+        stats.initial_bad_sectors = len(initial_bad_sectors)
 
         self.initial_scan_completed.emit(stats.initial_bad_sectors)
 
@@ -332,64 +339,116 @@ class RestoreWorker(GreaseweazleWorker):
             logger.info("No bad sectors found, nothing to recover")
             stats.elapsed_time = time.time() - start_time
             self.restore_complete.emit(stats)
+            self.finished.emit()
             return
 
         logger.info("Initial scan found %d bad sectors", stats.initial_bad_sectors)
 
         # If targeted mode with explicit list, use that instead
         if self._config.targeted_mode and self._config.bad_sector_list:
-            self._bad_sectors = list(self._config.bad_sector_list)
-            stats.initial_bad_sectors = len(self._bad_sectors)
+            initial_bad_sectors = list(self._config.bad_sector_list)
+            stats.initial_bad_sectors = len(initial_bad_sectors)
 
-        # Step 2: Run recovery passes
-        current_bad = len(self._bad_sectors)
-        no_improvement_count = 0
+        # Step 2: Run recovery with retry loop
         converged = False
+        total_passes_completed = 0
 
-        for pass_num in range(1, self._config.passes + 1):
+        for attempt in range(1, MAX_RESTORE_ATTEMPTS + 1):
             if self._cancelled:
-                logger.info("Recovery cancelled at pass %d", pass_num)
+                logger.info("Recovery cancelled")
                 break
+
+            logger.info("Starting restore attempt %d of %d", attempt, MAX_RESTORE_ATTEMPTS)
+
+            # Reset bad sectors list for this attempt
+            self._bad_sectors = list(initial_bad_sectors) if attempt == 1 else list(failed_verification_sectors)
 
             if not self._bad_sectors:
-                logger.info("All sectors recovered")
+                logger.info("No bad sectors to recover")
                 break
 
-            self.pass_started.emit(pass_num, self._config.passes)
+            # Run recovery passes
+            current_bad = len(self._bad_sectors)
+            no_improvement_count = 0
 
-            # Run recovery pass
-            pass_stats = self._run_recovery_pass(pass_num)
-            self._pass_history.append(pass_stats)
-            stats.passes_completed = pass_num
+            for pass_num in range(1, self._config.passes + 1):
+                if self._cancelled:
+                    logger.info("Recovery cancelled at pass %d", pass_num)
+                    break
 
-            # Check for convergence
-            new_bad = pass_stats.bad_count_after
-            recovered_this_pass = pass_stats.sectors_recovered
+                if not self._bad_sectors:
+                    logger.info("All sectors recovered")
+                    break
 
-            self.pass_complete.emit(pass_num, new_bad, recovered_this_pass)
-            self.convergence_update.emit(pass_num, new_bad, converged)
+                self.pass_started.emit(pass_num, self._config.passes)
 
-            # Update progress
-            total_sectors = self._geometry.total_sectors
-            progress = int((pass_num / self._config.passes) * 100)
-            self.progress.emit(progress)
+                # Run recovery pass
+                pass_stats = self._run_recovery_pass(pass_num)
+                self._pass_history.append(pass_stats)
+                total_passes_completed += 1
 
-            # Check for convergence (no improvement)
-            if new_bad >= current_bad:
-                no_improvement_count += 1
-                if self._config.convergence_mode:
-                    if no_improvement_count >= self._config.convergence_threshold:
-                        converged = True
-                        stats.convergence_pass = pass_num
-                        logger.info("Convergence detected at pass %d", pass_num)
-                        break
+                # Check for convergence
+                new_bad = pass_stats.bad_count_after
+                recovered_this_pass = pass_stats.sectors_recovered
+
+                self.pass_complete.emit(pass_num, new_bad, recovered_this_pass)
+                self.convergence_update.emit(pass_num, new_bad, converged)
+
+                # Update progress (reserve last 10% for verification)
+                progress = int((pass_num / self._config.passes) * 90)
+                self.progress.emit(progress)
+
+                # Check for convergence (no improvement)
+                if new_bad >= current_bad:
+                    no_improvement_count += 1
+                    if self._config.convergence_mode:
+                        if no_improvement_count >= self._config.convergence_threshold:
+                            converged = True
+                            stats.convergence_pass = pass_num
+                            logger.info("Convergence detected at pass %d", pass_num)
+                            break
+                else:
+                    no_improvement_count = 0
+
+                current_bad = new_bad
+
+            if self._cancelled:
+                break
+
+            # Step 3: Final verification scan
+            logger.info("Running final verification scan (attempt %d)", attempt)
+            self.verification_started.emit(attempt)
+
+            failed_verification_sectors = self._perform_final_verification(initial_bad_sectors)
+
+            verification_passed = len(failed_verification_sectors) == 0
+            self.verification_complete.emit(attempt, len(failed_verification_sectors), verification_passed)
+
+            if verification_passed:
+                logger.info("Final verification passed - all recovered sectors confirmed good")
+                break
             else:
-                no_improvement_count = 0
+                logger.warning(
+                    "Final verification failed - %d sectors still bad after attempt %d",
+                    len(failed_verification_sectors), attempt
+                )
+                if attempt < MAX_RESTORE_ATTEMPTS:
+                    logger.info("Will retry restore for failed sectors")
+                    # Update the bad sectors for next attempt
+                    initial_bad_sectors = failed_verification_sectors
+                else:
+                    logger.error("Max restore attempts reached, %d sectors remain unrecoverable",
+                                len(failed_verification_sectors))
 
-            current_bad = new_bad
+        # Update progress to 100%
+        self.progress.emit(100)
 
-        # Finalize statistics
-        stats.final_bad_sectors = len(self._bad_sectors)
+        # Finalize statistics with verification results
+        stats.passes_completed = total_passes_completed
+
+        # Perform one final scan to get accurate count
+        final_bad = self._perform_initial_scan()
+        stats.final_bad_sectors = len(final_bad)
         stats.sectors_recovered = stats.initial_bad_sectors - stats.final_bad_sectors
         stats.converged = converged
         stats.elapsed_time = time.time() - start_time
@@ -403,10 +462,65 @@ class RestoreWorker(GreaseweazleWorker):
         logger.info(
             "Recovery complete: %d/%d recovered, %d passes, %.1fs",
             stats.sectors_recovered, stats.initial_bad_sectors,
-            stats.passes_completed, stats.elapsed_time
+            total_passes_completed, stats.elapsed_time
         )
 
         self.restore_complete.emit(stats)
+        self.finished.emit()
+
+    def _perform_final_verification(self, originally_bad_sectors: List[int]) -> List[int]:
+        """
+        Perform a final full verification scan to confirm recovered sectors.
+
+        Uses the same decoder as the regular scan to ensure consistency.
+
+        Args:
+            originally_bad_sectors: List of sectors that were originally bad
+
+        Returns:
+            List of sectors that are still bad (failed verification)
+        """
+        from floppy_formatter.hardware import read_track_flux
+
+        logger.info("Final verification: checking %d originally bad sectors",
+                   len(originally_bad_sectors))
+
+        still_bad = []
+        sectors_per_track = self._geometry.sectors_per_track
+
+        # Group originally bad sectors by track for efficient verification
+        track_sectors = self._group_by_track(originally_bad_sectors)
+
+        for (cylinder, head), sector_nums in track_sectors.items():
+            if self._cancelled:
+                return still_bad
+
+            # Seek and read track
+            self._device.seek(cylinder, head)
+            flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
+            sectors = decode_flux_data(flux)
+
+            # Build map of what we found
+            found_good = set()
+            for sector in sectors:
+                if sector.sector >= 1 and sector.sector <= sectors_per_track:
+                    if sector.data is not None and sector.crc_valid:
+                        # Convert to linear sector number
+                        base = (cylinder * self._geometry.heads + head) * sectors_per_track
+                        linear = base + (sector.sector - 1)
+                        found_good.add(linear)
+
+            # Check which originally bad sectors are still bad
+            for linear_sector in sector_nums:
+                if linear_sector not in found_good:
+                    still_bad.append(linear_sector)
+                    logger.debug("Verification failed for sector %d (C%d:H%d)",
+                                linear_sector, cylinder, head)
+
+        logger.info("Final verification complete: %d/%d sectors still bad",
+                   len(still_bad), len(originally_bad_sectors))
+
+        return still_bad
 
     def _perform_initial_scan(self) -> List[int]:
         """

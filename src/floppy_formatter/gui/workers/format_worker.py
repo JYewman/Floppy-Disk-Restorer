@@ -31,7 +31,10 @@ logger = logging.getLogger(__name__)
 
 def decode_flux_data(flux_data):
     """
-    Decode flux data to sectors using PLL decoder (preferred) or simple decoder (fallback).
+    Decode flux data to sectors using the same decoder priority as restore worker.
+
+    This ensures consistency between format verification, restore, and scanning -
+    all use the same decoder order to avoid false positives/negatives.
 
     Args:
         flux_data: FluxData from track read
@@ -39,7 +42,20 @@ def decode_flux_data(flux_data):
     Returns:
         List of SectorData objects
     """
-    # Try PLL decoder first
+    # Use Greaseweazle-compatible decoder first (same as restore_worker)
+    try:
+        from floppy_formatter.hardware.gw_mfm_codec import decode_flux_to_sectors_gw
+        sectors = decode_flux_to_sectors_gw(flux_data)
+        if sectors:
+            logger.debug("GW decoder returned %d sectors", len(sectors))
+            return sectors
+        logger.debug("GW decoder returned 0 sectors, trying PLL decoder")
+    except ImportError:
+        logger.debug("GW decoder not available")
+    except Exception as e:
+        logger.warning("GW decoder failed: %s", e)
+
+    # Try PLL decoder as fallback
     try:
         from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
         sectors = decode_flux_with_pll(flux_data)
@@ -47,9 +63,9 @@ def decode_flux_data(flux_data):
             logger.debug("PLL decoder returned %d sectors", len(sectors))
             return sectors
     except ImportError:
-        logger.debug("PLL decoder not available, using simple decoder")
+        logger.debug("PLL decoder not available")
     except Exception as e:
-        logger.warning("PLL decoder failed: %s, falling back to simple decoder", e)
+        logger.warning("PLL decoder failed: %s", e)
 
     # Fall back to simple decoder
     from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
@@ -329,6 +345,7 @@ class FormatWorker(GreaseweazleWorker):
             len(result.bad_sectors), result.format_duration
         )
         self.format_complete.emit(result)
+        self.finished.emit()
 
     def _get_format_patterns(self) -> List[int]:
         """

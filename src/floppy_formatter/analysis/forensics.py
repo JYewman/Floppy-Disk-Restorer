@@ -727,9 +727,13 @@ def extract_deleted_data(
         from floppy_formatter.hardware import FluxData
 
         # Convert FluxCapture to FluxData for decoding
+        # Handle both FluxCapture (sample_rate) and FluxData (sample_freq)
+        sample_freq = getattr(flux, 'sample_freq', None) or getattr(flux, 'sample_rate', 72_000_000)
+        flux_times = getattr(flux, 'flux_times', None) or getattr(flux, 'raw_timings', [])
+
         flux_data = FluxData(
-            flux_times=flux.raw_timings,
-            sample_freq=flux.sample_rate,
+            flux_times=flux_times,
+            sample_freq=sample_freq,
             index_positions=flux.index_positions,
             cylinder=flux.cylinder,
             head=flux.head,
@@ -1003,9 +1007,13 @@ def _extract_sector_info(flux: 'FluxCapture', encoding: str) -> List[SectorInfo]
     try:
         from floppy_formatter.hardware import FluxData, decode_flux_data
 
+        # Handle both FluxCapture (sample_rate) and FluxData (sample_freq)
+        sample_freq = getattr(flux, 'sample_freq', None) or getattr(flux, 'sample_rate', 72_000_000)
+        flux_times = getattr(flux, 'flux_times', None) or getattr(flux, 'raw_timings', [])
+
         flux_data = FluxData(
-            flux_times=flux.raw_timings,
-            sample_freq=flux.sample_rate,
+            flux_times=flux_times,
+            sample_freq=sample_freq,
             index_positions=flux.index_positions,
             cylinder=flux.cylinder,
             head=flux.head,

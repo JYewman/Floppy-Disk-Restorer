@@ -103,6 +103,30 @@ from .flux_image import (
     DEFAULT_SAMPLE_FREQ,
 )
 
+# Import from format_registry (Write Image feature)
+from .format_registry import (
+    Encoding,
+    Density,
+    Platform,
+    DiskFormatSpec,
+    FormatRegistry,
+    get_format_registry,
+    IBM_PC_FORMATS,
+    AMIGA_FORMATS,
+    ATARI_ST_FORMATS,
+    BBC_MICRO_FORMATS,
+    COMMODORE_FORMATS,
+    MACINTOSH_FORMATS,
+    MSX_FORMATS,
+    AMSTRAD_CPC_FORMATS,
+)
+
+# Import from image_manager (Write Image feature)
+from .image_manager import (
+    BlankImageManager,
+    get_image_manager,
+)
+
 
 __all__ = [
     # ==========================================================================
@@ -183,6 +207,30 @@ __all__ = [
     'DD_35_GEOMETRY',
     'HD_525_GEOMETRY',
     'DD_525_GEOMETRY',
+
+    # ==========================================================================
+    # Write Image Feature - Format Registry
+    # ==========================================================================
+    'Encoding',
+    'Density',
+    'Platform',
+    'DiskFormatSpec',
+    'FormatRegistry',
+    'get_format_registry',
+    'IBM_PC_FORMATS',
+    'AMIGA_FORMATS',
+    'ATARI_ST_FORMATS',
+    'BBC_MICRO_FORMATS',
+    'COMMODORE_FORMATS',
+    'MACINTOSH_FORMATS',
+    'MSX_FORMATS',
+    'AMSTRAD_CPC_FORMATS',
+
+    # ==========================================================================
+    # Write Image Feature - Image Manager
+    # ==========================================================================
+    'BlankImageManager',
+    'get_image_manager',
 ]
 
 
