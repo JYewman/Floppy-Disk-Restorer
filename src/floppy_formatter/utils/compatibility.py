@@ -29,18 +29,17 @@ def check_linux_kernel() -> tuple[bool, str]:
 
     kernel_version = platform.release()
 
-    # Extract major.minor version
+    # Extract major version
     try:
         parts = kernel_version.split('.')
         major = int(parts[0])
-        minor = int(parts[1])
 
         # Require kernel 3.0+ (most modern distributions)
         if major >= 3:
             return (True, f"Linux {kernel_version}")
         else:
             return (False, f"Linux {kernel_version} (kernel 3.0+ required)")
-    except:
+    except Exception:
         # If we can't parse, assume it's okay
         return (True, f"Linux {kernel_version}")
 
@@ -217,7 +216,7 @@ def check_fcntl_available() -> tuple[bool, str]:
         ...     print(f"Missing dependency: {msg}")
     """
     try:
-        import fcntl
+        import fcntl  # noqa: F401 - imported to check availability
         return (True, "fcntl module available")
     except ImportError as e:
         return (False, f"fcntl module not found: {e}")
@@ -291,13 +290,13 @@ def get_system_info() -> dict:
     """
     try:
         is_root = os.geteuid() == 0
-    except:
+    except Exception:
         is_root = False
 
     try:
         import pwd
         username = pwd.getpwuid(os.getuid()).pw_name
-    except:
+    except Exception:
         username = "unknown"
 
     is_wsl, wsl_msg = check_wsl2()

@@ -18,15 +18,13 @@ import struct
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from .image_formats import (
     ImageFormat,
     ImageMetadata,
-    ImageError,
     ImageFormatError,
     ImageCorruptError,
-    ImageGeometryError,
     ImageReadError,
     ImageWriteError,
     detect_format,
@@ -332,7 +330,7 @@ class SCPImage(FluxImage):
         path = Path(filepath)
 
         if not path.exists():
-            raise ImageReadError(f"File does not exist", filepath)
+            raise ImageReadError("File does not exist", filepath)
 
         logger.info("Loading SCP image: %s", filepath)
 
@@ -343,9 +341,11 @@ class SCPImage(FluxImage):
             raise ImageReadError(f"Failed to read file: {e}", filepath)
 
         if len(file_data) < SCP_HEADER_SIZE:
-            raise ImageCorruptError("File too small for SCP header", filepath,
-                                   expected_size=SCP_HEADER_SIZE,
-                                   actual_size=len(file_data))
+            raise ImageCorruptError(
+                "File too small for SCP header", filepath,
+                expected_size=SCP_HEADER_SIZE,
+                actual_size=len(file_data)
+            )
 
         # Parse header
         self._parse_header(file_data[:SCP_HEADER_SIZE], filepath)
@@ -385,8 +385,6 @@ class SCPImage(FluxImage):
                 logger.warning("Invalid track header at offset %d", offset)
                 continue
 
-            stored_track_num = track_header[3]
-
             # Read revolution data
             rev_data = []
             rev_offset = offset + 4
@@ -397,7 +395,6 @@ class SCPImage(FluxImage):
 
                 # Revolution header: index time (4), track length (4), data offset (4)
                 rev_header = file_data[rev_offset:rev_offset + 12]
-                index_time = struct.unpack('<I', rev_header[0:4])[0]
                 track_length = struct.unpack('<I', rev_header[4:8])[0]
                 data_offset_rel = struct.unpack('<I', rev_header[8:12])[0]
 
@@ -420,8 +417,10 @@ class SCPImage(FluxImage):
         self._filepath = filepath
         self._modified = False
 
-        logger.info("Loaded SCP: %d tracks, %d revolutions",
-                   len(self._track_data), self._header.num_revolutions)
+        logger.info(
+            "Loaded SCP: %d tracks, %d revolutions",
+            len(self._track_data), self._header.num_revolutions
+        )
 
     def _parse_header(self, header: bytes, filepath: str) -> None:
         """Parse SCP header bytes."""
@@ -740,7 +739,10 @@ class SCPImage(FluxImage):
         errors = []
 
         if self._header.start_track > self._header.end_track:
-            errors.append(f"Invalid track range: {self._header.start_track}-{self._header.end_track}")
+            errors.append(
+                f"Invalid track range: {self._header.start_track}-"
+                f"{self._header.end_track}"
+            )
 
         if self._header.num_revolutions == 0:
             errors.append("Number of revolutions is zero")
@@ -825,7 +827,7 @@ class HFEImage(FluxImage):
         path = Path(filepath)
 
         if not path.exists():
-            raise ImageReadError(f"File does not exist", filepath)
+            raise ImageReadError("File does not exist", filepath)
 
         logger.info("Loading HFE image: %s", filepath)
 
@@ -836,9 +838,11 @@ class HFEImage(FluxImage):
             raise ImageReadError(f"Failed to read file: {e}", filepath)
 
         if len(file_data) < HFE_HEADER_SIZE:
-            raise ImageCorruptError("File too small for HFE header", filepath,
-                                   expected_size=HFE_HEADER_SIZE,
-                                   actual_size=len(file_data))
+            raise ImageCorruptError(
+                "File too small for HFE header", filepath,
+                expected_size=HFE_HEADER_SIZE,
+                actual_size=len(file_data)
+            )
 
         # Parse header
         self._parse_header(file_data[:HFE_HEADER_SIZE], filepath)
@@ -853,8 +857,10 @@ class HFEImage(FluxImage):
         self._track_lut = []
         for i in range(self._header.num_tracks):
             lut_entry_offset = lut_offset + i * 4
-            track_offset = struct.unpack('<H', file_data[lut_entry_offset:lut_entry_offset + 2])[0]
-            track_length = struct.unpack('<H', file_data[lut_entry_offset + 2:lut_entry_offset + 4])[0]
+            offset_slice = file_data[lut_entry_offset:lut_entry_offset + 2]
+            length_slice = file_data[lut_entry_offset + 2:lut_entry_offset + 4]
+            track_offset = struct.unpack('<H', offset_slice)[0]
+            track_length = struct.unpack('<H', length_slice)[0]
             self._track_lut.append((track_offset, track_length))
 
         # Read track data
@@ -889,8 +895,10 @@ class HFEImage(FluxImage):
         self._filepath = filepath
         self._modified = False
 
-        logger.info("Loaded HFE: %d tracks, %d sides",
-                   self._header.num_tracks, self._header.num_sides)
+        logger.info(
+            "Loaded HFE: %d tracks, %d sides",
+            self._header.num_tracks, self._header.num_sides
+        )
 
     def _parse_header(self, header: bytes, filepath: str) -> None:
         """Parse HFE header bytes."""
@@ -1208,8 +1216,10 @@ class HFEImage(FluxImage):
 # Conversion Functions
 # =============================================================================
 
-def convert_sector_to_flux(sector_image: 'SectorImage',
-                           sample_freq: int = DEFAULT_SAMPLE_FREQ) -> Dict[Tuple[int, int], 'FluxData']:
+def convert_sector_to_flux(
+    sector_image: 'SectorImage',
+    sample_freq: int = DEFAULT_SAMPLE_FREQ
+) -> Dict[Tuple[int, int], 'FluxData']:
     """
     Convert sector image to flux data using MFM encoding.
 
@@ -1315,8 +1325,10 @@ def convert_format(input_path: str, output_path: str,
     if output_format == ImageFormat.UNKNOWN:
         raise ImageFormatError(f"Cannot determine output format for: {output_path}")
 
-    logger.info("Converting %s (%s) to %s (%s)",
-               input_path, input_format.name, output_path, output_format.name)
+    logger.info(
+        "Converting %s (%s) to %s (%s)",
+        input_path, input_format.name, output_path, output_format.name
+    )
 
     # Determine conversion type
     input_is_flux = input_format in (ImageFormat.SCP, ImageFormat.HFE)
@@ -1560,8 +1572,10 @@ def write_image_to_disk(device: 'GreaseweazleDevice',
                     result.errors.append(f"Verify failed C{cyl} H{head}: {e}")
 
     # Determine success
-    result.success = (len(result.failed_tracks) == 0 and
-                     (not verify or result.tracks_verified == result.tracks_written))
+    result.success = (
+        len(result.failed_tracks) == 0 and
+        (not verify or result.tracks_verified == result.tracks_written)
+    )
 
     return result
 
@@ -1637,8 +1651,10 @@ def compare_image_to_disk(image_path: str,
             except Exception as e:
                 logger.error("Compare failed C%d H%d: %s", cyl, head, e)
 
-    result.identical = (result.different_sectors == 0 and
-                       len(result.missing_in_image2) == 0)
+    result.identical = (
+        result.different_sectors == 0 and
+        len(result.missing_in_image2) == 0
+    )
 
     if result.identical:
         result.summary = f"Disk matches image ({result.identical_sectors} sectors)"

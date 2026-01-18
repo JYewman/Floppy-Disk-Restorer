@@ -13,7 +13,6 @@ Part of Phase 6: Enhanced Sector Map Visualization
 """
 
 import logging
-from datetime import datetime
 from typing import Optional, List
 
 from PyQt6.QtWidgets import (
@@ -21,8 +20,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QFrame,
-    QGroupBox,
     QScrollArea,
     QPlainTextEdit,
     QTableWidget,
@@ -30,11 +27,9 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
-    QSplitter,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QColor
 
 from floppy_formatter.gui.widgets.circular_sector_map import (
     CircularSectorMap,

@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QProgressBar,
     QFrame,
-    QSpacerItem,
     QSizePolicy,
     QMessageBox,
 )
@@ -169,7 +168,9 @@ class ScanWidget(QWidget):
         progress_layout.addWidget(self.progress_bar, stretch=1)
 
         self.progress_percent_label = QLabel("0%")
-        self.progress_percent_label.setStyleSheet("color: #4ec9b0; font-size: 12pt; font-weight: bold;")
+        self.progress_percent_label.setStyleSheet(
+            "color: #4ec9b0; font-size: 12pt; font-weight: bold;"
+        )
         self.progress_percent_label.setMinimumWidth(50)
         progress_layout.addWidget(self.progress_percent_label)
 
@@ -446,7 +447,9 @@ class ScanWidget(QWidget):
         self.view_report_button.hide()
         self.done_button.hide()
 
-    def _on_progress_updated(self, sector_num: int, total: int, is_good: bool, error_type: str) -> None:
+    def _on_progress_updated(
+        self, sector_num: int, total: int, is_good: bool, error_type: str
+    ) -> None:
         """
         Handle scan progress update.
 
@@ -703,7 +706,11 @@ class ScanWidget(QWidget):
         """Handle widget show event."""
         super().showEvent(event)
         # Auto-start scan when widget becomes visible if device is set
-        if self._device_path and self._geometry and not self._scan_in_progress and not self._scan_completed_flag:
+        can_start = (
+            self._device_path and self._geometry and
+            not self._scan_in_progress and not self._scan_completed_flag
+        )
+        if can_start:
             QTimer.singleShot(100, self.start_scan)
 
     def closeEvent(self, event) -> None:

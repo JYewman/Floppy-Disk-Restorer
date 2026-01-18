@@ -27,7 +27,7 @@ def is_admin() -> bool:
 
     Example:
         >>> if not is_admin():
-        ...     print("Consider running with elevated privileges if you encounter permission issues")
+        ...     print("Consider running with elevated privileges")
     """
     try:
         # Check for Unix-like systems
@@ -103,7 +103,10 @@ def check_greaseweazle_permissions() -> Tuple[bool, str]:
     except ImportError:
         return (False, "Greaseweazle library not installed. Run: pip install greaseweazle")
     except PermissionError:
-        return (False, "Permission denied accessing Greaseweazle. Try running with sudo or check udev rules.")
+        return (
+            False,
+            "Permission denied accessing Greaseweazle. Try sudo or check udev rules."
+        )
     except Exception as e:
         return (False, f"Error detecting Greaseweazle: {e}")
 

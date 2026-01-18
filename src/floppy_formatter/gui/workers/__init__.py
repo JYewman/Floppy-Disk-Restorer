@@ -96,6 +96,14 @@ from floppy_formatter.gui.workers.worker_pool import (
     WORKER_SHUTDOWN_TIMEOUT_MS,
 )
 
+# Batch verify worker
+from floppy_formatter.gui.workers.batch_verify_worker import (
+    BatchVerifyWorker,
+    SingleDiskResult,
+    BatchVerificationResult,
+    DiskGrade,
+)
+
 
 __all__ = [
     # Base workers
@@ -167,4 +175,10 @@ __all__ = [
     'WorkerInfo',
     'MAX_HISTORY_SIZE',
     'WORKER_SHUTDOWN_TIMEOUT_MS',
+
+    # Batch verify worker
+    'BatchVerifyWorker',
+    'SingleDiskResult',
+    'BatchVerificationResult',
+    'DiskGrade',
 ]

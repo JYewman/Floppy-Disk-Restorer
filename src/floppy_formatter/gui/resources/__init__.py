@@ -10,7 +10,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
+from PyQt6.QtCore import Qt, QSize
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -88,6 +89,48 @@ def get_icon_pixmap(name: str, size: int = 24) -> QPixmap:
     if icon.isNull():
         return QPixmap()
     return icon.pixmap(size, size)
+
+
+def get_colored_icon(name: str, color: str = "#ffffff", size: int = 16) -> QIcon:
+    """
+    Load an icon and recolor it to the specified color.
+
+    This is useful for making icons visible on dark backgrounds.
+
+    Args:
+        name: Icon name without extension
+        color: CSS color string (e.g., "#ffffff" for white)
+        size: Icon size in pixels
+
+    Returns:
+        QIcon with the specified color, or empty QIcon if not found
+    """
+    icon = get_icon(name, fallback=True)
+    if icon.isNull():
+        return icon
+
+    # Get pixmap from icon
+    pixmap = icon.pixmap(QSize(size, size))
+    if pixmap.isNull():
+        return QIcon()
+
+    # Create a new pixmap with the color applied
+    colored_pixmap = QPixmap(pixmap.size())
+    colored_pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(colored_pixmap)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+
+    # Draw original pixmap
+    painter.drawPixmap(0, 0, pixmap)
+
+    # Apply color using SourceIn composition mode
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(colored_pixmap.rect(), QColor(color))
+
+    painter.end()
+
+    return QIcon(colored_pixmap)
 
 
 def get_version() -> str:
@@ -300,6 +343,7 @@ __all__ = [
     "get_icon",
     "get_icon_path",
     "get_icon_pixmap",
+    "get_colored_icon",
     "get_version",
     "get_settings",
     "save_settings",

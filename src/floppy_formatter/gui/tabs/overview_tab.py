@@ -10,30 +10,22 @@ Provides a summary view of disk health including:
 Part of Phase 7: Analytics Dashboard
 """
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional
 
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QGridLayout,
     QLabel,
     QFrame,
     QListWidget,
     QListWidgetItem,
-    QScrollArea,
     QSizePolicy,
-    QGraphicsView,
-    QGraphicsScene,
-    QGraphicsEllipseItem,
-    QGraphicsPathItem,
-    QGraphicsTextItem,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QTimer, QSize
+from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QTimer
 from PyQt6.QtGui import (
     QPainter,
     QPen,
@@ -43,11 +35,6 @@ from PyQt6.QtGui import (
     QFont,
     QFontMetrics,
     QPaintEvent,
-    QConicalGradient,
-    QLinearGradient,
-    QRadialGradient,
-    QIcon,
-    QPixmap,
 )
 
 import logging
@@ -305,21 +292,40 @@ class HealthGaugeWidget(QWidget):
             painter.drawArc(arc_rect, 225 * 16, arc_span * 16)
 
         # Draw center circle
-        center_rect = QRectF(cx - inner_radius, cy - inner_radius,
-                            inner_radius * 2, inner_radius * 2)
+        center_rect = QRectF(
+            cx - inner_radius, cy - inner_radius,
+            inner_radius * 2, inner_radius * 2
+        )
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(COLOR_CARD_BG))
         painter.drawEllipse(center_rect)
 
-        # Draw score text
+        # Draw score text (number and % separately for better fit)
         font_score = QFont("Segoe UI", int(size / 5), QFont.Weight.Bold)
-        painter.setFont(font_score)
+        font_pct = QFont("Segoe UI", int(size / 8), QFont.Weight.Bold)  # Smaller % sign
+
+        score_num = f"{int(self._score)}"
+        pct_sign = "%"
+
+        fm_score = QFontMetrics(font_score)
+        fm_pct = QFontMetrics(font_pct)
+
+        num_width = fm_score.horizontalAdvance(score_num)
+        pct_width = fm_pct.horizontalAdvance(pct_sign)
+        total_width = num_width + pct_width
+
         painter.setPen(QPen(score_color))
 
-        score_text = f"{int(self._score)}%"
-        fm = QFontMetrics(font_score)
-        text_width = fm.horizontalAdvance(score_text)
-        painter.drawText(int(cx - text_width / 2), int(cy + fm.height() / 4), score_text)
+        # Draw number
+        painter.setFont(font_score)
+        num_x = int(cx - total_width / 2)
+        num_y = int(cy + fm_score.height() / 4)
+        painter.drawText(num_x, num_y, score_num)
+
+        # Draw % sign (smaller, aligned to baseline)
+        painter.setFont(font_pct)
+        pct_x = num_x + num_width
+        painter.drawText(pct_x, num_y, pct_sign)
 
         # Draw letter grade
         font_grade = QFont("Segoe UI", int(size / 10))
@@ -329,7 +335,7 @@ class HealthGaugeWidget(QWidget):
         grade = self.get_letter_grade()
         fm_grade = QFontMetrics(font_grade)
         grade_width = fm_grade.horizontalAdvance(grade)
-        painter.drawText(int(cx - grade_width / 2), int(cy + fm.height() / 2 + 15), grade)
+        painter.drawText(int(cx - grade_width / 2), int(cy + fm_score.height() / 2 + 15), grade)
 
         # Draw title
         font_title = QFont("Segoe UI", 10)
@@ -495,8 +501,9 @@ class TrendChartWidget(QWidget):
             # Empty state
             painter.setPen(QPen(COLOR_TEXT_DIM))
             painter.setFont(QFont("Segoe UI", 9))
-            painter.drawText(int(plot_left + plot_width / 2 - 40),
-                           int(plot_top + plot_height / 2), "No data yet")
+            text_x = int(plot_left + plot_width / 2 - 40)
+            text_y = int(plot_top + plot_height / 2)
+            painter.drawText(text_x, text_y, "No data yet")
             return
 
         # Calculate scale
@@ -511,10 +518,12 @@ class TrendChartWidget(QWidget):
 
         # Draw axes
         painter.setPen(QPen(COLOR_TEXT_DIM, 1))
-        painter.drawLine(int(plot_left), int(plot_bottom),
-                        int(plot_right), int(plot_bottom))
-        painter.drawLine(int(plot_left), int(plot_top),
-                        int(plot_left), int(plot_bottom))
+        painter.drawLine(
+            int(plot_left), int(plot_bottom), int(plot_right), int(plot_bottom)
+        )
+        painter.drawLine(
+            int(plot_left), int(plot_top), int(plot_left), int(plot_bottom)
+        )
 
         # Y axis labels
         painter.setFont(QFont("Consolas", 8))
@@ -785,8 +794,11 @@ class OverviewTab(QWidget):
         # Update UI
         self._health_gauge.set_score(health_score)
         self._total_card.set_value(total_sectors)
-        self._good_card.set_value(good_sectors, self._statistics.good_percentage if self._statistics.scanned_sectors > 0 else None)
-        self._bad_card.set_value(bad_sectors, self._statistics.bad_percentage if self._statistics.scanned_sectors > 0 else None)
+        has_scanned = self._statistics.scanned_sectors > 0
+        good_pct = self._statistics.good_percentage if has_scanned else None
+        bad_pct = self._statistics.bad_percentage if has_scanned else None
+        self._good_card.set_value(good_sectors, good_pct)
+        self._bad_card.set_value(bad_sectors, bad_pct)
         self._recovered_card.set_value(recovered_sectors)
 
         # Add trend point

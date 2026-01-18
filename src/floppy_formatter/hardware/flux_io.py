@@ -20,7 +20,6 @@ Key Functions:
 """
 
 import logging
-import math
 import statistics
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Iterator, TYPE_CHECKING
@@ -111,8 +110,9 @@ class FluxData:
     revolutions: float = 1.0
 
     @classmethod
-    def from_greaseweazle_flux(cls, gw_flux: 'Flux', cylinder: int = 0,
-                                head: int = 0) -> 'FluxData':
+    def from_greaseweazle_flux(
+        cls, gw_flux: 'Flux', cylinder: int = 0, head: int = 0
+    ) -> 'FluxData':
         """
         Create FluxData from a Greaseweazle Flux object.
 
@@ -212,8 +212,10 @@ class FluxData:
             # Create index list: [0, end_of_revolution]
             # This tells Greaseweazle this is one revolution of data
             index_list = [0, total_samples]
-            logger.debug("Created index_list for write: [0, %d] (%d flux transitions)",
-                        total_samples, len(self.flux_times))
+            logger.debug(
+                "Created index_list for write: [0, %d] (%d flux transitions)",
+                total_samples, len(self.flux_times)
+            )
 
         # Create Flux object with our data
         # flux_list is a list of lists - one sublist per revolution
@@ -382,9 +384,11 @@ class FluxData:
             long = [t for t in times_us if 3.5 <= t < 5.0]    # ~4µs (4T)
 
             jitter_scores = []
-            for group, expected in [(short, MFM_SHORT_US),
-                                     (medium, MFM_MEDIUM_US),
-                                     (long, MFM_LONG_US)]:
+            for group, expected in [
+                (short, MFM_SHORT_US),
+                (medium, MFM_MEDIUM_US),
+                (long, MFM_LONG_US)
+            ]:
                 if len(group) > 5:
                     std_dev = statistics.stdev(group)
                     # Lower standard deviation is better
@@ -403,9 +407,9 @@ class FluxData:
 
         return statistics.mean(scores) if scores else 0.0
 
-    def get_pulse_histogram(self, bins: int = 50,
-                             min_us: float = 1.0,
-                             max_us: float = 6.0) -> Tuple[List[float], List[int]]:
+    def get_pulse_histogram(
+        self, bins: int = 50, min_us: float = 1.0, max_us: float = 6.0
+    ) -> Tuple[List[float], List[int]]:
         """
         Generate a histogram of pulse widths.
 
@@ -488,8 +492,11 @@ class FluxData:
             total = len(times_us)
             # If more than 20% of pulses are in 1.5-3µs range, this is likely 1µs bit cell (HD)
             if total > 0 and below_3us / total > 0.20:
-                logger.debug("Detected high proportion of sub-3µs pulses (%.1f%%) - likely 1µs bit cell (HD)",
-                            (below_3us / total) * 100)
+                logger.debug(
+                    "Detected high proportion of sub-3µs pulses (%.1f%%) - "
+                    "likely 1µs bit cell (HD)",
+                    (below_3us / total) * 100
+                )
                 # Skip standard detection and go straight to adaptive
                 pass
             else:
@@ -538,8 +545,10 @@ class FluxData:
         peaks.sort(key=lambda x: x[0])
         peak_positions = [p[0] for p in peaks]
 
-        logger.debug("Adaptive peak detection found peaks at: %s µs",
-                    [f"{p:.2f}" for p in peak_positions])
+        logger.debug(
+            "Adaptive peak detection found peaks at: %s µs",
+            [f"{p:.2f}" for p in peak_positions]
+        )
 
         # Calculate bit cell from peak spacing
         # Short = 2 bit cells, Medium = 3, Long = 4
@@ -568,8 +577,10 @@ class FluxData:
 
         if estimates:
             bit_cell = statistics.mean(estimates)
-            logger.debug("Adaptive bit cell estimate: %.2f µs (from %d estimates)",
-                        bit_cell, len(estimates))
+            logger.debug(
+                "Adaptive bit cell estimate: %.2f µs (from %d estimates)",
+                bit_cell, len(estimates)
+            )
             return bit_cell
 
         return None
@@ -884,8 +895,9 @@ def analyze_flux_quality(flux_data: FluxData) -> dict:
     return result
 
 
-def compare_flux_captures(flux1: FluxData, flux2: FluxData,
-                           tolerance_us: float = 0.5) -> dict:
+def compare_flux_captures(
+    flux1: FluxData, flux2: FluxData, tolerance_us: float = 0.5
+) -> dict:
     """
     Compare two flux captures of the same track.
 

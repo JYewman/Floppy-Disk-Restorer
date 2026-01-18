@@ -16,8 +16,7 @@ Part of Phase 14: Polish & Professional Touches
 """
 
 import logging
-from typing import Optional, List, Callable, Any
-from enum import Enum
+from typing import Optional, List, Callable
 
 from PyQt6.QtCore import (
     QObject,
@@ -30,15 +29,12 @@ from PyQt6.QtCore import (
     QAbstractAnimation,
     pyqtSignal,
     QTimer,
-    Qt,
 )
 from PyQt6.QtWidgets import (
     QWidget,
     QGraphicsOpacityEffect,
     QProgressBar,
-    QApplication,
 )
-from PyQt6.QtGui import QColor
 
 
 # Module logger
@@ -921,7 +917,8 @@ class ShakeAnimation(QObject):
             right_anim = QPropertyAnimation(widget, b"pos", self)
             right_anim.setDuration(shake_duration)
             right_anim.setStartValue(original_pos + QPoint(-amplitude, 0))
-            right_anim.setEndValue(original_pos + QPoint(amplitude, 0) if i < shakes - 1 else original_pos)
+            end_pos = original_pos + QPoint(amplitude, 0) if i < shakes - 1 else original_pos
+            right_anim.setEndValue(end_pos)
             right_anim.setEasingCurve(EasingCurves.EASE_OUT)
             group.addAnimation(right_anim)
 

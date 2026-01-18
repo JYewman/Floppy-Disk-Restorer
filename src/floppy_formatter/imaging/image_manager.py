@@ -6,7 +6,6 @@ Images are stored in the data/disk_images directory.
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional, List
 

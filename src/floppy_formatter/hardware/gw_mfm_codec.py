@@ -10,7 +10,7 @@ Based on Greaseweazle code by Keir Fraser, released into public domain.
 
 import struct
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from dataclasses import dataclass
 
 # Import Greaseweazle components
@@ -33,11 +33,14 @@ crc16 = crcmod.predefined.Crc('crc-ccitt-false')
 MFM_SYNC_BYTES = b'\x44\x89' * 3
 
 # Address marks
+
+
 class Mark:
     IAM = 0xfc   # Index Address Mark
     IDAM = 0xfe  # ID Address Mark
     DAM = 0xfb   # Data Address Mark
     DDAM = 0xf8  # Deleted Data Address Mark
+
 
 # HD 3.5" format parameters
 HD_TIME_PER_REV = 0.2  # 200ms at 300 RPM
@@ -377,11 +380,15 @@ def decode_mfm_track(flux_data: FluxData) -> List[SectorData]:
             ))
 
             if crc_valid:
-                logger.debug("Decoded valid sector C=%d H=%d R=%d (%d bytes)",
-                            idam.c, idam.h, idam.r, len(sector_data))
+                logger.debug(
+                    "Decoded valid sector C=%d H=%d R=%d (%d bytes)",
+                    idam.c, idam.h, idam.r, len(sector_data)
+                )
             else:
-                logger.debug("Decoded sector with CRC error C=%d H=%d R=%d",
-                            idam.c, idam.h, idam.r)
+                logger.debug(
+                    "Decoded sector with CRC error C=%d H=%d R=%d",
+                    idam.c, idam.h, idam.r
+                )
 
             idam = None
 

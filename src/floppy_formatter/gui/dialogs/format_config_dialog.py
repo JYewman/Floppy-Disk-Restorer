@@ -27,7 +27,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QFrame,
 )
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 
@@ -144,7 +143,9 @@ class FormatConfigDialog(QDialog):
         self._type_group.addButton(self._standard_radio, 0)
         type_layout.addWidget(self._standard_radio)
 
-        standard_desc = QLabel("Normal format operation. Erases and writes fill pattern to all sectors.")
+        standard_desc = QLabel(
+            "Normal format operation. Erases and writes fill pattern to all sectors."
+        )
         standard_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         standard_desc.setWordWrap(True)
         type_layout.addWidget(standard_desc)
@@ -155,7 +156,10 @@ class FormatConfigDialog(QDialog):
         self._type_group.addButton(self._refresh_radio, 1)
         type_layout.addWidget(self._refresh_radio)
 
-        refresh_desc = QLabel("DC erase followed by multiple pattern writes (0x00, 0xFF, 0xAA, 0x55). Refreshes weak magnetic areas.")
+        refresh_desc = QLabel(
+            "DC erase followed by multiple pattern writes (0x00, 0xFF, 0xAA, 0x55). "
+            "Refreshes weak magnetic areas."
+        )
         refresh_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         refresh_desc.setWordWrap(True)
         type_layout.addWidget(refresh_desc)
@@ -166,13 +170,17 @@ class FormatConfigDialog(QDialog):
         self._type_group.addButton(self._secure_radio, 2)
         type_layout.addWidget(self._secure_radio)
 
-        secure_desc = QLabel("Multiple overwrite passes with different patterns for secure data destruction.")
+        secure_desc = QLabel(
+            "Multiple overwrite passes with different patterns for secure data destruction."
+        )
         secure_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         secure_desc.setWordWrap(True)
         type_layout.addWidget(secure_desc)
 
         secure_warn = QLabel("This will make data unrecoverable.")
-        secure_warn.setStyleSheet("color: #e74c3c; font-size: 9pt; font-weight: bold; margin-left: 24px;")
+        secure_warn.setStyleSheet(
+            "color: #e74c3c; font-size: 9pt; font-weight: bold; margin-left: 24px;"
+        )
         type_layout.addWidget(secure_warn)
 
         layout.addWidget(type_group)
@@ -211,7 +219,9 @@ class FormatConfigDialog(QDialog):
         pattern_row.addStretch()
         pattern_layout.addLayout(pattern_row)
 
-        pattern_note = QLabel("The fill pattern is written to all data sectors. Standard (0xE5) is the DOS default.")
+        pattern_note = QLabel(
+            "The fill pattern is written to all data sectors. Standard (0xE5) is the DOS default."
+        )
         pattern_note.setStyleSheet("color: #858585; font-size: 9pt;")
         pattern_note.setWordWrap(True)
         pattern_layout.addWidget(pattern_note)
@@ -228,7 +238,9 @@ class FormatConfigDialog(QDialog):
         self._verify_check.setToolTip("Read back all sectors to confirm successful format")
         verify_layout.addWidget(self._verify_check)
 
-        verify_desc = QLabel("Reads back all sectors to confirm they were formatted correctly. Recommended.")
+        verify_desc = QLabel(
+            "Reads back all sectors to confirm they were formatted correctly. Recommended."
+        )
         verify_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         verify_desc.setWordWrap(True)
         verify_layout.addWidget(verify_desc)

@@ -21,8 +21,9 @@ from floppy_formatter.gui.workers.base_worker import GreaseweazleWorker
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
     from floppy_formatter.core.geometry import DiskGeometry
-    from floppy_formatter.analysis.flux_analyzer import FluxCapture, TimingStatistics
+    from floppy_formatter.analysis.flux_analyzer import TimingStatistics
     from floppy_formatter.analysis.signal_quality import TrackQuality
+    # FluxCapture imported at runtime in run() method
 
 logger = logging.getLogger(__name__)
 
@@ -265,10 +266,9 @@ class AnalyzeWorker(GreaseweazleWorker):
         from floppy_formatter.hardware import read_track_flux
         from floppy_formatter.analysis.flux_analyzer import (
             FluxCapture, analyze_flux_timing, detect_encoding_type,
-            measure_bit_cell_width, generate_histogram
         )
         from floppy_formatter.analysis.signal_quality import (
-            calculate_snr, measure_jitter, grade_track_quality, detect_weak_bits
+            grade_track_quality,
         )
 
         start_time = time.time()
@@ -490,8 +490,10 @@ class AnalyzeWorker(GreaseweazleWorker):
 
         if self._config.depth == AnalysisDepth.QUICK:
             # Sample key tracks
-            key_cylinders = [0, cylinders // 4, cylinders // 2,
-                            3 * cylinders // 4, cylinders - 1]
+            key_cylinders = [
+                0, cylinders // 4, cylinders // 2,
+                3 * cylinders // 4, cylinders - 1
+            ]
             tracks = []
             for cyl in key_cylinders:
                 for head in range(heads):
@@ -525,15 +527,25 @@ class AnalyzeWorker(GreaseweazleWorker):
 
         # Grade-based recommendations
         if result.overall_grade == 'A':
-            recommendations.append("Disk is in excellent condition - standard operations recommended")
+            recommendations.append(
+                "Disk is in excellent condition - standard operations recommended"
+            )
         elif result.overall_grade == 'B':
-            recommendations.append("Disk is in good condition - minor degradation detected")
+            recommendations.append(
+                "Disk is in good condition - minor degradation detected"
+            )
         elif result.overall_grade == 'C':
-            recommendations.append("Disk shows moderate wear - multi-read recovery recommended")
+            recommendations.append(
+                "Disk shows moderate wear - multi-read recovery recommended"
+            )
         elif result.overall_grade == 'D':
-            recommendations.append("Disk is degraded - aggressive recovery settings recommended")
+            recommendations.append(
+                "Disk is degraded - aggressive recovery settings recommended"
+            )
         else:
-            recommendations.append("Disk is severely degraded - forensic recovery mode required")
+            recommendations.append(
+                "Disk is severely degraded - forensic recovery mode required"
+            )
 
         # SNR recommendations
         if result.average_snr_db < 10:
@@ -547,13 +559,20 @@ class AnalyzeWorker(GreaseweazleWorker):
         if result.bad_track_count > 0:
             pct = (result.bad_track_count / result.tracks_analyzed) * 100
             if pct > 20:
-                recommendations.append(f"{result.bad_track_count} tracks have poor quality - expect data loss")
+                recommendations.append(
+                    f"{result.bad_track_count} tracks have poor quality - expect data loss"
+                )
             else:
-                recommendations.append(f"{result.bad_track_count} weak tracks detected - targeted recovery possible")
+                recommendations.append(
+                    f"{result.bad_track_count} weak tracks detected - "
+                    "targeted recovery possible"
+                )
 
         # Weak bit recommendations
         if result.weak_track_count > 5:
-            recommendations.append("Multiple tracks with weak bits - multi-capture recovery recommended")
+            recommendations.append(
+                "Multiple tracks with weak bits - multi-capture recovery recommended"
+            )
 
         # Forensics recommendations
         if result.is_copy_protected:

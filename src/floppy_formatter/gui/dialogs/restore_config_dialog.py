@@ -11,7 +11,7 @@ while adding new advanced capabilities.
 Part of Phase 10: Operation Dialogs & Configurations
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional, List
 
@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QScrollArea,
 )
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 
@@ -41,9 +40,9 @@ from PyQt6.QtGui import QFont
 
 class RecoveryLevel(Enum):
     """Recovery effort level."""
-    STANDARD = auto()   # Basic multi-pass format/verify recovery
-    AGGRESSIVE = auto() # Multi-capture + PLL tuning
-    FORENSIC = auto()   # All techniques, maximum effort
+    STANDARD = auto()  # Basic multi-pass format/verify recovery
+    AGGRESSIVE = auto()  # Multi-capture + PLL tuning
+    FORENSIC = auto()  # All techniques, maximum effort
 
 
 @dataclass
@@ -242,7 +241,9 @@ class RestoreConfigDialog(QDialog):
         conv_row.addStretch()
         mode_layout.addLayout(conv_row)
 
-        conv_desc = QLabel("Continues recovery until bad sector count stops improving for 3 consecutive passes.")
+        conv_desc = QLabel(
+            "Continues recovery until bad sector count stops improving for 3 consecutive passes."
+        )
         conv_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         conv_desc.setWordWrap(True)
         mode_layout.addWidget(conv_desc)
@@ -328,7 +329,10 @@ class RestoreConfigDialog(QDialog):
         multiread_desc.setWordWrap(True)
         multiread_layout.addWidget(multiread_desc)
 
-        multiread_note = QLabel("Enhanced: Now uses flux-level bit voting for improved accuracy over byte-level recovery.")
+        multiread_note = QLabel(
+            "Enhanced: Now uses flux-level bit voting for improved accuracy "
+            "over byte-level recovery."
+        )
         multiread_note.setStyleSheet("color: #27ae60; font-size: 9pt; margin-left: 24px;")
         multiread_note.setWordWrap(True)
         multiread_layout.addWidget(multiread_note)
@@ -387,7 +391,9 @@ class RestoreConfigDialog(QDialog):
         self._bitslip_check.setToolTip("Attempt to recover from synchronization errors")
         advanced_layout.addWidget(self._bitslip_check)
 
-        bitslip_desc = QLabel("Detects and recovers from timing sync losses that cause decode failures.")
+        bitslip_desc = QLabel(
+            "Detects and recovers from timing sync losses that cause decode failures."
+        )
         bitslip_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         bitslip_desc.setWordWrap(True)
         advanced_layout.addWidget(bitslip_desc)
@@ -396,12 +402,17 @@ class RestoreConfigDialog(QDialog):
         self._surface_check.setToolTip("DC erase + pattern refresh for weak areas")
         advanced_layout.addWidget(self._surface_check)
 
-        surface_desc = QLabel("Performs full track degauss followed by pattern writes to refresh weak magnetic areas.")
+        surface_desc = QLabel(
+            "Performs full track degauss followed by pattern writes to refresh "
+            "weak magnetic areas."
+        )
         surface_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         surface_desc.setWordWrap(True)
         advanced_layout.addWidget(surface_desc)
 
-        advanced_note = QLabel("Options are auto-enabled based on Recovery Level but can be overridden.")
+        advanced_note = QLabel(
+            "Options are auto-enabled based on Recovery Level but can be overridden."
+        )
         advanced_note.setStyleSheet("color: #b89500; font-size: 9pt; font-style: italic;")
         advanced_note.setWordWrap(True)
         advanced_layout.addWidget(advanced_note)

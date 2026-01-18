@@ -17,7 +17,7 @@ Part of Phase 11: Image Import/Export
 import logging
 import os
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
@@ -255,10 +255,10 @@ def detect_format(filepath: str) -> ImageFormat:
     path = Path(filepath)
 
     if not path.exists():
-        raise ImageReadError(f"File does not exist", filepath)
+        raise ImageReadError("File does not exist", filepath)
 
     if not path.is_file():
-        raise ImageReadError(f"Path is not a file", filepath)
+        raise ImageReadError("Path is not a file", filepath)
 
     logger.debug("Detecting format for: %s", filepath)
 
@@ -334,7 +334,7 @@ def read_metadata(filepath: str) -> ImageMetadata:
     path = Path(filepath)
 
     if not path.exists():
-        raise ImageReadError(f"File does not exist", filepath)
+        raise ImageReadError("File does not exist", filepath)
 
     file_size = path.stat().st_size
     format_type = detect_format(filepath)
@@ -400,8 +400,10 @@ def _read_scp_metadata(filepath: str, file_size: int,
         raise ImageReadError(f"Failed to read SCP header: {e}", filepath)
 
     if len(header) < 16:
-        raise ImageCorruptError("SCP header too short", filepath,
-                               expected_size=16, actual_size=len(header))
+        raise ImageCorruptError(
+            "SCP header too short", filepath,
+            expected_size=16, actual_size=len(header)
+        )
 
     # SCP header structure (16 bytes):
     # 0-2: "SCP" magic
@@ -417,11 +419,9 @@ def _read_scp_metadata(filepath: str, file_size: int,
     # 12-15: checksum
 
     version = header[3]
-    disk_type = header[4]
     revolutions = header[5] if header[5] > 0 else 1
     start_track = header[6]
     end_track = header[7]
-    flags = header[8]
     heads_flag = header[10]
 
     # Calculate geometry from track range
@@ -473,8 +473,10 @@ def _read_hfe_metadata(filepath: str, file_size: int,
         raise ImageReadError(f"Failed to read HFE header: {e}", filepath)
 
     if len(header) < 512:
-        raise ImageCorruptError("HFE header too short", filepath,
-                               expected_size=512, actual_size=len(header))
+        raise ImageCorruptError(
+            "HFE header too short", filepath,
+            expected_size=512, actual_size=len(header)
+        )
 
     # HFE header structure (512 bytes):
     # 0-7: "HXCPICFE" magic
@@ -493,9 +495,6 @@ def _read_hfe_metadata(filepath: str, file_size: int,
     num_sides = header[10]
     track_encoding = header[11]
     bit_rate_raw = struct.unpack('<H', header[12:14])[0]
-    rpm_raw = struct.unpack('<H', header[14:16])[0]
-    interface_mode = header[16]
-    track_list_offset = struct.unpack('<H', header[18:20])[0]
 
     # Calculate geometry
     cylinders = num_tracks
@@ -503,7 +502,6 @@ def _read_hfe_metadata(filepath: str, file_size: int,
 
     # Bit rate is in units of 250 bits/s
     bit_rate = bit_rate_raw * 250 if bit_rate_raw > 0 else 250000
-    rpm = rpm_raw if rpm_raw > 0 else 300
 
     # Encoding type names
     encoding_names = {
@@ -553,8 +551,10 @@ def _read_dsk_metadata(filepath: str, file_size: int,
         raise ImageReadError(f"Failed to read DSK header: {e}", filepath)
 
     if len(header) < 256:
-        raise ImageCorruptError("DSK header too short", filepath,
-                               expected_size=256, actual_size=len(header))
+        raise ImageCorruptError(
+            "DSK header too short", filepath,
+            expected_size=256, actual_size=len(header)
+        )
 
     # DSK header structure:
     # 0-33: Identifier string
@@ -563,9 +563,6 @@ def _read_dsk_metadata(filepath: str, file_size: int,
     # 49: Number of sides
     # 50-51: Track size (little-endian) OR size table for extended DSK
     # 52-255: Size table for extended DSK
-
-    # Check if extended DSK
-    is_extended = header[:8] == DSK_MAGIC_ALT or b'EXTENDED' in header[:34]
 
     # Extract info string
     info_string = header[0:34].decode('ascii', errors='replace').strip()
@@ -766,8 +763,10 @@ def _validate_scp(filepath: str, file_size: int) -> List[str]:
         calculated_sum = sum(data[16:]) & 0xFFFFFFFF
         if stored_checksum != 0 and stored_checksum != calculated_sum:
             # Note: Many SCP files have checksum = 0, which means "no checksum"
-            errors.append(f"SCP checksum mismatch: stored={stored_checksum:08X}, "
-                         f"calculated={calculated_sum:08X}")
+            errors.append(
+                f"SCP checksum mismatch: stored={stored_checksum:08X}, "
+                f"calculated={calculated_sum:08X}"
+            )
 
     return errors
 
@@ -874,8 +873,10 @@ def _validate_raw(filepath: str, file_size: int) -> List[str]:
             expected = cyls * heads * spt * ss
             if expected <= file_size < expected * 1.1:
                 close_match = True
-                errors.append(f"File size {file_size} is close to but not exactly "
-                             f"{expected} ({name})")
+                errors.append(
+                    f"File size {file_size} is close to but not exactly "
+                    f"{expected} ({name})"
+                )
                 break
 
         if not close_match:

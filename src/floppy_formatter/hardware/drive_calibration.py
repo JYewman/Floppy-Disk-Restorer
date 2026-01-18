@@ -24,7 +24,7 @@ import statistics
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import List, Optional, Tuple, Dict, TYPE_CHECKING
+from typing import List, Optional, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .greaseweazle_device import GreaseweazleDevice
@@ -33,11 +33,9 @@ from . import (
     GreaseweazleError,
     SeekError,
     DriveType,
-    DriveInfo,
     SectorStatus,
 )
-from .flux_io import FluxData, analyze_flux_quality
-from .mfm_codec import BIT_CELL_US
+from .flux_io import analyze_flux_quality
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +246,9 @@ def measure_rpm(device: 'GreaseweazleDevice',
     return result
 
 
-def measure_bit_timing(device: 'GreaseweazleDevice',
-                        track: int = 40) -> BitTimingMeasurement:
+def measure_bit_timing(
+    device: 'GreaseweazleDevice', track: int = 40
+) -> BitTimingMeasurement:
     """
     Measure actual bit cell timing from disk.
 
@@ -314,9 +313,9 @@ def measure_bit_timing(device: 'GreaseweazleDevice',
     return result
 
 
-def check_track_alignment(device: 'GreaseweazleDevice',
-                           cylinder: int,
-                           expected_sectors: int = 18) -> AlignmentResult:
+def check_track_alignment(
+    device: 'GreaseweazleDevice', cylinder: int, expected_sectors: int = 18
+) -> AlignmentResult:
     """
     Check head alignment on a specific track.
 
@@ -364,8 +363,9 @@ def check_track_alignment(device: 'GreaseweazleDevice',
     return result
 
 
-def check_head_alignment(device: 'GreaseweazleDevice',
-                          tracks: Optional[List[int]] = None) -> Dict[int, AlignmentResult]:
+def check_head_alignment(
+    device: 'GreaseweazleDevice', tracks: Optional[List[int]] = None
+) -> Dict[int, AlignmentResult]:
     """
     Check head alignment across multiple tracks.
 
@@ -403,9 +403,10 @@ def check_head_alignment(device: 'GreaseweazleDevice',
     return results
 
 
-def assess_drive_health(rpm: RPMMeasurement,
-                         timing: BitTimingMeasurement,
-                         alignment: Dict[int, AlignmentResult]) -> DriveHealth:
+def assess_drive_health(
+    rpm: RPMMeasurement, timing: BitTimingMeasurement,
+    alignment: Dict[int, AlignmentResult]
+) -> DriveHealth:
     """
     Assess overall drive health from calibration measurements.
 
@@ -504,9 +505,9 @@ def assess_drive_health(rpm: RPMMeasurement,
 # Main Calibration Function
 # =============================================================================
 
-def calibrate_drive(device: 'GreaseweazleDevice',
-                     drive_unit: int = 0,
-                     full_calibration: bool = True) -> DriveCalibration:
+def calibrate_drive(
+    device: 'GreaseweazleDevice', drive_unit: int = 0, full_calibration: bool = True
+) -> DriveCalibration:
     """
     Perform full drive calibration sequence.
 
@@ -585,8 +586,9 @@ def calibrate_drive(device: 'GreaseweazleDevice',
     )
 
 
-def quick_calibration(device: 'GreaseweazleDevice',
-                       drive_unit: int = 0) -> DriveCalibration:
+def quick_calibration(
+    device: 'GreaseweazleDevice', drive_unit: int = 0
+) -> DriveCalibration:
     """
     Perform quick drive calibration (RPM and middle track only).
 
@@ -632,7 +634,8 @@ def format_calibration_report(cal: DriveCalibration) -> str:
         "",
         "--- Bit Timing ---",
         f"  Bit Cell: {cal.bit_timing.bit_cell_us:.3f}µs",
-        f"  Peaks: {cal.bit_timing.short_peak_us:.2f} / {cal.bit_timing.medium_peak_us:.2f} / {cal.bit_timing.long_peak_us:.2f}µs",
+        (f"  Peaks: {cal.bit_timing.short_peak_us:.2f} / "
+         f"{cal.bit_timing.medium_peak_us:.2f} / {cal.bit_timing.long_peak_us:.2f}µs"),
         f"  Status: {'OK' if cal.bit_timing.within_spec else 'OUT OF SPEC'}",
         "",
         "--- Head Alignment ---",

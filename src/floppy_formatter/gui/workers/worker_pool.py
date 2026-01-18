@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import IntEnum
 from queue import PriorityQueue, Empty
-from typing import Optional, Dict, List, Callable, Any, Type, TYPE_CHECKING
+from typing import Optional, Dict, List, Callable, Any, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
@@ -470,13 +470,17 @@ class WorkerPool(QObject):
             Dictionary with pool stats
         """
         with self._history_lock:
-            completed = sum(1 for w in self._history
-                           if w.state == WorkerState.COMPLETED)
-            failed = sum(1 for w in self._history
-                        if w.state == WorkerState.FAILED)
-            cancelled = sum(1 for w in self._history
-                           if w.state == WorkerState.CANCELLED)
+            completed = sum(
+                1 for w in self._history if w.state == WorkerState.COMPLETED
+            )
+            failed = sum(
+                1 for w in self._history if w.state == WorkerState.FAILED
+            )
+            cancelled = sum(
+                1 for w in self._history if w.state == WorkerState.CANCELLED
+            )
 
+        success_rate = (completed / len(self._history) * 100) if self._history else 0
         return {
             'queue_size': self.get_queue_size(),
             'is_busy': self.is_busy(),
@@ -484,8 +488,7 @@ class WorkerPool(QObject):
             'completed': completed,
             'failed': failed,
             'cancelled': cancelled,
-            'success_rate': (completed / len(self._history) * 100)
-                           if self._history else 0,
+            'success_rate': success_rate,
         }
 
     def _process_queue(self) -> None:

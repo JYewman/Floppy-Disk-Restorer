@@ -29,18 +29,20 @@ import os
 import sys
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional
 
 try:
     from PyQt6.QtCore import QObject, pyqtSignal
     HAS_QT = True
 except ImportError:
     HAS_QT = False
+
     # Provide stub for non-Qt environments
     class QObject:
         pass
+
     def pyqtSignal(*args, **kwargs):
         return None
 
@@ -149,7 +151,7 @@ class SectorMapColors:
     unknown: str = "#3c3c3c"    # Gray - unscanned sectors
     reading: str = "#0e639c"    # Blue - currently reading
     writing: str = "#9b59b6"    # Purple - currently writing
-    recovering: str = "#e67e22" # Orange - recovering
+    recovering: str = "#e67e22"  # Orange - recovering
     selected: str = "#ffffff"   # White - selected sector
 
 
@@ -172,7 +174,7 @@ COLOR_SCHEMES: Dict[ColorScheme, SectorMapColors] = {
         unknown="#3c3c3c",
         reading="#33bbee",   # Light blue
         writing="#aa3377",   # Magenta
-        recovering="#ee3377", # Pink
+        recovering="#ee3377",  # Pink
         selected="#ffffff",
     ),
     ColorScheme.PROTANOPIA: SectorMapColors(
@@ -202,7 +204,7 @@ COLOR_SCHEMES: Dict[ColorScheme, SectorMapColors] = {
         unknown="#404040",
         reading="#00ffff",   # Cyan
         writing="#ff00ff",   # Magenta
-        recovering="#ff8000", # Orange
+        recovering="#ff8000",  # Orange
         selected="#ffffff",
     ),
     ColorScheme.MONOCHROME: SectorMapColors(
@@ -227,7 +229,7 @@ class DeviceSettings:
     """Device-related settings."""
     default_drive_unit: int = 0              # Default drive (0 or 1)
     motor_timeout: int = 30                  # Seconds to keep motor on after operation
-    seek_speed: str = SeekSpeed.NORMAL.value # Seek speed preference
+    seek_speed: str = SeekSpeed.NORMAL.value  # Seek speed preference
     auto_detect_geometry: bool = True        # Auto-detect disk geometry
     verify_seeks: bool = True                # Verify seek operations
     double_step: bool = False                # Double-step for 40-track drives

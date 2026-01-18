@@ -28,7 +28,6 @@ from typing import List, Optional, Dict, Tuple, TYPE_CHECKING, Union, Any
 
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
-    from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
 import logging
 
@@ -353,11 +352,11 @@ class AlignmentReport:
             Detailed summary string
         """
         lines = [
-            f"Head Alignment Report",
-            f"=====================",
+            "Head Alignment Report",
+            "=====================",
             f"Status: {self.status.name} ({self.score:.0f}/100)",
-            f"",
-            f"Track Margins:",
+            "",
+            "Track Margins:",
             f"  Average: {self.average_margin_um:.1f}um",
             f"  Variation: {self.margin_variation_um:.1f}um",
             f"  Best cylinder: {self.best_cylinder}",
@@ -366,16 +365,16 @@ class AlignmentReport:
 
         if self.azimuth_result:
             lines.extend([
-                f"",
-                f"Azimuth Error:",
+                "",
+                "Azimuth Error:",
                 f"  Phase diff: {self.azimuth_result.phase_difference_us:.2f}us",
                 f"  Severity: {self.azimuth_result.severity}",
             ])
 
         if self.recommendations:
             lines.extend([
-                f"",
-                f"Recommendations:",
+                "",
+                "Recommendations:",
             ])
             for rec in self.recommendations:
                 lines.append(f"  - {rec}")
@@ -449,8 +448,9 @@ def measure_track_margins(
             sectors = decode_flux_data(flux)
 
             # Count successful sectors
-            good_sectors = sum(1 for s in sectors
-                              if s.data is not None and s.crc_valid)
+            good_sectors = sum(
+                1 for s in sectors if s.data is not None and s.crc_valid
+            )
             total_sectors = len(sectors)
 
             # Calculate quality
@@ -741,7 +741,10 @@ def generate_alignment_report(
     if all_margins:
         all_total_margins = [m.total_margin_um for m in all_margins]
         average_margin = statistics.mean(all_total_margins)
-        margin_variation = statistics.stdev(all_total_margins) if len(all_total_margins) > 1 else 0.0
+        if len(all_total_margins) > 1:
+            margin_variation = statistics.stdev(all_total_margins)
+        else:
+            margin_variation = 0.0
 
         # Find best and worst cylinders
         worst_margin = min(all_margins, key=lambda m: m.total_margin_um)
@@ -777,7 +780,9 @@ def generate_alignment_report(
     if all_margins:
         avg_center_offset = statistics.mean([abs(m.center_offset_um) for m in all_margins])
         if avg_center_offset > 15:
-            recommendations.append(f"Significant track offset detected ({avg_center_offset:.1f}um)")
+            recommendations.append(
+                f"Significant track offset detected ({avg_center_offset:.1f}um)"
+            )
 
     # Get drive info if available
     try:

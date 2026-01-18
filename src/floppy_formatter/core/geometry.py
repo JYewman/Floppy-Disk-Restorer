@@ -257,8 +257,10 @@ def get_disk_geometry(device: Union['GreaseweazleDevice', Any]) -> DiskGeometry:
 # =============================================================================
 
 
-def validate_floppy_geometry(geometry: DiskGeometry,
-                            strict: bool = True) -> tuple[bool, Optional[str]]:
+def validate_floppy_geometry(
+    geometry: DiskGeometry,
+    strict: bool = True
+) -> tuple[bool, Optional[str]]:
     """
     Validate that geometry matches expected floppy disk specifications.
 

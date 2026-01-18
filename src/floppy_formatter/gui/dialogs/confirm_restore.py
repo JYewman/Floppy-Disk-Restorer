@@ -5,7 +5,7 @@ Provides a confirmation dialog used before starting a disk restore
 operation, displaying a summary of the selected configuration options.
 """
 
-from PyQt6.QtWidgets import QMessageBox, QWidget, QPushButton
+from PyQt6.QtWidgets import QMessageBox, QWidget
 from typing import Optional, Dict, Any, List
 
 

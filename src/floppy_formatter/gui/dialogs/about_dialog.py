@@ -8,7 +8,6 @@ Part of Phase 14: Polish & Professional Touches
 """
 
 from typing import Optional
-import importlib.metadata
 
 from PyQt6.QtWidgets import (
     QDialog,
@@ -17,14 +16,11 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QWidget,
-    QSpacerItem,
-    QSizePolicy,
-    QFrame,
     QScrollArea,
     QTabWidget,
 )
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QFont, QPixmap, QPainter, QColor, QDesktopServices
+from PyQt6.QtGui import QFont, QDesktopServices
 
 from floppy_formatter.gui.resources import get_icon, get_version
 
@@ -240,7 +236,9 @@ class AboutDialog(QDialog):
         github_label.setFixedWidth(80)
         github_layout.addWidget(github_label)
 
-        github_link = QLabel(f'<a href="{self.GITHUB_URL}" style="color: #3794ff;">{self.GITHUB_URL}</a>')
+        github_link = QLabel(
+            f'<a href="{self.GITHUB_URL}" style="color: #3794ff;">{self.GITHUB_URL}</a>'
+        )
         github_link.setOpenExternalLinks(True)
         github_link.setTextFormat(Qt.TextFormat.RichText)
         github_link.setCursor(Qt.CursorShape.PointingHandCursor)

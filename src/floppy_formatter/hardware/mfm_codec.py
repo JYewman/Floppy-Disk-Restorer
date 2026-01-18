@@ -24,10 +24,9 @@ Key Functions:
 
 import logging
 from dataclasses import dataclass, field
-from enum import IntEnum
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Dict
 
-from . import SectorStatus, SectorData, CRCError
+from . import SectorStatus, SectorData
 from .flux_io import FluxData
 
 logger = logging.getLogger(__name__)
@@ -216,7 +215,10 @@ class MFMBitstream:
             accumulated_time = 0.0
 
         if filtered_count > 0:
-            logger.debug("Filtered %d noise pulses (threshold=%.2fµs)", filtered_count, noise_threshold_us)
+            logger.debug(
+                "Filtered %d noise pulses (threshold=%.2fµs)",
+                filtered_count, noise_threshold_us
+            )
 
         return cls(bits=bits)
 
@@ -425,8 +427,11 @@ class MFMDecoder:
         Returns:
             List of SectorData for each decoded sector
         """
-        logger.debug("Decoding track C%d H%d (sample_freq=%d Hz, %d transitions)",
-                    flux_data.cylinder, flux_data.head, flux_data.sample_freq, len(flux_data.flux_times))
+        logger.debug(
+            "Decoding track C%d H%d (sample_freq=%d Hz, %d transitions)",
+            flux_data.cylinder, flux_data.head, flux_data.sample_freq,
+            len(flux_data.flux_times)
+        )
 
         # Try to auto-detect bit cell width from flux data
         detected_bit_cell = flux_data.estimate_bit_cell_width()
@@ -435,12 +440,16 @@ class MFMDecoder:
             # 0.9-1.1 µs = ED/high-rate, 1.8-2.2 µs = HD, 3.5-4.5 µs = DD
             if 0.9 <= detected_bit_cell <= 6.0:
                 bit_cell_to_use = detected_bit_cell
-                logger.debug("Using detected bit cell: %.2f µs (expected: %.2f µs)",
-                            detected_bit_cell, self.bit_cell_us)
+                logger.debug(
+                    "Using detected bit cell: %.2f µs (expected: %.2f µs)",
+                    detected_bit_cell, self.bit_cell_us
+                )
             else:
                 bit_cell_to_use = self.bit_cell_us
-                logger.warning("Detected bit cell %.2f µs out of range, using default %.2f µs",
-                              detected_bit_cell, self.bit_cell_us)
+                logger.warning(
+                    "Detected bit cell %.2f µs out of range, using default %.2f µs",
+                    detected_bit_cell, self.bit_cell_us
+                )
         else:
             bit_cell_to_use = self.bit_cell_us
             logger.debug("Could not detect bit cell, using default: %.2f µs", self.bit_cell_us)
@@ -455,8 +464,11 @@ class MFMDecoder:
             too_short = sum(1 for t in times_us if t < 3.0)
             too_long = sum(1 for t in times_us if t > 9.0)
 
-            logger.debug("Flux timing distribution: short(4µs)=%d, medium(6µs)=%d, long(8µs)=%d, too_short(<3µs)=%d, too_long(>9µs)=%d",
-                        short, medium, long, too_short, too_long)
+            logger.debug(
+                "Flux timing distribution: short(4µs)=%d, medium(6µs)=%d, "
+                "long(8µs)=%d, too_short(<3µs)=%d, too_long(>9µs)=%d",
+                short, medium, long, too_short, too_long
+            )
 
             # Log actual timing statistics
             if len(times_us) > 100:
@@ -465,17 +477,23 @@ class MFMDecoder:
                 max_t = max(times_us)
                 mean_t = statistics.mean(times_us)
                 median_t = statistics.median(times_us)
-                logger.debug("Flux timing stats: min=%.2fµs, max=%.2fµs, mean=%.2fµs, median=%.2fµs",
-                            min_t, max_t, mean_t, median_t)
+                logger.debug(
+                    "Flux timing stats: min=%.2fµs, max=%.2fµs, "
+                    "mean=%.2fµs, median=%.2fµs",
+                    min_t, max_t, mean_t, median_t
+                )
 
             # If most pulses are out of range, this might explain decode failure
             total = len(times_us)
             out_of_range = too_short + too_long
             if out_of_range > total * 0.3:
-                logger.warning("%.1f%% of flux pulses are outside MFM timing range (%.1f%% too short, %.1f%% too long)",
-                              (out_of_range / total) * 100,
-                              (too_short / total) * 100,
-                              (too_long / total) * 100)
+                logger.warning(
+                    "%.1f%% of flux pulses are outside MFM timing range "
+                    "(%.1f%% too short, %.1f%% too long)",
+                    (out_of_range / total) * 100,
+                    (too_short / total) * 100,
+                    (too_long / total) * 100
+                )
 
         # Convert flux to bit stream
         bitstream = MFMBitstream.from_flux(flux_data, bit_cell_to_use)
@@ -498,28 +516,33 @@ class MFMDecoder:
             bitstream.seek(sync_pos)
 
             # Try to decode a sector
-            sector = self._decode_sector(bitstream, flux_data.cylinder,
-                                          flux_data.head)
+            sector = self._decode_sector(
+                bitstream, flux_data.cylinder, flux_data.head
+            )
 
             if sector is not None:
                 sector_key = (sector.cylinder, sector.head, sector.sector)
                 if sector_key not in found_sectors:
                     sectors.append(sector)
                     found_sectors.add(sector_key)
-                    logger.debug("Decoded sector %d (CRC: header=%s, data=%s)",
-                                 sector.sector, sector.crc_valid,
-                                 sector.crc_valid)
+                    logger.debug(
+                        "Decoded sector %d (CRC: header=%s, data=%s)",
+                        sector.sector, sector.crc_valid, sector.crc_valid
+                    )
             else:
                 # Skip past this sync and continue searching
                 bitstream.skip(16)
 
-        logger.debug("Decoded %d sectors from track (found %d A1 syncs in %d searches, bitstream=%d bits)",
-                    len(sectors), sync_found_count, sync_search_count, len(bitstream))
+        logger.debug(
+            "Decoded %d sectors from track (found %d A1 syncs in %d searches, "
+            "bitstream=%d bits)",
+            len(sectors), sync_found_count, sync_search_count, len(bitstream)
+        )
 
         return sorted(sectors, key=lambda s: s.sector)
 
     def _decode_sector(self, bitstream: MFMBitstream,
-                        expected_cyl: int, expected_head: int) -> Optional[SectorData]:
+                       expected_cyl: int, expected_head: int) -> Optional[SectorData]:
         """
         Decode a single sector starting at current bitstream position.
 
@@ -541,8 +564,10 @@ class MFMDecoder:
             for i in range(2):
                 sync_check = bitstream.find_a1_sync()
                 if sync_check != bitstream.position:
-                    logger.debug("Sector decode failed: A1 sync %d not at expected position "
-                                "(found at %d, expected %d)", i+2, sync_check, bitstream.position)
+                    logger.debug(
+                        "Sector decode failed: A1 sync %d not at expected position "
+                        "(found at %d, expected %d)", i+2, sync_check, bitstream.position
+                    )
                     return None
                 bitstream.skip(16)
 
@@ -552,8 +577,10 @@ class MFMDecoder:
                 logger.debug("Sector decode failed: could not read address mark")
                 return None
 
-            logger.debug("Found address mark: 0x%02X (IDAM=0x%02X, DAM=0x%02X)",
-                        mark, IDAM_MARK, DAM_MARK)
+            logger.debug(
+                "Found address mark: 0x%02X (IDAM=0x%02X, DAM=0x%02X)",
+                mark, IDAM_MARK, DAM_MARK
+            )
 
             if mark == IDAM_MARK:
                 # This is a sector header (ID Address Mark)
@@ -568,7 +595,7 @@ class MFMDecoder:
             return None
 
     def _decode_sector_with_header(self, bitstream: MFMBitstream,
-                                    sync_start: int) -> Optional[SectorData]:
+                                   sync_start: int) -> Optional[SectorData]:
         """Decode sector after finding IDAM."""
         # Read header: cylinder, head, sector, size (4 bytes) + CRC (2 bytes)
         header_data = bitstream.read_bytes(4)
@@ -633,8 +660,6 @@ class MFMDecoder:
                 crc_valid=False,
                 signal_quality=0.3
             )
-
-        deleted = (dam == DDAM_MARK)
 
         if dam not in (DAM_MARK, DDAM_MARK):
             return SectorData(
@@ -710,8 +735,8 @@ class MFMEncoder:
         self.params = format_params or HD_35_PARAMS
 
     def encode_track(self, cylinder: int, head: int,
-                      sectors: List[SectorData],
-                      sample_freq: int = 72_000_000) -> FluxData:
+                     sectors: List[SectorData],
+                     sample_freq: int = 72_000_000) -> FluxData:
         """
         Encode a complete track of sector data to flux.
 
@@ -782,7 +807,7 @@ class MFMEncoder:
         return flux_data
 
     def _write_gap(self, bitstream: MFMBitstream, length: int,
-                    fill_byte: int = GAP_BYTE) -> int:
+                   fill_byte: int = GAP_BYTE) -> int:
         """Write gap bytes (0x4E by default)."""
         prev = 0
         for _ in range(length):
@@ -797,7 +822,7 @@ class MFMEncoder:
         return prev
 
     def _write_sector(self, bitstream: MFMBitstream, sector: SectorData,
-                       prev_bit: int) -> int:
+                      prev_bit: int) -> int:
         """
         Write a complete sector (header + data).
 
@@ -858,7 +883,7 @@ class MFMEncoder:
 # =============================================================================
 
 def decode_flux_to_sectors(flux_data: FluxData,
-                            bit_cell_us: float = BIT_CELL_US) -> List[SectorData]:
+                           bit_cell_us: float = BIT_CELL_US) -> List[SectorData]:
     """
     Decode flux data to sector data.
 
@@ -882,9 +907,9 @@ def decode_flux_to_sectors(flux_data: FluxData,
 
 
 def encode_sectors_to_flux(cylinder: int, head: int,
-                            sectors: List[SectorData],
-                            sample_freq: int = 72_000_000,
-                            bit_cell_us: float = BIT_CELL_US) -> FluxData:
+                           sectors: List[SectorData],
+                           sample_freq: int = 72_000_000,
+                           bit_cell_us: float = BIT_CELL_US) -> FluxData:
     """
     Encode sector data to flux for writing.
 
@@ -927,9 +952,9 @@ def verify_sector_crc(sector: SectorData) -> bool:
 
 
 def create_formatted_track(cylinder: int, head: int,
-                            fill_byte: int = 0xE5,
-                            sector_count: int = 18,
-                            sector_size: int = 512) -> List[SectorData]:
+                           fill_byte: int = 0xE5,
+                           sector_count: int = 18,
+                           sector_size: int = 512) -> List[SectorData]:
     """
     Create sector data for a freshly formatted track.
 
@@ -966,9 +991,9 @@ def create_formatted_track(cylinder: int, head: int,
 
 
 def create_pattern_track(cylinder: int, head: int,
-                          pattern: bytes,
-                          sector_count: int = 18,
-                          sector_size: int = 512) -> List[SectorData]:
+                         pattern: bytes,
+                         sector_count: int = 18,
+                         sector_size: int = 512) -> List[SectorData]:
     """
     Create sector data filled with a repeating pattern.
 

@@ -184,7 +184,9 @@ class FormatWidget(QWidget):
         progress_layout.addWidget(self.progress_bar, stretch=1)
 
         self.progress_percent_label = QLabel("0%")
-        self.progress_percent_label.setStyleSheet("color: #4ec9b0; font-size: 12pt; font-weight: bold;")
+        self.progress_percent_label.setStyleSheet(
+            "color: #4ec9b0; font-size: 12pt; font-weight: bold;"
+        )
         self.progress_percent_label.setMinimumWidth(50)
         progress_layout.addWidget(self.progress_percent_label)
 
@@ -638,7 +640,9 @@ class FormatWidget(QWidget):
             self.warning_label.setStyleSheet("color: #4ec9b0; font-size: 11pt;")
         elif result.success:
             self.title_label.setText("Format Complete (with warnings)")
-            self.warning_label.setText(f"Format completed with {result.total_bad_sectors} bad sector(s) detected")
+            self.warning_label.setText(
+                f"Format completed with {result.total_bad_sectors} bad sector(s) detected"
+            )
             self.warning_label.setStyleSheet("color: #f0a030; font-size: 11pt;")
         else:
             self.title_label.setText("Format Issues")
@@ -808,10 +812,13 @@ class FormatWidget(QWidget):
         super().showEvent(event)
 
         # Show confirmation dialog if not already shown and device is set
-        if (self._device_path and self._geometry and
+        can_show = (
+            self._device_path and self._geometry and
             not self._format_in_progress and
             not self._format_completed_flag and
-            not self._confirmation_shown):
+            not self._confirmation_shown
+        )
+        if can_show:
 
             self._confirmation_shown = True
             # Use QTimer to show dialog after widget is fully shown

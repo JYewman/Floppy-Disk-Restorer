@@ -21,8 +21,9 @@ if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
     from floppy_formatter.core.geometry import DiskGeometry
     from floppy_formatter.analysis.head_alignment import (
-        AlignmentReport, MarginMeasurement, AzimuthResult, AlignmentStatus
+        MarginMeasurement, AzimuthResult, AlignmentStatus
     )
+    # AlignmentReport imported at runtime in run() method
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,6 @@ class AlignmentWorker(GreaseweazleWorker):
             detect_azimuth_error,
             calculate_alignment_score,
             AlignmentReport,
-            AlignmentStatus,
             CylinderAlignment,
             TRACK_PITCH_UM,
         )
@@ -209,13 +209,17 @@ class AlignmentWorker(GreaseweazleWorker):
                 self.margin_measured.emit(cylinder, 0, h0_margin.total_margin_um)
 
                 # Check for issues
-                if h0_margin.total_margin_um < TRACK_PITCH_UM * 0.3:
-                    issues.append(f"Head 0 margin critically narrow: {h0_margin.total_margin_um:.1f}um")
-                elif h0_margin.total_margin_um < TRACK_PITCH_UM * 0.5:
-                    issues.append(f"Head 0 margin below optimal: {h0_margin.total_margin_um:.1f}um")
+                margin_um = h0_margin.total_margin_um
+                if margin_um < TRACK_PITCH_UM * 0.3:
+                    issues.append(
+                        f"Head 0 margin critically narrow: {margin_um:.1f}um"
+                    )
+                elif margin_um < TRACK_PITCH_UM * 0.5:
+                    issues.append(f"Head 0 margin below optimal: {margin_um:.1f}um")
 
                 if not h0_margin.is_centered():
-                    issues.append(f"Head 0 off-center: {h0_margin.center_offset_um:.1f}um offset")
+                    offset = h0_margin.center_offset_um
+                    issues.append(f"Head 0 off-center: {offset:.1f}um offset")
 
             except Exception as e:
                 logger.warning("Head 0 margin test failed on cylinder %d: %s", cylinder, e)
@@ -235,13 +239,19 @@ class AlignmentWorker(GreaseweazleWorker):
                     self.margin_measured.emit(cylinder, 1, h1_margin.total_margin_um)
 
                     # Check for issues
-                    if h1_margin.total_margin_um < TRACK_PITCH_UM * 0.3:
-                        issues.append(f"Head 1 margin critically narrow: {h1_margin.total_margin_um:.1f}um")
-                    elif h1_margin.total_margin_um < TRACK_PITCH_UM * 0.5:
-                        issues.append(f"Head 1 margin below optimal: {h1_margin.total_margin_um:.1f}um")
+                    h1_margin_um = h1_margin.total_margin_um
+                    if h1_margin_um < TRACK_PITCH_UM * 0.3:
+                        issues.append(
+                            f"Head 1 margin critically narrow: {h1_margin_um:.1f}um"
+                        )
+                    elif h1_margin_um < TRACK_PITCH_UM * 0.5:
+                        issues.append(
+                            f"Head 1 margin below optimal: {h1_margin_um:.1f}um"
+                        )
 
                     if not h1_margin.is_centered():
-                        issues.append(f"Head 1 off-center: {h1_margin.center_offset_um:.1f}um offset")
+                        h1_offset = h1_margin.center_offset_um
+                        issues.append(f"Head 1 off-center: {h1_offset:.1f}um offset")
 
                 except Exception as e:
                     logger.warning("Head 1 margin test failed on cylinder %d: %s", cylinder, e)
@@ -268,8 +278,10 @@ class AlignmentWorker(GreaseweazleWorker):
                 cylinder=cylinder,
                 head0_margin=h0_margin_obj,
                 head1_margin=h1_margin_obj,
-                combined_score=(test_result.head0_quality + (test_result.head1_quality or 0)) /
-                              (2 if self._config.include_both_heads else 1),
+                combined_score=(
+                    (test_result.head0_quality + (test_result.head1_quality or 0)) /
+                    (2 if self._config.include_both_heads else 1)
+                ),
                 issues=issues,
             ))
 
@@ -316,7 +328,10 @@ class AlignmentWorker(GreaseweazleWorker):
 
             all_total_margins = [m.total_margin_um for m in all_margins]
             average_margin = statistics.mean(all_total_margins)
-            margin_variation = statistics.stdev(all_total_margins) if len(all_total_margins) > 1 else 0.0
+            if len(all_total_margins) > 1:
+                margin_variation = statistics.stdev(all_total_margins)
+            else:
+                margin_variation = 0.0
 
             worst_margin = min(all_margins, key=lambda m: m.total_margin_um)
             best_margin = max(all_margins, key=lambda m: m.total_margin_um)
@@ -381,10 +396,15 @@ class AlignmentWorker(GreaseweazleWorker):
         elif status == AlignmentStatus.GOOD:
             recommendations.append("Alignment is good - suitable for normal use")
         elif status == AlignmentStatus.FAIR:
-            recommendations.append("Alignment is fair - may see occasional read issues with disks from other drives")
+            recommendations.append(
+                "Alignment is fair - may see occasional read issues with disks "
+                "from other drives"
+            )
             recommendations.append("Consider professional adjustment if problems persist")
         elif status == AlignmentStatus.POOR:
-            recommendations.append("Alignment is poor - reduced read/write compatibility with other drives")
+            recommendations.append(
+                "Alignment is poor - reduced read/write compatibility with other drives"
+            )
             recommendations.append("Professional adjustment recommended")
         else:  # FAILING
             recommendations.append("Alignment is failing - drive may not be reliable")
@@ -396,17 +416,26 @@ class AlignmentWorker(GreaseweazleWorker):
 
         # Margin-specific recommendations
         if avg_margin < TRACK_PITCH_UM * 0.4:
-            recommendations.append(f"Track margins are narrow ({avg_margin:.1f}um) - drive may struggle with worn media")
+            recommendations.append(
+                f"Track margins are narrow ({avg_margin:.1f}um) - "
+                "drive may struggle with worn media"
+            )
 
         if margin_var > 10:
-            recommendations.append(f"Significant margin variation ({margin_var:.1f}um) between cylinders - stepper motor may need attention")
+            recommendations.append(
+                f"Significant margin variation ({margin_var:.1f}um) between cylinders - "
+                "stepper motor may need attention"
+            )
 
         # Check for consistent centering issues
         if margins:
             offsets = [abs(m.center_offset_um) for m in margins]
             avg_offset = sum(offsets) / len(offsets)
             if avg_offset > 15:
-                recommendations.append(f"Head is consistently off-center ({avg_offset:.1f}um) - adjustment recommended")
+                recommendations.append(
+                    f"Head is consistently off-center ({avg_offset:.1f}um) - "
+                    "adjustment recommended"
+                )
 
         return recommendations
 

@@ -16,27 +16,21 @@ from typing import Optional, List, Set
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
-    QVBoxLayout,
     QPushButton,
     QLabel,
-    QComboBox,
     QSlider,
     QFrame,
     QToolButton,
     QButtonGroup,
-    QSpacerItem,
-    QSizePolicy,
     QFileDialog,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from floppy_formatter.gui.widgets.circular_sector_map import (
     CircularSectorMap,
     ViewMode,
 )
-from floppy_formatter.gui.resources import get_icon
 
 logger = logging.getLogger(__name__)
 
@@ -518,7 +512,7 @@ class SectorMapToolbar(QWidget):
                 QMessageBox.warning(
                     self,
                     "Export Failed",
-                    f"Failed to export one or more sector maps"
+                    "Failed to export one or more sector maps"
                 )
 
     def _on_export_svg_clicked(self) -> None:
@@ -561,7 +555,7 @@ class SectorMapToolbar(QWidget):
                 QMessageBox.warning(
                     self,
                     "Export Failed",
-                    f"Failed to export one or more sector maps"
+                    "Failed to export one or more sector maps"
                 )
 
     def _on_selection_changed(self, selected_sectors: List[int]) -> None:

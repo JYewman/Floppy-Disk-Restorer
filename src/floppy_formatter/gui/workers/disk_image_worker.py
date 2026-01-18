@@ -575,8 +575,10 @@ class DiskImageWorker(GreaseweazleWorker):
                     )
                     return False
 
-            logger.debug("Verify: C%d H%d passed (%d unique sectors)",
-                        cylinder, head, len(unique_sectors))
+            logger.debug(
+                "Verify: C%d H%d passed (%d unique sectors)",
+                cylinder, head, len(unique_sectors)
+            )
             return True
 
         except Exception as e:

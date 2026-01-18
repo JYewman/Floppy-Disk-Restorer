@@ -999,7 +999,9 @@ class RestoreWidget(QWidget):
         progress_layout.addWidget(self.progress_bar, stretch=1)
 
         self.progress_percent_label = QLabel("0%")
-        self.progress_percent_label.setStyleSheet("color: #4ec9b0; font-size: 11pt; font-weight: bold;")
+        self.progress_percent_label.setStyleSheet(
+            "color: #4ec9b0; font-size: 11pt; font-weight: bold;"
+        )
         self.progress_percent_label.setMinimumWidth(45)
         progress_layout.addWidget(self.progress_percent_label)
 
@@ -1070,7 +1072,9 @@ class RestoreWidget(QWidget):
         rate_layout.addWidget(rate_icon)
 
         self.recovery_rate_label = QLabel("0 (0%)")
-        self.recovery_rate_label.setStyleSheet("color: #4ec9b0; font-size: 10pt; font-weight: bold;")
+        self.recovery_rate_label.setStyleSheet(
+            "color: #4ec9b0; font-size: 10pt; font-weight: bold;"
+        )
         rate_layout.addWidget(self.recovery_rate_label)
 
         row1_layout.addWidget(rate_widget)
@@ -1422,7 +1426,8 @@ class RestoreWidget(QWidget):
 
         # Update device label
         self.device_label.setText(
-            f"Device: {device_path} | {geometry.cylinders}C/{geometry.heads}H/{geometry.sectors_per_track}S = {self._total_sectors} sectors"
+            f"Device: {device_path} | {geometry.cylinders}C/{geometry.heads}H/"
+            f"{geometry.sectors_per_track}S = {self._total_sectors} sectors"
         )
 
     def set_bad_sectors(self, bad_sector_list: List[int]) -> None:
@@ -1593,7 +1598,9 @@ class RestoreWidget(QWidget):
         self.bad_label.setText("0")
         self.bad_label.setStyleSheet("color: #4ec9b0; font-size: 10pt; font-weight: bold;")
         self.recovery_rate_label.setText("0 (0%)")
-        self.recovery_rate_label.setStyleSheet("color: #4ec9b0; font-size: 10pt; font-weight: bold;")
+        self.recovery_rate_label.setStyleSheet(
+            "color: #4ec9b0; font-size: 10pt; font-weight: bold;"
+        )
         self.elapsed_label.setText("00:00")
         self.eta_label.setText("--:--")
         self.status_label.setText("Initializing...")
@@ -1672,7 +1679,9 @@ class RestoreWidget(QWidget):
                 if converged:
                     self.pass_label.setText(f"{self._current_pass} (Converged!)")
                     self.status_label.setText("Converged!")
-                    self.status_label.setStyleSheet("color: #4ec9b0; font-size: 10pt; font-weight: bold;")
+                    self.status_label.setStyleSheet(
+                        "color: #4ec9b0; font-size: 10pt; font-weight: bold;"
+                    )
                 else:
                     self.pass_label.setText(f"{self._current_pass} (Convergence)")
                     self.status_label.setText(f"Pass {self._current_pass} - Recovering...")
@@ -1686,7 +1695,8 @@ class RestoreWidget(QWidget):
             percent = (current_sector / total_sectors * 100) if total_sectors > 0 else 0
 
             # Update sector map for active recovery
-            if current_sector >= 0 and current_sector < total_sectors and self._geometry is not None:
+            valid_range = current_sector >= 0 and current_sector < total_sectors
+            if valid_range and self._geometry is not None:
                 spt = self._geometry.sectors_per_track
 
                 # The worker reports track-level progress as multiples of sectors_per_track
@@ -1802,16 +1812,24 @@ class RestoreWidget(QWidget):
             if recovered >= 0:
                 self.recovery_rate_label.setText(f"{recovered} ({rate:.0f}%)")
                 if rate > 0:
-                    self.recovery_rate_label.setStyleSheet("color: #4ec9b0; font-size: 10pt; font-weight: bold;")
+                    self.recovery_rate_label.setStyleSheet(
+                        "color: #4ec9b0; font-size: 10pt; font-weight: bold;"
+                    )
                 else:
-                    self.recovery_rate_label.setStyleSheet("color: #dcdcaa; font-size: 10pt; font-weight: bold;")
+                    self.recovery_rate_label.setStyleSheet(
+                        "color: #dcdcaa; font-size: 10pt; font-weight: bold;"
+                    )
             else:
                 # More bad sectors now than initially (shouldn't happen normally)
                 self.recovery_rate_label.setText(f"{recovered} ({rate:.0f}%)")
-                self.recovery_rate_label.setStyleSheet("color: #f14c4c; font-size: 10pt; font-weight: bold;")
+                self.recovery_rate_label.setStyleSheet(
+                    "color: #f14c4c; font-size: 10pt; font-weight: bold;"
+                )
         else:
             self.recovery_rate_label.setText("0 (0%)")
-            self.recovery_rate_label.setStyleSheet("color: #4ec9b0; font-size: 10pt; font-weight: bold;")
+            self.recovery_rate_label.setStyleSheet(
+                "color: #4ec9b0; font-size: 10pt; font-weight: bold;"
+            )
 
     def _update_eta(self) -> None:
         """Update the estimated time remaining."""
@@ -1868,7 +1886,6 @@ class RestoreWidget(QWidget):
         self._update_timer.stop()
 
         # Get final counts from stats
-        final_bad = getattr(stats, 'final_bad_sector_count', self._current_bad_count)
         initial_bad = getattr(stats, 'initial_bad_sector_count', self._initial_bad_count)
         converged = getattr(stats, 'converged', False)
 

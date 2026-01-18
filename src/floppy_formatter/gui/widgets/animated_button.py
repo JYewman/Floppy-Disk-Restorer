@@ -25,10 +25,6 @@ from PyQt6.QtCore import (
 from PyQt6.QtWidgets import (
     QPushButton,
     QWidget,
-    QVBoxLayout,
-    QLabel,
-    QSizePolicy,
-    QGraphicsOpacityEffect,
 )
 from PyQt6.QtGui import (
     QPainter,
@@ -40,7 +36,6 @@ from PyQt6.QtGui import (
     QPaintEvent,
     QMouseEvent,
     QEnterEvent,
-    QResizeEvent,
     QPixmap,
     QRadialGradient,
 )
@@ -596,7 +591,6 @@ class OperationButton(QWidget):
             painter.setPen(QPen(QColor("#0e639c"), 3))
             painter.setBrush(Qt.BrushStyle.NoBrush)
 
-            import math
             start_angle = self._loading_angle * 16
             span_angle = 270 * 16
             painter.drawArc(spinner_rect, start_angle, span_angle)
@@ -623,7 +617,8 @@ class OperationButton(QWidget):
         painter.setFont(font)
 
         text_rect = QRect(0, 42, rect.width(), 24)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, self._text)
+        alignment = Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+        painter.drawText(text_rect, alignment, self._text)
 
     def setIcon(self, icon: QIcon) -> None:
         """Set the button icon."""

@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import pyqtSignal
 
@@ -258,11 +258,6 @@ class FormatWorker(GreaseweazleWorker):
         Formats all tracks according to the selected format type,
         optionally verifying each track after writing.
         """
-        from floppy_formatter.hardware import (
-            erase_track, write_track_flux, read_track_flux
-        )
-        from floppy_formatter.hardware.mfm_codec import encode_sectors_to_flux
-
         start_time = time.time()
 
         # Initialize result

@@ -179,14 +179,16 @@ class DiskFormatSpec:
             List of sector IDs in the order they appear on the track
         """
         # Calculate starting sector based on skew
-        start_offset = (cylinder * self.track_skew +
-                       head * self.head_skew) % self.sectors_per_track
+        start_offset = (
+            cylinder * self.track_skew + head * self.head_skew
+        ) % self.sectors_per_track
 
         # Generate sector order with interleave
         sectors = []
         for i in range(self.sectors_per_track):
-            sector_id = ((i * self.interleave + start_offset) %
-                        self.sectors_per_track) + self.first_sector_id
+            sector_id = (
+                (i * self.interleave + start_offset) % self.sectors_per_track
+            ) + self.first_sector_id
             sectors.append(sector_id)
 
         return sectors

@@ -23,7 +23,7 @@ from floppy_formatter.gui.workers.base_worker import GreaseweazleWorker
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
     from floppy_formatter.core.geometry import DiskGeometry
-    from floppy_formatter.analysis.flux_analyzer import FluxCapture
+    # FluxCapture imported at runtime in methods that need it
 
 logger = logging.getLogger(__name__)
 
@@ -278,9 +278,6 @@ class ScanWorker(GreaseweazleWorker):
         Scans all tracks according to the selected mode, reporting
         progress and results via signals.
         """
-        from floppy_formatter.hardware import read_track_flux
-        from floppy_formatter.analysis.flux_analyzer import FluxCapture
-
         start_time = time.time()
 
         # Initialize result
@@ -438,8 +435,11 @@ class ScanWorker(GreaseweazleWorker):
         sectors = decode_flux_data(flux)
 
         # Log decode results for debugging
-        logger.info("Track C%d:H%d: decoded %d sectors from flux (%d transitions)",
-                    cylinder, head, len(sectors), len(flux.flux_times) if hasattr(flux, 'flux_times') else 0)
+        flux_len = len(flux.flux_times) if hasattr(flux, 'flux_times') else 0
+        logger.info(
+            "Track C%d:H%d: decoded %d sectors from flux (%d transitions)",
+            cylinder, head, len(sectors), flux_len
+        )
 
         # Calculate signal quality
         try:
@@ -481,8 +481,10 @@ class ScanWorker(GreaseweazleWorker):
                         if sector.signal_quality > existing.signal_quality:
                             best_sectors[sector_num] = sector
 
-        logger.debug("Track C%d:H%d: deduplicated %d raw sectors to %d unique sectors",
-                    cylinder, head, len(sectors), len(best_sectors))
+        logger.debug(
+            "Track C%d:H%d: deduplicated %d raw sectors to %d unique sectors",
+            cylinder, head, len(sectors), len(best_sectors)
+        )
 
         # Process all expected sectors (1 through sectors_per_track)
         for sector_num in range(1, sectors_per_track + 1):

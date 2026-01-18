@@ -76,7 +76,7 @@ class DiskOperationContext:
             if self.fd is not None:
                 try:
                     close_device(self.fd)
-                except:
+                except Exception:
                     pass
             raise
 

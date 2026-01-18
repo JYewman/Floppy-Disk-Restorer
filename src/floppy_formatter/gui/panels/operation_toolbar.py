@@ -17,19 +17,16 @@ from enum import Enum, auto
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
-    QVBoxLayout,
     QPushButton,
     QLabel,
     QComboBox,
     QProgressBar,
     QFrame,
-    QSizePolicy,
     QToolButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QFont, QIcon
 
-from floppy_formatter.gui.resources import get_icon
+from floppy_formatter.gui.resources import get_colored_icon
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +87,8 @@ class LargeOperationButton(QToolButton):
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setIconSize(QSize(16, 16))
 
-        # Try to load icon
-        icon = get_icon(icon_name)
+        # Try to load icon (white for dark theme visibility)
+        icon = get_colored_icon(icon_name, color="#cccccc", size=16)
         if not icon.isNull():
             self.setIcon(icon)
 
@@ -146,6 +143,7 @@ class OperationToolbar(QWidget):
     stop_clicked = pyqtSignal()
     pause_clicked = pyqtSignal()
     report_export_clicked = pyqtSignal()
+    batch_verify_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         """
@@ -191,29 +189,45 @@ class OperationToolbar(QWidget):
             "Format", "hard-drive", "Format disk"
         )
         self._format_button.setCheckable(True)
-        self._format_button.clicked.connect(lambda: self._on_operation_clicked(OperationType.FORMAT))
+        self._format_button.clicked.connect(
+            lambda: self._on_operation_clicked(OperationType.FORMAT)
+        )
         main_layout.addWidget(self._format_button)
 
         self._restore_button = LargeOperationButton(
             "Restore", "refresh-cw", "Restore/recover disk"
         )
         self._restore_button.setCheckable(True)
-        self._restore_button.clicked.connect(lambda: self._on_operation_clicked(OperationType.RESTORE))
+        self._restore_button.clicked.connect(
+            lambda: self._on_operation_clicked(OperationType.RESTORE)
+        )
         main_layout.addWidget(self._restore_button)
 
         self._analyze_button = LargeOperationButton(
             "Analyze", "activity", "Analyze flux data"
         )
         self._analyze_button.setCheckable(True)
-        self._analyze_button.clicked.connect(lambda: self._on_operation_clicked(OperationType.ANALYZE))
+        self._analyze_button.clicked.connect(
+            lambda: self._on_operation_clicked(OperationType.ANALYZE)
+        )
         main_layout.addWidget(self._analyze_button)
 
         self._write_image_button = LargeOperationButton(
             "Write Image", "disc", "Write blank formatted disk image"
         )
         self._write_image_button.setCheckable(True)
-        self._write_image_button.clicked.connect(lambda: self._on_operation_clicked(OperationType.WRITE_IMAGE))
+        self._write_image_button.clicked.connect(
+            lambda: self._on_operation_clicked(OperationType.WRITE_IMAGE)
+        )
         main_layout.addWidget(self._write_image_button)
+
+        # Batch Verify button - opens dialog directly, not checkable
+        self._batch_verify_button = LargeOperationButton(
+            "Batch Verify", "layers", "Verify multiple disks in batch"
+        )
+        self._batch_verify_button.setCheckable(False)
+        self._batch_verify_button.clicked.connect(self._on_batch_verify_clicked)
+        main_layout.addWidget(self._batch_verify_button)
 
         self._operation_buttons = [
             self._scan_button,
@@ -283,10 +297,10 @@ class OperationToolbar(QWidget):
         # Export Report button
         self._report_button = QPushButton("Export Report")
         self._report_button.setToolTip("Export report for the last completed operation")
-        report_icon = get_icon("file-text")
+        report_icon = get_colored_icon("file-text", color="#cccccc", size=16)
         if not report_icon.isNull():
             self._report_button.setIcon(report_icon)
-        self._report_button.setFixedWidth(110)
+        self._report_button.setFixedWidth(130)
         self._report_button.setEnabled(False)  # Disabled until operation completes
         self._report_button.clicked.connect(self._on_report_clicked)
         main_layout.addWidget(self._report_button)
@@ -391,9 +405,12 @@ class OperationToolbar(QWidget):
         self._mode_combo.setEnabled(is_idle and self._is_enabled)
 
         # Start button - enabled when operation selected and idle, or when paused
-        start_enabled = (is_idle and self._selected_operation is not None and self._is_enabled) or is_paused
-        logger.debug("Start button: enabled=%s (idle=%s, op_selected=%s, toolbar_enabled=%s)",
-                    start_enabled, is_idle, self._selected_operation is not None, self._is_enabled)
+        op_selected = self._selected_operation is not None
+        start_enabled = (is_idle and op_selected and self._is_enabled) or is_paused
+        logger.debug(
+            "Start button: enabled=%s (idle=%s, op_selected=%s, toolbar_enabled=%s)",
+            start_enabled, is_idle, op_selected, self._is_enabled
+        )
         self._start_button.setEnabled(start_enabled)
 
         if is_paused:
@@ -406,6 +423,9 @@ class OperationToolbar(QWidget):
 
         # Stop button - enabled when running or paused
         self._stop_button.setEnabled(is_running or is_paused)
+
+        # Batch verify button - enabled when idle and connected
+        self._batch_verify_button.setEnabled(is_idle and self._is_enabled)
 
         # Progress bar
         if is_idle:
@@ -579,3 +599,21 @@ class OperationToolbar(QWidget):
             True if report export button is enabled
         """
         return self._report_button.isEnabled()
+
+    def _on_batch_verify_clicked(self) -> None:
+        """Handle batch verify button click."""
+        logger.debug("Batch Verify button clicked")
+        self.batch_verify_clicked.emit()
+
+    def set_batch_verify_enabled(self, enabled: bool) -> None:
+        """
+        Enable or disable the Batch Verify button.
+
+        Args:
+            enabled: True to enable, False to disable
+        """
+        self._batch_verify_button.setEnabled(enabled)
+        if enabled:
+            self._batch_verify_button.setToolTip("Verify multiple disks in batch")
+        else:
+            self._batch_verify_button.setToolTip("Connect to device to enable batch verification")

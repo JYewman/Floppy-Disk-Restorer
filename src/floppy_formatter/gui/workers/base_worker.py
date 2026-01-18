@@ -12,7 +12,7 @@ Part of Phase 9: Workers & Background Processing
 
 import logging
 import time
-from typing import Optional, Any, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
 

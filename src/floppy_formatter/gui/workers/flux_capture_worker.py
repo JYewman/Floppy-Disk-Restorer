@@ -11,7 +11,7 @@ Part of Phase 9: Workers & Background Processing
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Deque, TYPE_CHECKING
 
 from PyQt6.QtCore import pyqtSignal

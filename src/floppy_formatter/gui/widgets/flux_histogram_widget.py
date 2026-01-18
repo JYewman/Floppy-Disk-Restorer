@@ -14,7 +14,7 @@ Part of Phase 7-8: Analytics Dashboard & Flux Visualization
 import math
 import statistics
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Dict
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPen,
@@ -34,9 +34,7 @@ from PyQt6.QtGui import (
     QFont,
     QFontMetrics,
     QPaintEvent,
-    QResizeEvent,
     QPixmap,
-    QImage,
 )
 
 import logging
@@ -132,7 +130,9 @@ class DetectedPeak:
     label: str = ""
 
     @classmethod
-    def from_gaussian_fit(cls, fit: GaussianFit, expected_positions: Dict[str, float] = None) -> 'DetectedPeak':
+    def from_gaussian_fit(
+        cls, fit: GaussianFit, expected_positions: Dict[str, float] = None
+    ) -> 'DetectedPeak':
         """Create DetectedPeak from GaussianFit."""
         expected_pos = 0.0
         deviation = 0.0
@@ -263,7 +263,7 @@ class FluxHistogramWidget(QWidget):
     # =========================================================================
 
     def set_histogram_data(self, timings_us: List[float], bins: int = 100,
-                          min_us: float = 2.0, max_us: float = 12.0) -> None:
+                           min_us: float = 2.0, max_us: float = 12.0) -> None:
         """
         Set histogram data from raw timing values.
 
@@ -434,9 +434,6 @@ class FluxHistogramWidget(QWidget):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Temporarily store original size
-        original_size = self.size()
-
         # Manually render components at export size
         self._render_to_painter(painter, width, height)
 
@@ -558,7 +555,8 @@ class FluxHistogramWidget(QWidget):
             if plot_left <= x <= plot_right:
                 painter.drawText(int(x - 10), int(plot_bottom + 15), f"{us}")
 
-        painter.drawText(int((plot_left + plot_right) / 2 - 40), int(height - 5), "Pulse Width (µs)")
+        x_label_x = int((plot_left + plot_right) / 2 - 40)
+        painter.drawText(x_label_x, int(height - 5), "Pulse Width (µs)")
 
         # Y axis labels
         if self._histogram.max_count > 0:
@@ -576,9 +574,12 @@ class FluxHistogramWidget(QWidget):
         painter.setPen(QPen(COLOR_TEXT))
         x = width - MARGIN_RIGHT - 100
         y = MARGIN_TOP + 15
-        score_color = QColor("#4ec9b0") if self._quality_score >= 0.7 else \
-                     QColor("#dcdcaa") if self._quality_score >= 0.4 else \
-                     QColor("#f14c4c")
+        if self._quality_score >= 0.7:
+            score_color = QColor("#4ec9b0")
+        elif self._quality_score >= 0.4:
+            score_color = QColor("#dcdcaa")
+        else:
+            score_color = QColor("#f14c4c")
         painter.setPen(QPen(score_color))
         painter.drawText(int(x), int(y), f"Quality: {self._quality_score:.0%}")
         painter.setPen(QPen(COLOR_TEXT))
@@ -668,7 +669,10 @@ class FluxHistogramWidget(QWidget):
                 right_idx = i
                 break
 
-        fwhm = local_centers[right_idx] - local_centers[left_idx] if right_idx > left_idx else bin_width * 2
+        if right_idx > left_idx:
+            fwhm = local_centers[right_idx] - local_centers[left_idx]
+        else:
+            fwhm = bin_width * 2
         sigma = max(0.1, fwhm / 2.355)
 
         return GaussianFit(
@@ -1018,12 +1022,16 @@ class FluxHistogramWidget(QWidget):
         plot_bottom = self.height() - MARGIN_BOTTOM
 
         # X axis
-        painter.drawLine(int(plot_left), int(plot_bottom),
-                        int(plot_right), int(plot_bottom))
+        painter.drawLine(
+            int(plot_left), int(plot_bottom),
+            int(plot_right), int(plot_bottom)
+        )
 
         # Y axis
-        painter.drawLine(int(plot_left), int(plot_top),
-                        int(plot_left), int(plot_bottom))
+        painter.drawLine(
+            int(plot_left), int(plot_top),
+            int(plot_left), int(plot_bottom)
+        )
 
         # X axis labels
         for us in [2, 4, 6, 8, 10]:
@@ -1032,8 +1040,8 @@ class FluxHistogramWidget(QWidget):
                 painter.drawText(int(x - 10), int(plot_bottom + 15), f"{us}")
 
         # X axis title
-        painter.drawText(int((plot_left + plot_right) / 2 - 40),
-                        int(self.height() - 5), "Pulse Width (µs)")
+        x_title_x = int((plot_left + plot_right) / 2 - 40)
+        painter.drawText(x_title_x, int(self.height() - 5), "Pulse Width (µs)")
 
         # Y axis labels
         if self._histogram and self._histogram.max_count > 0:
@@ -1067,9 +1075,12 @@ class FluxHistogramWidget(QWidget):
         y = MARGIN_TOP + 15
 
         # Quality score with color
-        score_color = QColor("#4ec9b0") if self._quality_score >= 0.7 else \
-                     QColor("#dcdcaa") if self._quality_score >= 0.4 else \
-                     QColor("#f14c4c")
+        if self._quality_score >= 0.7:
+            score_color = QColor("#4ec9b0")
+        elif self._quality_score >= 0.4:
+            score_color = QColor("#dcdcaa")
+        else:
+            score_color = QColor("#f14c4c")
 
         painter.setPen(QPen(score_color))
         painter.drawText(int(x), int(y), f"Quality: {self._quality_score:.0%}")
@@ -1104,7 +1115,8 @@ class FluxHistogramWidget(QWidget):
         # Show tooltip
         if self._hover_bin >= 0:
             count = self._histogram.bin_counts[self._hover_bin]
-            pct = (count / self._histogram.total_count * 100) if self._histogram.total_count > 0 else 0
+            total = self._histogram.total_count
+            pct = (count / total * 100) if total > 0 else 0
             self.setToolTip(f"{us:.2f} µs\nCount: {count:,}\n{pct:.1f}%")
         else:
             self.setToolTip("")
@@ -1192,7 +1204,7 @@ class FluxHistogramPanel(QWidget):
         return self._histogram
 
     def set_histogram_data(self, timings_us: List[float], bins: int = 100,
-                          min_us: float = 2.0, max_us: float = 12.0) -> None:
+                           min_us: float = 2.0, max_us: float = 12.0) -> None:
         """Set histogram data and update stats."""
         self._histogram.set_histogram_data(timings_us, bins, min_us, max_us)
         self._update_stats()

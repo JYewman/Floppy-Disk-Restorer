@@ -87,6 +87,20 @@ from floppy_formatter.gui.dialogs.splash_screen import (
     finish_splash,
 )
 
+# Batch Verification Dialogs (Phase 11)
+from floppy_formatter.gui.dialogs.batch_verify_config_dialog import (
+    BatchVerifyConfigDialog,
+    BatchVerifyConfig,
+    FloppyBrand,
+    FloppyDiskInfo,
+    show_batch_verify_config_dialog,
+)
+from floppy_formatter.gui.dialogs.disk_prompt_dialog import (
+    DiskPromptDialog,
+    DiskPromptResult,
+    show_disk_prompt_dialog,
+)
+
 __all__ = [
     # Confirmation dialogs
     "ConfirmCancelDialog",
@@ -145,4 +159,13 @@ __all__ = [
     "show_splash",
     "update_splash_progress",
     "finish_splash",
+    # Batch Verification (Phase 11)
+    "BatchVerifyConfigDialog",
+    "BatchVerifyConfig",
+    "FloppyBrand",
+    "FloppyDiskInfo",
+    "show_batch_verify_config_dialog",
+    "DiskPromptDialog",
+    "DiskPromptResult",
+    "show_disk_prompt_dialog",
 ]

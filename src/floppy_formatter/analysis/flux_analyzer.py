@@ -682,7 +682,6 @@ def detect_encoding_type(flux: FluxCapture) -> Tuple[EncodingType, float]:
         return EncodingType.UNKNOWN, 0.0
 
     # Analyze peak pattern
-    num_peaks = len(histogram.peaks)
     peak_positions = sorted(histogram.peaks)
 
     # MFM characteristics:
@@ -966,7 +965,7 @@ def _calculate_encoding_confidence(
     medium_count: int,
     long_count: int,
     outlier_pct: float,
-    is_hd: bool
+    _is_hd: bool
 ) -> float:
     """Calculate confidence score for MFM encoding detection."""
     scores = []
@@ -1043,7 +1042,7 @@ def _score_mfm_pattern(peaks: List[float], widths: List[float]) -> float:
     return statistics.mean(scores) if scores else 0.0
 
 
-def _score_fm_pattern(peaks: List[float], widths: List[float]) -> float:
+def _score_fm_pattern(peaks: List[float], _widths: List[float]) -> float:
     """Score how well peaks match FM pattern."""
     if len(peaks) < 2:
         return 0.1
@@ -1065,7 +1064,7 @@ def _score_fm_pattern(peaks: List[float], widths: List[float]) -> float:
     return 0.3
 
 
-def _score_gcr_pattern(peaks: List[float], widths: List[float]) -> float:
+def _score_gcr_pattern(peaks: List[float], _widths: List[float]) -> float:
     """Score how well peaks match GCR pattern."""
     if len(peaks) < 3:
         return 0.1

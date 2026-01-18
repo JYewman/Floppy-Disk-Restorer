@@ -11,16 +11,15 @@ from typing import Optional, List, Callable
 import importlib.metadata
 
 from PyQt6.QtWidgets import (
-    QSplashScreen, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QProgressBar, QGraphicsOpacityEffect, QApplication
+    QSplashScreen, QWidget, QGraphicsOpacityEffect, QApplication
 )
 from PyQt6.QtCore import (
     Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal,
-    QSize, QPoint, QRect
+    QRect
 )
 from PyQt6.QtGui import (
-    QPixmap, QPainter, QColor, QFont, QFontDatabase,
-    QLinearGradient, QPen, QBrush, QPainterPath, QImage
+    QPixmap, QPainter, QColor, QFont,
+    QLinearGradient, QPen, QPainterPath
 )
 from pathlib import Path
 
@@ -300,7 +299,8 @@ class SplashScreen(QSplashScreen):
 
         percent_text = f"{self._progress}%"
         percent_rect = QRect(bar_x + bar_width + 10, bar_y - 2, 40, bar_height + 4)
-        painter.drawText(percent_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, percent_text)
+        alignment = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        painter.drawText(percent_rect, alignment, percent_text)
 
     def _draw_status(self, painter: QPainter) -> None:
         """Draw status message."""

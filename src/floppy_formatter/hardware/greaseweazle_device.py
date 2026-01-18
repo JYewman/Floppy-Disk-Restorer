@@ -26,7 +26,7 @@ from __future__ import annotations  # PEP 563: Postponed evaluation of annotatio
 
 import logging
 import time
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 
 # Greaseweazle imports
 try:
@@ -51,7 +51,6 @@ from . import (
     SeekError,
     FluxError,
     NoDeviceError,
-    NoDiskError,
     TimeoutError,
     DriveType,
     DriveInfo,
@@ -719,12 +718,16 @@ class GreaseweazleDevice(IFloppyDevice):
             # For HD at 300 RPM: one revolution = 200ms
             # We erase for ~1.5 revolutions to ensure complete coverage
             # Sample rate is typically 72MHz for Greaseweazle V4
-            sample_rate = self._unit.sample_freq if hasattr(self._unit, 'sample_freq') else 72_000_000
+            has_freq = hasattr(self._unit, 'sample_freq')
+            sample_rate = self._unit.sample_freq if has_freq else 72_000_000
             erase_duration_us = 300_000  # 300ms = 1.5 revolutions at 300 RPM
             erase_ticks = int((erase_duration_us / 1_000_000) * sample_rate)
 
             self._unit.erase_track(erase_ticks)
-            logger.debug("Successfully erased track C%d H%d (ticks=%d)", cylinder, head, erase_ticks)
+            logger.debug(
+                "Successfully erased track C%d H%d (ticks=%d)",
+                cylinder, head, erase_ticks
+            )
 
         except Exception as e:
             logger.error("Failed to erase track C%d H%d: %s", cylinder, head, e)
@@ -807,8 +810,10 @@ class GreaseweazleDevice(IFloppyDevice):
             # Verify drive state using firmware query
             try:
                 drive_info = self._unit.get_current_drive_info()
-                logger.info("Drive info: motor_on=%s, cyl=%s",
-                           drive_info.motor_on, drive_info.cyl)
+                logger.info(
+                    "Drive info: motor_on=%s, cyl=%s",
+                    drive_info.motor_on, drive_info.cyl
+                )
                 if not drive_info.motor_on:
                     logger.warning("Drive reports motor is off after motor_on command")
             except Exception as e:
@@ -896,14 +901,18 @@ class GreaseweazleDevice(IFloppyDevice):
                 # Use the same calculation as official 'gw rpm' command:
                 # time_per_revolution = index_list[-1] / sample_freq
                 # This gives the time from start of capture to the final INDEX pulse
-                logger.debug("RPM calc: sample_freq=%s, index_list=%s",
-                            flux.sample_freq, flux.index_list)
+                logger.debug(
+                    "RPM calc: sample_freq=%s, index_list=%s",
+                    flux.sample_freq, flux.index_list
+                )
 
                 time_per_rev = flux.index_list[-1] / flux.sample_freq
                 rpm = 60.0 / time_per_rev
 
-                logger.debug("RPM calc: time_per_rev=%.3f ms, rpm=%.1f",
-                            time_per_rev * 1000, rpm)
+                logger.debug(
+                    "RPM calc: time_per_rev=%.3f ms, rpm=%.1f",
+                    time_per_rev * 1000, rpm
+                )
 
                 # Sanity check - if RPM is way off, log detailed diagnostics
                 if rpm < 100 or rpm > 500:

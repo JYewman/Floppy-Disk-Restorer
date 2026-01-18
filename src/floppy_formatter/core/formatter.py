@@ -17,12 +17,9 @@ from typing import List, Tuple, Optional, Callable, Union, Any
 
 from floppy_formatter.core.geometry import DiskGeometry
 from floppy_formatter.core.sector_adapter import (
-    read_sector,
     read_track,
     format_track_low_level,
-    write_track_pattern,
     classify_error,
-    ERROR_SUCCESS,
     invalidate_track_cache,
 )
 from floppy_formatter.hardware import GreaseweazleDevice
@@ -389,7 +386,8 @@ def verify_format(
                 for result in results:
                     if result['sector'] == 1:
                         if not result['success']:
-                            linear_sector = (cylinder * geometry.heads + head) * geometry.sectors_per_track
+                            track_idx = cylinder * geometry.heads + head
+                            linear_sector = track_idx * geometry.sectors_per_track
                             bad_sectors.append(linear_sector)
                         break
     else:

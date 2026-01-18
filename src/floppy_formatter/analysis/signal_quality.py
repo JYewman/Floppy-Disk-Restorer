@@ -27,7 +27,7 @@ import math
 import statistics
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional, Tuple, Dict, TYPE_CHECKING
+from typing import List, Optional, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from floppy_formatter.analysis.flux_analyzer import FluxCapture
@@ -796,10 +796,14 @@ def grade_track_quality(
 
     if sector_results:
         total_sectors = len(sector_results)
-        good_sectors = sum(1 for s in sector_results
-                          if s.get('success', False) and s.get('crc_valid', False))
-        crc_errors = sum(1 for s in sector_results
-                        if s.get('success', False) and not s.get('crc_valid', True))
+        good_sectors = sum(
+            1 for s in sector_results
+            if s.get('success', False) and s.get('crc_valid', False)
+        )
+        crc_errors = sum(
+            1 for s in sector_results
+            if s.get('success', False) and not s.get('crc_valid', True)
+        )
         missing_sectors = total_sectors - good_sectors - crc_errors
 
         if good_sectors == total_sectors:

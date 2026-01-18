@@ -9,8 +9,7 @@ drives using /dev/sdX device paths with raw sector access.
 import os
 import errno
 import logging
-from typing import Optional, List
-from dataclasses import dataclass
+from typing import List
 
 
 # =============================================================================
@@ -376,15 +375,17 @@ def get_device_description(device_path: str) -> str:
             geometry = get_disk_geometry(fd)
 
             # Calculate capacity
-            total_sectors = (geometry.cylinders *
-                           geometry.heads *
-                           geometry.sectors_per_track)
+            total_sectors = (
+                geometry.cylinders *
+                geometry.heads *
+                geometry.sectors_per_track
+            )
             capacity_bytes = total_sectors * geometry.bytes_per_sector
             capacity_mb = capacity_bytes / (1024 * 1024)
 
             # Determine drive type
-            if (geometry.cylinders == 80 and geometry.heads == 2 and
-                geometry.sectors_per_track == 18):
+            if (geometry.cylinders == 80 and geometry.heads == 2
+                    and geometry.sectors_per_track == 18):
                 drive_type = "1.44 MB Floppy"
             elif (geometry.cylinders == 80 and geometry.heads == 2 and
                   geometry.sectors_per_track == 9):

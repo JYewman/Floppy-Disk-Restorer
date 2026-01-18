@@ -11,9 +11,8 @@ Part of Phase 9: Workers & Background Processing
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum, auto
-from typing import List, Dict, Optional, Tuple, Any, TYPE_CHECKING
+from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 
 from PyQt6.QtCore import pyqtSignal
 
@@ -352,6 +351,7 @@ class RestoreWorker(GreaseweazleWorker):
         # Step 2: Run recovery with retry loop
         converged = False
         total_passes_completed = 0
+        failed_verification_sectors = []  # Track sectors that failed verification
 
         for attempt in range(1, MAX_RESTORE_ATTEMPTS + 1):
             if self._cancelled:
@@ -361,7 +361,10 @@ class RestoreWorker(GreaseweazleWorker):
             logger.info("Starting restore attempt %d of %d", attempt, MAX_RESTORE_ATTEMPTS)
 
             # Reset bad sectors list for this attempt
-            self._bad_sectors = list(initial_bad_sectors) if attempt == 1 else list(failed_verification_sectors)
+            if attempt == 1:
+                self._bad_sectors = list(initial_bad_sectors)
+            else:
+                self._bad_sectors = list(failed_verification_sectors)
 
             if not self._bad_sectors:
                 logger.info("No bad sectors to recover")
@@ -422,7 +425,9 @@ class RestoreWorker(GreaseweazleWorker):
             failed_verification_sectors = self._perform_final_verification(initial_bad_sectors)
 
             verification_passed = len(failed_verification_sectors) == 0
-            self.verification_complete.emit(attempt, len(failed_verification_sectors), verification_passed)
+            self.verification_complete.emit(
+                attempt, len(failed_verification_sectors), verification_passed
+            )
 
             if verification_passed:
                 logger.info("Final verification passed - all recovered sectors confirmed good")
@@ -437,8 +442,10 @@ class RestoreWorker(GreaseweazleWorker):
                     # Update the bad sectors for next attempt
                     initial_bad_sectors = failed_verification_sectors
                 else:
-                    logger.error("Max restore attempts reached, %d sectors remain unrecoverable",
-                                len(failed_verification_sectors))
+                    logger.error(
+                        "Max restore attempts reached, %d sectors remain unrecoverable",
+                        len(failed_verification_sectors)
+                    )
 
         # Update progress to 100%
         self.progress.emit(100)
@@ -482,8 +489,10 @@ class RestoreWorker(GreaseweazleWorker):
         """
         from floppy_formatter.hardware import read_track_flux
 
-        logger.info("Final verification: checking %d originally bad sectors",
-                   len(originally_bad_sectors))
+        logger.info(
+            "Final verification: checking %d originally bad sectors",
+            len(originally_bad_sectors)
+        )
 
         still_bad = []
         sectors_per_track = self._geometry.sectors_per_track
@@ -514,11 +523,15 @@ class RestoreWorker(GreaseweazleWorker):
             for linear_sector in sector_nums:
                 if linear_sector not in found_good:
                     still_bad.append(linear_sector)
-                    logger.debug("Verification failed for sector %d (C%d:H%d)",
-                                linear_sector, cylinder, head)
+                    logger.debug(
+                        "Verification failed for sector %d (C%d:H%d)",
+                        linear_sector, cylinder, head
+                    )
 
-        logger.info("Final verification complete: %d/%d sectors still bad",
-                   len(still_bad), len(originally_bad_sectors))
+        logger.info(
+            "Final verification complete: %d/%d sectors still bad",
+            len(still_bad), len(originally_bad_sectors)
+        )
 
         return still_bad
 
@@ -905,7 +918,9 @@ class RestoreWorker(GreaseweazleWorker):
             return result is not None and result.crc_valid
 
         except Exception as e:
-            logger.warning("Bit-slip recovery failed for C%d:H%d:S%d: %s", cylinder, head, sector, e)
+            logger.warning(
+                "Bit-slip recovery failed for C%d:H%d:S%d: %s", cylinder, head, sector, e
+            )
             return False
 
     def _try_maximum_effort(

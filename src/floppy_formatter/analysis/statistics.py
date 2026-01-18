@@ -10,7 +10,7 @@ This module provides comprehensive statistical analysis including:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 from enum import Enum
 
 from floppy_formatter.analysis.scanner import SectorMap
@@ -135,7 +135,8 @@ class FormatStatistics:
         elif self.converged:
             return f"Converged after {self.convergence_pass} passes (optimal recovery achieved)"
         else:
-            return f"Did not converge after {self.passes_performed} passes (may benefit from more passes)"
+            passes = self.passes_performed
+            return f"Did not converge after {passes} passes (may benefit from more passes)"
 
 
 # =============================================================================
@@ -181,21 +182,31 @@ def create_comparison_statistics(
     total_sectors = initial_scan.total_sectors
     final_bad_percentage = (final_bad / total_sectors) * 100.0
 
+    pct = final_bad_percentage
     if final_bad == 0:
         status = DiskStatus.PERFECT
-        message = "Disk is fully functional with zero bad sectors. Safe for all uses including critical data."
-    elif final_bad_percentage < 1.0:
+        message = (
+            "Disk is fully functional with zero bad sectors. "
+            "Safe for all uses including critical data."
+        )
+    elif pct < 1.0:
         status = DiskStatus.GOOD
-        message = f"Disk has {final_bad} bad sectors ({final_bad_percentage:.2f}%). Safe for most uses."
-    elif final_bad_percentage < 5.0:
+        message = f"Disk has {final_bad} bad sectors ({pct:.2f}%). Safe for most uses."
+    elif pct < 5.0:
         status = DiskStatus.DEGRADED
-        message = f"Disk has {final_bad} bad sectors ({final_bad_percentage:.2f}%). Usable but avoid critical data."
-    elif final_bad_percentage < 20.0:
+        message = (
+            f"Disk has {final_bad} bad sectors ({pct:.2f}%). "
+            "Usable but avoid critical data."
+        )
+    elif pct < 20.0:
         status = DiskStatus.POOR
-        message = f"Disk has {final_bad} bad sectors ({final_bad_percentage:.1f}%). Significant reliability concerns."
+        message = (
+            f"Disk has {final_bad} bad sectors ({pct:.1f}%). "
+            "Significant reliability concerns."
+        )
     else:
         status = DiskStatus.UNUSABLE
-        message = f"Disk has {final_bad} bad sectors ({final_bad_percentage:.1f}%). Should be replaced."
+        message = f"Disk has {final_bad} bad sectors ({pct:.1f}%). Should be replaced."
 
     return ComparisonStatistics(
         initial_bad_sectors=initial_bad,
@@ -362,7 +373,10 @@ def format_progress_line(update: ProgressUpdate) -> str:
     line_parts.append(f": {update.current_bad_sectors} bad sectors")
 
     if update.delta_absolute is not None:
-        line_parts.append(f"  ({update.trend_indicator} {update.delta_absolute:+d}, {update.delta_percentage:+.1f}%)")
+        trend = update.trend_indicator
+        delta = update.delta_absolute
+        pct = update.delta_percentage
+        line_parts.append(f"  ({trend} {delta:+d}, {pct:+.1f}%)")
 
     return "".join(line_parts)
 

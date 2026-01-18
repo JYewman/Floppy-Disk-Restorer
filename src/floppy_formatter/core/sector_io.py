@@ -249,8 +249,9 @@ def read_track(fd: int, cylinder: int, head: int,
     sectors_per_track = geometry.sectors_per_track
     start_sector = (cylinder * geometry.heads + head) * sectors_per_track
 
-    return read_sectors_batch(fd, start_sector, sectors_per_track,
-                             geometry.bytes_per_sector)
+    return read_sectors_batch(
+        fd, start_sector, sectors_per_track, geometry.bytes_per_sector
+    )
 
 
 # =============================================================================
@@ -258,8 +259,9 @@ def read_track(fd: int, cylinder: int, head: int,
 # =============================================================================
 
 
-def write_sector(fd: int, sector_number: int, data: bytes,
-                bytes_per_sector: int = BYTES_PER_SECTOR) -> Tuple[bool, int]:
+def write_sector(
+    fd: int, sector_number: int, data: bytes, bytes_per_sector: int = BYTES_PER_SECTOR
+) -> Tuple[bool, int]:
     """
     Write a single sector to the disk.
 
@@ -326,8 +328,10 @@ def write_sector(fd: int, sector_number: int, data: bytes,
         return (False, e.errno)
 
 
-def write_sectors_batch(fd: int, start_sector: int, data_list: List[bytes],
-                       bytes_per_sector: int = BYTES_PER_SECTOR) -> Tuple[int, List[Dict]]:
+def write_sectors_batch(
+    fd: int, start_sector: int, data_list: List[bytes],
+    bytes_per_sector: int = BYTES_PER_SECTOR
+) -> Tuple[int, List[Dict]]:
     """
     Write multiple consecutive sectors with per-sector error tracking.
 
@@ -372,8 +376,9 @@ def write_sectors_batch(fd: int, start_sector: int, data_list: List[bytes],
 # =============================================================================
 
 
-def write_pattern(fd: int, sector_number: int, pattern_byte: int,
-                 bytes_per_sector: int = BYTES_PER_SECTOR) -> Tuple[bool, int]:
+def write_pattern(
+    fd: int, sector_number: int, pattern_byte: int, bytes_per_sector: int = BYTES_PER_SECTOR
+) -> Tuple[bool, int]:
     """
     Write a magnetic pattern to a sector.
 
@@ -408,8 +413,9 @@ def write_pattern(fd: int, sector_number: int, pattern_byte: int,
     return write_sector(fd, sector_number, pattern_data, bytes_per_sector)
 
 
-def write_track_pattern(fd: int, cylinder: int, head: int, pattern_byte: int,
-                       geometry) -> Tuple[int, List[Dict]]:
+def write_track_pattern(
+    fd: int, cylinder: int, head: int, pattern_byte: int, geometry
+) -> Tuple[int, List[Dict]]:
     """
     Write a magnetic pattern to all sectors in a track.
 
@@ -443,8 +449,9 @@ def write_track_pattern(fd: int, cylinder: int, head: int, pattern_byte: int,
 
     for sector_offset in range(sectors_per_track):
         sector_num = start_sector + sector_offset
-        success, error = write_pattern(fd, sector_num, pattern_byte,
-                                      geometry.bytes_per_sector)
+        success, error = write_pattern(
+            fd, sector_num, pattern_byte, geometry.bytes_per_sector
+        )
         results.append({
             'sector': sector_num,
             'success': success,
@@ -455,8 +462,7 @@ def write_track_pattern(fd: int, cylinder: int, head: int, pattern_byte: int,
     return (success_count, results)
 
 
-def write_disk_pattern(fd: int, pattern_byte: int,
-                      geometry) -> Tuple[int, int]:
+def write_disk_pattern(fd: int, pattern_byte: int, geometry) -> Tuple[int, int]:
     """
     Write a magnetic pattern to the entire disk.
 
@@ -645,10 +651,10 @@ def is_data_error(error_code: int) -> bool:
         ...     print("Bad sector detected - attempting recovery")
     """
     data_errors = {
-        ERROR_CRC,              # Bad sector / I/O error
-        ERROR_SECTOR_NOT_FOUND, # Missing sector
-        ERROR_READ_FAULT,       # Read failure
-        ERROR_WRITE_FAULT,      # Write failure
+        ERROR_CRC,  # Bad sector / I/O error
+        ERROR_SECTOR_NOT_FOUND,  # Missing sector
+        ERROR_READ_FAULT,  # Read failure
+        ERROR_WRITE_FAULT,  # Write failure
     }
     return error_code in data_errors
 
@@ -658,8 +664,10 @@ def is_data_error(error_code: int) -> bool:
 # =============================================================================
 
 
-def verify_sector(fd: int, sector_number: int, expected_data: bytes,
-                 bytes_per_sector: int = BYTES_PER_SECTOR) -> Tuple[bool, int]:
+def verify_sector(
+    fd: int, sector_number: int, expected_data: bytes,
+    bytes_per_sector: int = BYTES_PER_SECTOR
+) -> Tuple[bool, int]:
     """
     Verify that a sector contains expected data.
 
@@ -697,8 +705,9 @@ def verify_sector(fd: int, sector_number: int, expected_data: bytes,
     return (matches, ERROR_SUCCESS)
 
 
-def verify_pattern(fd: int, sector_number: int, pattern_byte: int,
-                  bytes_per_sector: int = BYTES_PER_SECTOR) -> Tuple[bool, int]:
+def verify_pattern(
+    fd: int, sector_number: int, pattern_byte: int, bytes_per_sector: int = BYTES_PER_SECTOR
+) -> Tuple[bool, int]:
     """
     Verify that a sector contains a specific pattern.
 

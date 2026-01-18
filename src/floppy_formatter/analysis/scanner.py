@@ -18,11 +18,8 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Callable, Tuple, Any, Union
 
 from floppy_formatter.core.sector_adapter import (
-    read_sector,
     read_track,
     classify_error,
-    ERROR_SUCCESS,
-    BYTES_PER_SECTOR,
     invalidate_track_cache,
 )
 from floppy_formatter.core.geometry import (
@@ -30,7 +27,6 @@ from floppy_formatter.core.geometry import (
     CYLINDERS_1PT44MB,
     HEADS_PER_CYLINDER_1PT44MB,
     SECTORS_PER_TRACK_1PT44MB,
-    TOTAL_SECTORS_1PT44MB,
 )
 from floppy_formatter.hardware import GreaseweazleDevice
 
@@ -292,13 +288,14 @@ def scan_all_sectors(
     for cylinder in range(geometry.cylinders):
         for head in range(geometry.heads):
             # Read entire track at once (more efficient with Greaseweazle)
-            success_count, track_results = read_track(device, cylinder, head, geometry)
+            _, track_results = read_track(device, cylinder, head, geometry)
 
             # Process results for each sector in the track
             for result in track_results:
                 # Calculate linear sector number
                 sector_in_track = result['sector'] - 1  # Convert 1-indexed to 0-indexed
-                linear_sector = (cylinder * geometry.heads + head) * geometry.sectors_per_track + sector_in_track
+                track_offset = (cylinder * geometry.heads + head) * geometry.sectors_per_track
+                linear_sector = track_offset + sector_in_track
 
                 if result['success']:
                     sector_map.good_sectors.append(linear_sector)
@@ -378,7 +375,7 @@ def scan_track(
     )
 
     # Read the entire track at once (more efficient with Greaseweazle)
-    success_count, track_results = read_track(device, cylinder, head, geometry)
+    _, track_results = read_track(device, cylinder, head, geometry)
 
     # Process results
     for i, result in enumerate(track_results):

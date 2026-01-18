@@ -8,7 +8,7 @@ Part of the Write Image feature.
 """
 
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional
 
 from PyQt6.QtWidgets import (
     QDialog,

@@ -10,12 +10,10 @@ Provides detailed error analysis including:
 Part of Phase 7: Analytics Dashboard
 """
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum, auto
-from typing import List, Optional, Dict, Any, Tuple
-from collections import Counter
+from enum import Enum
+from typing import List, Optional, Dict, Tuple
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -32,16 +30,14 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QAbstractItemView,
     QSizePolicy,
-    QGroupBox,
     QTextEdit,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
+from PyQt6.QtCore import Qt, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPen,
     QBrush,
     QColor,
-    QPainterPath,
     QFont,
     QPaintEvent,
     QMouseEvent,
@@ -253,8 +249,8 @@ class ErrorHeatmapWidget(QWidget):
                     painter.fillRect(QRectF(x, y, cell_width - 0.5, cell_height - 0.5), color)
                 else:
                     # Empty cell
-                    painter.fillRect(QRectF(x, y, cell_width - 0.5, cell_height - 0.5),
-                                   QColor("#2d2d30"))
+                    empty_rect = QRectF(x, y, cell_width - 0.5, cell_height - 0.5)
+                    painter.fillRect(empty_rect, QColor("#2d2d30"))
 
         # Draw hover highlight
         if self._hover_cell:
@@ -548,9 +544,12 @@ class ErrorLogTable(QTableWidget):
                     if self._filter_type and error.error_type.value != self._filter_type:
                         continue
 
-                    f.write(f"{error.timestamp.isoformat()},"
-                           f"{error.cylinder},{error.head},{error.sector},"
-                           f"{error.error_type.value},\"{error.details}\"\n")
+                    line = (
+                        f"{error.timestamp.isoformat()},"
+                        f"{error.cylinder},{error.head},{error.sector},"
+                        f"{error.error_type.value},\"{error.details}\"\n"
+                    )
+                    f.write(line)
 
             return True
         except Exception as e:
@@ -721,7 +720,7 @@ class PatternDetectionWidget(QFrame):
             ratio = max(head0_count, head1_count) / min(head0_count, head1_count)
             if ratio > 3:
                 worse_head = 0 if head0_count > head1_count else 1
-                analysis_lines.append(f"HEAD-SPECIFIC ISSUES:")
+                analysis_lines.append("HEAD-SPECIFIC ISSUES:")
                 analysis_lines.append(f"  - Head {worse_head} has {ratio:.1f}x more errors")
                 analysis_lines.append("")
                 analysis_lines.append("Possible causes:")

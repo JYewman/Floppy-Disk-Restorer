@@ -10,7 +10,7 @@ Part of Phase 4: Advanced Data Recovery
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Callable, Tuple
+from typing import Optional, List, Dict, Callable, Tuple, Any
 from enum import Enum, auto
 import time
 import logging
@@ -364,7 +364,10 @@ def write_recovery_pattern(
             verified = True
 
             if verification_errors > 0:
-                logger.warning(f"Pattern verification: {verification_errors}/{sectors_per_track} sectors differ")
+                logger.warning(
+                    "Pattern verification: %d/%d sectors differ",
+                    verification_errors, sectors_per_track
+                )
 
         logger.info(f"Pattern write completed in {duration_ms:.1f}ms")
 
@@ -455,7 +458,10 @@ def refresh_track(
             result.initial_snr = initial_metrics.get('snr')
             result.initial_quality_grade = initial_metrics.get('grade')
 
-            logger.info(f"Initial quality: SNR={result.initial_snr:.1f}dB, grade={result.initial_quality_grade}")
+            logger.info(
+                "Initial quality: SNR=%.1fdB, grade=%s",
+                result.initial_snr, result.initial_quality_grade
+            )
 
         # Degauss (DC erase)
         if degauss_first:
@@ -486,7 +492,9 @@ def refresh_track(
             )
 
             if not write_result.success:
-                result.error_message = f"Pattern write 0x{pattern:02X} failed: {write_result.error_message}"
+                result.error_message = (
+                    f"Pattern write 0x{pattern:02X} failed: {write_result.error_message}"
+                )
                 return result
 
             result.patterns_written.append(pattern)
@@ -504,7 +512,10 @@ def refresh_track(
             result.final_snr = final_metrics.get('snr')
             result.final_quality_grade = final_metrics.get('grade')
 
-            logger.info(f"Final quality: SNR={result.final_snr:.1f}dB, grade={result.final_quality_grade}")
+            logger.info(
+                "Final quality: SNR=%.1fdB, grade=%s",
+                result.final_snr, result.final_quality_grade
+            )
 
             if result.initial_snr and result.final_snr:
                 improvement = result.final_snr - result.initial_snr
@@ -528,7 +539,7 @@ def _measure_track_quality(
     device: GreaseweazleDevice,
     cyl: int,
     head: int
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Measure the signal quality of a track.
 
@@ -690,17 +701,13 @@ def treat_weak_sector(
                 result.final_crc_valid = s.crc_valid
                 break
 
-        # Calculate quality improvement
-        initial_snr = _measure_sector_snr(captured.flux_data, sector, decoder)
-        # Note: We'd need the before capture to properly compare
-
         result.duration_ms = (time.perf_counter() - start_time) * 1000
         result.success = result.final_crc_valid
 
         if result.success:
-            logger.info(f"Sector treatment successful: now readable with valid CRC")
+            logger.info("Sector treatment successful: now readable with valid CRC")
         else:
-            logger.warning(f"Sector treatment completed but sector not fully recovered")
+            logger.warning("Sector treatment completed but sector not fully recovered")
 
         return result
 
@@ -709,32 +716,6 @@ def treat_weak_sector(
         result.error_message = str(e)
         logger.error(f"Sector treatment failed: {e}")
         return result
-
-
-def _measure_sector_snr(
-    flux_data: bytes,
-    sector_number: int,
-    decoder: MFMDecoder
-) -> Optional[float]:
-    """
-    Estimate SNR for a specific sector from flux data.
-
-    Args:
-        flux_data: Raw flux data
-        sector_number: Target sector number
-        decoder: MFM decoder instance
-
-    Returns:
-        Estimated SNR in dB, or None if cannot measure
-    """
-    # This is a simplified estimation based on decode confidence
-    # A full implementation would analyze the flux timing around the sector
-    try:
-        # The decoder can provide per-sector confidence metrics
-        # For now, return None as this requires more complex analysis
-        return None
-    except Exception:
-        return None
 
 
 def bulk_refresh_tracks(
@@ -940,7 +921,10 @@ def emergency_degauss_disk(
         result.total_duration_ms = (time.perf_counter() - start_time) * 1000
         result.success = result.tracks_failed == 0
 
-        logger.info(f"Emergency degauss completed: {result.tracks_successful}/{total_tracks} tracks")
+        logger.info(
+            "Emergency degauss completed: %d/%d tracks",
+            result.tracks_successful, total_tracks
+        )
 
         return result
 

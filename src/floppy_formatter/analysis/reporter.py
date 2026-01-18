@@ -14,9 +14,7 @@ import string
 
 from floppy_formatter.analysis.scanner import (
     SectorMap,
-    TrackInfo,
     get_all_tracks,
-    get_sector_address,
     format_sector_address,
 )
 from floppy_formatter.analysis.statistics import (
@@ -30,7 +28,6 @@ from floppy_formatter.core.geometry import (
     DiskGeometry,
     CYLINDERS_1PT44MB,
     HEADS_PER_CYLINDER_1PT44MB,
-    SECTORS_PER_TRACK_1PT44MB,
 )
 
 
@@ -171,11 +168,9 @@ def generate_track_map(
     if geometry is None:
         cylinders = CYLINDERS_1PT44MB
         heads = HEADS_PER_CYLINDER_1PT44MB
-        sectors_per_track = SECTORS_PER_TRACK_1PT44MB
     else:
         cylinders = geometry.cylinders
         heads = geometry.heads
-        sectors_per_track = geometry.sectors_per_track
 
     if max_cylinders is not None:
         cylinders = min(cylinders, max_cylinders)
@@ -350,7 +345,8 @@ def generate_comparison_report(
             # Show first few and count
             first_few = sorted(comparison.permanently_bad_sectors)[:10]
             sector_list = ", ".join(str(s) for s in first_few)
-            lines.append(f"  First 10: {sector_list}, ... and {len(comparison.permanently_bad_sectors) - 10} more")
+            remaining = len(comparison.permanently_bad_sectors) - 10
+            lines.append(f"  First 10: {sector_list}, ... and {remaining} more")
 
     lines.append("=" * 70)
     return "\n".join(lines)
@@ -385,7 +381,8 @@ def generate_format_report(
 
     # Duration and speed
     duration_minutes = format_stats.total_duration / 60.0
-    lines.append(f"Duration: {duration_minutes:.1f} minutes ({format_stats.total_duration:.1f} seconds)")
+    total_secs = format_stats.total_duration
+    lines.append(f"Duration: {duration_minutes:.1f} minutes ({total_secs:.1f} seconds)")
     lines.append(f"Average speed: {format_stats.average_speed:.1f} sectors/second")
     lines.append("")
 
@@ -477,7 +474,7 @@ def generate_progress_display(
 
 
 def generate_complete_report(
-    initial_scan: SectorMap,
+    _initial_scan: SectorMap,
     final_scan: SectorMap,
     comparison: ComparisonStatistics,
     format_stats: FormatStatistics,

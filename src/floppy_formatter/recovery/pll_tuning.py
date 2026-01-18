@@ -26,11 +26,10 @@ import math
 import statistics
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Tuple, Any
 from itertools import product
 
-if TYPE_CHECKING:
-    from floppy_formatter.hardware import FluxData, SectorData
+# TYPE_CHECKING imports removed - FluxData and SectorData used via FluxCapture
 
 from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
@@ -883,9 +882,9 @@ def optimize_for_sector(
                     result = decode_with_pll(flux, params)
 
                     for sector_result in result.sector_results:
-                        if (sector_result.sector_number == sector_number and
-                            sector_result.crc_valid and
-                            sector_result.data is not None):
+                        matches_sector = sector_result.sector_number == sector_number
+                        is_valid = sector_result.crc_valid and sector_result.data is not None
+                        if matches_sector and is_valid:
                             logger.info("Found sector %d with custom PLL", sector_number)
                             return (True, sector_result.data, params)
 

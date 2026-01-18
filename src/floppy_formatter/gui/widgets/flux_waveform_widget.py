@@ -15,8 +15,7 @@ from floppy disks. Features include:
 Part of Phase 7-8: Analytics Dashboard & Flux Visualization
 """
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Optional, Tuple, Dict, Any
 
@@ -31,11 +30,8 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QPushButton,
     QLabel,
     QToolButton,
-    QMenu,
-    QScrollBar,
     QFrame,
     QToolTip,
 )
@@ -43,9 +39,7 @@ from PyQt6.QtCore import (
     Qt,
     QRectF,
     QPointF,
-    QTimer,
     pyqtSignal,
-    QSizeF,
 )
 from PyQt6.QtGui import (
     QPainter,
@@ -199,13 +193,17 @@ class MarkerItem(QGraphicsItem):
         self._marker = marker
         self._height = height
         self._pen = QPen(marker.get_color(), 1.5, Qt.PenStyle.DashLine)
-        self._brush = QBrush(QColor(marker.get_color().red(),
-                                     marker.get_color().green(),
-                                     marker.get_color().blue(), 40))
+        self._brush = QBrush(QColor(
+            marker.get_color().red(),
+            marker.get_color().green(),
+            marker.get_color().blue(), 40
+        ))
         self._font = QFont("Consolas", 8)
         self.setAcceptHoverEvents(True)
-        self.setToolTip(f"{marker.marker_type.name}: {marker.label}\n"
-                       f"Position: {marker.position_us:.2f} µs")
+        self.setToolTip(
+            f"{marker.marker_type.name}: {marker.label}\n"
+            f"Position: {marker.position_us:.2f} µs"
+        )
 
     def boundingRect(self) -> QRectF:
         width = max(2, self._marker.width_us) if self._marker.width_us > 0 else 2
@@ -326,7 +324,9 @@ class FluxWaveformWidget(QGraphicsView):
     # Public API
     # =========================================================================
 
-    def set_flux_data(self, timings_us: List[float], confidences: Optional[List[float]] = None) -> None:
+    def set_flux_data(
+        self, timings_us: List[float], confidences: Optional[List[float]] = None
+    ) -> None:
         """
         Set flux data from timing values.
 
@@ -687,8 +687,10 @@ class FluxWaveformWidget(QGraphicsView):
             if MARGIN_LEFT <= x <= width - MARGIN_RIGHT:
                 # Determine if major or minor
                 is_major = abs(t % (spacing_us * 5)) < 0.001
-                line = self._scene.addLine(x, waveform_top, x, waveform_bottom,
-                                          pen_major if is_major else pen_minor)
+                line = self._scene.addLine(
+                    x, waveform_top, x, waveform_bottom,
+                    pen_major if is_major else pen_minor
+                )
                 self._grid_items.append(line)
 
                 # Add label for major lines
@@ -702,8 +704,10 @@ class FluxWaveformWidget(QGraphicsView):
 
         # Draw horizontal center line
         center_y = (waveform_top + waveform_bottom) / 2
-        self._scene.addLine(MARGIN_LEFT, center_y,
-                           width - MARGIN_RIGHT, center_y, QPen(COLOR_GRID_MAJOR, 1))
+        self._scene.addLine(
+            MARGIN_LEFT, center_y, width - MARGIN_RIGHT, center_y,
+            QPen(COLOR_GRID_MAJOR, 1)
+        )
 
         # Draw axis label
         label = self._scene.addText("Time (µs)", QFont("Consolas", 9))
@@ -720,9 +724,6 @@ class FluxWaveformWidget(QGraphicsView):
         waveform_center = (waveform_top + waveform_bottom) / 2
         amplitude = (waveform_bottom - waveform_top) / 2 - 10
 
-        high_y = waveform_center - amplitude
-        low_y = waveform_center + amplitude
-
         # Calculate level-of-detail skip factor
         lod_skip = self._calculate_lod_skip()
         self._lod_skip_factor = lod_skip
@@ -730,7 +731,6 @@ class FluxWaveformWidget(QGraphicsView):
         # Build path segments based on quality
         current_path = QPainterPath()
         current_quality = "good"
-        is_high = True
         first_point = True
 
         view_start = self._view_start_us
@@ -795,8 +795,6 @@ class FluxWaveformWidget(QGraphicsView):
                 current_path.lineTo(x, prev_y)
                 # Draw vertical transition
                 current_path.lineTo(x, y)
-
-            is_high = trans.is_rising
 
         # Add final path segment
         if not first_point:
@@ -922,9 +920,11 @@ class FluxWaveformWidget(QGraphicsView):
                 nearest_idx = self._find_nearest_transition(self._cursor_us)
                 if nearest_idx >= 0:
                     trans = self._transitions[nearest_idx]
-                    tip = (f"Time: {self._cursor_us:.2f} µs\n"
-                          f"Transition #{nearest_idx}\n"
-                          f"Confidence: {trans.confidence:.0%}")
+                    tip = (
+                        f"Time: {self._cursor_us:.2f} µs\n"
+                        f"Transition #{nearest_idx}\n"
+                        f"Confidence: {trans.confidence:.0%}"
+                    )
                     QToolTip.showText(event.globalPosition().toPoint(), tip, self)
 
             super().mouseMoveEvent(event)
@@ -1138,7 +1138,9 @@ class FluxWaveformPanel(QWidget):
         """Get the waveform widget."""
         return self._waveform
 
-    def set_flux_data(self, timings_us: List[float], confidences: Optional[List[float]] = None) -> None:
+    def set_flux_data(
+        self, timings_us: List[float], confidences: Optional[List[float]] = None
+    ) -> None:
         """Set flux data."""
         self._waveform.set_flux_data(timings_us, confidences)
         self._stats_label.setText(f"Transitions: {self._waveform.get_transition_count():,}")

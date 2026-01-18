@@ -16,7 +16,6 @@ Part of Phase 11: Image Import/Export
 """
 
 import logging
-import os
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,22 +24,17 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from .image_formats import (
     ImageFormat,
     ImageMetadata,
-    ImageError,
     ImageFormatError,
     ImageCorruptError,
-    ImageGeometryError,
     ImageReadError,
     ImageWriteError,
     detect_format,
-    read_metadata,
     get_format_for_extension,
     STANDARD_GEOMETRIES,
-    DSK_MAGIC,
-    DSK_MAGIC_ALT,
 )
 
 if TYPE_CHECKING:
-    from floppy_formatter.hardware import SectorData, SectorStatus
+    from floppy_formatter.hardware import SectorData
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +53,8 @@ DSK_SECTOR_INFO_SIZE = 8
 
 # Standard geometries for reference
 HD_35_GEOMETRY = (80, 2, 18, 512)  # 1.44MB
-DD_35_GEOMETRY = (80, 2, 9, 512)   # 720KB
-HD_525_GEOMETRY = (80, 2, 15, 512) # 1.2MB
+DD_35_GEOMETRY = (80, 2, 9, 512)  # 720KB
+HD_525_GEOMETRY = (80, 2, 15, 512)  # 1.2MB
 DD_525_GEOMETRY = (40, 2, 9, 512)  # 360KB
 
 
@@ -237,10 +231,10 @@ class SectorImage:
         path = Path(filepath)
 
         if not path.exists():
-            raise ImageReadError(f"File does not exist", filepath)
+            raise ImageReadError("File does not exist", filepath)
 
         if not path.is_file():
-            raise ImageReadError(f"Path is not a file", filepath)
+            raise ImageReadError("Path is not a file", filepath)
 
         logger.info("Loading image: %s", filepath)
 
@@ -267,9 +261,11 @@ class SectorImage:
         self._filepath = filepath
         self._modified = False
 
-        logger.info("Loaded %d sectors (%d/%d/%d @ %d bytes)",
-                   self.total_sectors, self._cylinders, self._heads,
-                   self._sectors_per_track, self._sector_size)
+        logger.info(
+            "Loaded %d sectors (%d/%d/%d @ %d bytes)",
+            self.total_sectors, self._cylinders, self._heads,
+            self._sectors_per_track, self._sector_size
+        )
 
     def _load_raw(self, filepath: str) -> None:
         """Load raw sector image (IMG/IMA)."""
@@ -290,12 +286,16 @@ class SectorImage:
 
         expected_size = self.capacity
         if file_size < expected_size:
-            logger.warning("File size %d is less than expected %d, padding with zeros",
-                          file_size, expected_size)
+            logger.warning(
+                "File size %d is less than expected %d, padding with zeros",
+                file_size, expected_size
+            )
             self._data.extend(bytes(expected_size - file_size))
         elif file_size > expected_size:
-            logger.warning("File size %d is greater than expected %d, truncating",
-                          file_size, expected_size)
+            logger.warning(
+                "File size %d is greater than expected %d, truncating",
+                file_size, expected_size
+            )
             self._data = self._data[:expected_size]
 
     def _load_dsk(self, filepath: str) -> None:
@@ -307,9 +307,11 @@ class SectorImage:
             raise ImageReadError(f"Failed to read file: {e}", filepath)
 
         if len(file_data) < DSK_HEADER_SIZE:
-            raise ImageCorruptError("DSK header too short", filepath,
-                                   expected_size=DSK_HEADER_SIZE,
-                                   actual_size=len(file_data))
+            raise ImageCorruptError(
+                "DSK header too short", filepath,
+                expected_size=DSK_HEADER_SIZE,
+                actual_size=len(file_data)
+            )
 
         # Parse header
         header = file_data[:DSK_HEADER_SIZE]
@@ -359,8 +361,6 @@ class SectorImage:
 
                 # Get sector count for this track
                 sector_count = track_header[21]
-                sector_size_code = track_header[20]
-                sector_size = 128 << sector_size_code if sector_size_code < 8 else 512
 
                 # Read sector info table
                 sector_infos = []
@@ -374,8 +374,6 @@ class SectorImage:
                 data_offset = offset + DSK_TRACK_HEADER_SIZE
                 for i, info in enumerate(sector_infos):
                     if len(info) >= 4:
-                        sector_cyl = info[0]
-                        sector_head = info[1]
                         sector_num = info[2]
                         sector_size_code = info[3]
 
@@ -521,10 +519,10 @@ class SectorImage:
                 # Sector info table
                 for sec in range(self._sectors_per_track):
                     info_offset = 24 + sec * DSK_SECTOR_INFO_SIZE
-                    track_header[info_offset] = cyl      # C
-                    track_header[info_offset + 1] = head # H
+                    track_header[info_offset] = cyl  # C
+                    track_header[info_offset + 1] = head  # H
                     track_header[info_offset + 2] = sec + 1  # R (1-based)
-                    track_header[info_offset + 3] = 2    # N (size code)
+                    track_header[info_offset + 3] = 2  # N (size code)
                     track_header[info_offset + 4] = 0    # ST1
                     track_header[info_offset + 5] = 0    # ST2
                     # Bytes 6-7: actual data length (little-endian)
@@ -736,8 +734,10 @@ class SectorImage:
             sector_size: Size of each sector in bytes
             fill_byte: Byte value to fill sectors with
         """
-        logger.info("Creating blank image: %d/%d/%d @ %d bytes, fill=0x%02X",
-                   cylinders, heads, sectors_per_track, sector_size, fill_byte)
+        logger.info(
+            "Creating blank image: %d/%d/%d @ %d bytes, fill=0x%02X",
+            cylinders, heads, sectors_per_track, sector_size, fill_byte
+        )
 
         self._cylinders = cylinders
         self._heads = heads
@@ -805,8 +805,10 @@ class SectorImage:
 
                     image.set_sector(sector.cylinder, sector.head, sector.sector, data)
             except (ValueError, IndexError) as e:
-                logger.warning("Skipping invalid sector %d/%d/%d: %s",
-                              sector.cylinder, sector.head, sector.sector, e)
+                logger.warning(
+                    "Skipping invalid sector %d/%d/%d: %s",
+                    sector.cylinder, sector.head, sector.sector, e
+                )
 
         return image
 
@@ -871,9 +873,11 @@ class SectorImage:
                     result.difference_map[lba] = (data1, data2)
 
         # Determine overall result
-        result.identical = (result.different_sectors == 0 and
-                           len(result.missing_in_image1) == 0 and
-                           len(result.missing_in_image2) == 0)
+        result.identical = (
+            result.different_sectors == 0 and
+            len(result.missing_in_image1) == 0 and
+            len(result.missing_in_image2) == 0
+        )
 
         # Generate summary
         if result.identical:

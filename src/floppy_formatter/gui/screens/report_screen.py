@@ -15,7 +15,6 @@ Enhanced for Phase 12: Reports & Documentation
 """
 
 import base64
-import io
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -30,13 +29,11 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSizePolicy,
     QFrame,
-    QComboBox,
     QToolButton,
-    QMenu,
     QWhatsThis,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QBuffer, QByteArray, QSize
-from PyQt6.QtGui import QFont, QPixmap, QPainter, QImage, QAction
+from PyQt6.QtCore import Qt, pyqtSignal, QBuffer
+from PyQt6.QtGui import QFont, QPixmap, QPainter
 
 from floppy_formatter.gui.widgets.circular_sector_map import CircularSectorMap
 from floppy_formatter.core.geometry import DiskGeometry
@@ -44,11 +41,6 @@ from floppy_formatter.core.geometry import DiskGeometry
 # Import the new report generation system
 try:
     from floppy_formatter.reports import (
-        ReportGenerator,
-        ReportType,
-        ReportData,
-        ReportMetadata,
-        DARK_THEME,
         generate_scan_report,
         generate_recovery_report,
         generate_diagnostic_report,
@@ -434,7 +426,8 @@ class ReportWidget(QWidget):
         </head>
         <body>
             <p class="placeholder">No report data available</p>
-            <p class="hint">Complete a scan, format, restore, or diagnostic operation to view its report.</p>
+            <p class="hint">Complete a scan, format, restore, or diagnostic
+            operation to view its report.</p>
         </body>
         </html>
         """
@@ -845,7 +838,6 @@ class ReportWidget(QWidget):
             try:
                 stats = self._report_data.get("statistics", {})
                 bad_sectors = self._report_data.get("bad_sectors", [])
-                sector_map = self._report_data.get("sector_map")
                 flux_quality = self._report_data.get("flux_quality")
 
                 # Build sector data for map
@@ -886,7 +878,7 @@ class ReportWidget(QWidget):
                 self._enable_export_buttons()
                 return
 
-            except Exception as e:
+            except Exception:
                 # Fall back to legacy generation
                 pass
 
@@ -897,7 +889,6 @@ class ReportWidget(QWidget):
         """Legacy scan report generation (fallback)."""
         stats = self._report_data.get("statistics", {})
         bad_sectors = self._report_data.get("bad_sectors", [])
-        sector_map = self._report_data.get("sector_map")
 
         total_sectors = stats.get("total", 2880)
         good_count = stats.get("good_count", 0)
@@ -910,6 +901,7 @@ class ReportWidget(QWidget):
 
         good_percent = (good_count / total_sectors * 100) if total_sectors > 0 else 0
         bad_percent = (bad_count / total_sectors * 100) if total_sectors > 0 else 0
+        bad_class = 'bad' if bad_count > 0 else 'good'
 
         # Build HTML
         html = self._get_html_header("Disk Scan Report")
@@ -942,7 +934,7 @@ class ReportWidget(QWidget):
             </div>
             <div class="summary-item">
                 <span class="summary-label">Bad Sectors:</span>
-                <span class="summary-value {'bad' if bad_count > 0 else 'good'}">{bad_count} ({bad_percent:.1f}%)</span>
+                <span class="summary-value {bad_class}">{bad_count} ({bad_percent:.1f}%)</span>
             </div>
             <div class="summary-item">
                 <span class="summary-label">Scan Duration:</span>
@@ -1051,6 +1043,8 @@ class ReportWidget(QWidget):
 
         bad_track_count = len(bad_tracks)
         successful_tracks = total_tracks - bad_track_count
+        bad_tracks_class = 'bad' if bad_track_count > 0 else 'good'
+        bad_sectors_class = 'bad' if bad_sectors > 0 else 'good'
 
         # Build HTML
         html = self._get_html_header("Disk Format Report")
@@ -1083,11 +1077,11 @@ class ReportWidget(QWidget):
             </div>
             <div class="summary-item">
                 <span class="summary-label">Bad Tracks:</span>
-                <span class="summary-value {'bad' if bad_track_count > 0 else 'good'}">{bad_track_count}</span>
+                <span class="summary-value {bad_tracks_class}">{bad_track_count}</span>
             </div>
             <div class="summary-item">
                 <span class="summary-label">Bad Sectors:</span>
-                <span class="summary-value {'bad' if bad_sectors > 0 else 'good'}">{bad_sectors}</span>
+                <span class="summary-value {bad_sectors_class}">{bad_sectors}</span>
             </div>
             <div class="summary-item">
                 <span class="summary-label">Format Duration:</span>
@@ -1165,8 +1159,6 @@ class ReportWidget(QWidget):
     def _generate_restore_report_legacy(self) -> None:
         """Legacy restore report generation (fallback)."""
         stats = self._report_data.get("statistics", {})
-        convergence_history = self._report_data.get("convergence_history", [])
-        settings = self._report_data.get("settings", {})
         recovery_stats = self._report_data.get("recovery_stats")
 
         initial_bad = stats.get("initial_bad_count", 0)
@@ -1180,6 +1172,8 @@ class ReportWidget(QWidget):
 
         recovered = initial_bad - final_bad if initial_bad > 0 else 0
         recovery_rate = (recovered / initial_bad * 100) if initial_bad > 0 else 0
+        final_bad_class = 'good' if final_bad == 0 else 'bad'
+        recovered_class = 'good' if recovered > 0 else ''
 
         elapsed_secs = elapsed_ms // 1000
         minutes = elapsed_secs // 60
@@ -1216,11 +1210,12 @@ class ReportWidget(QWidget):
             </div>
             <div class="summary-item">
                 <span class="summary-label">Final Bad Sectors:</span>
-                <span class="summary-value {'good' if final_bad == 0 else 'bad'}">{final_bad}</span>
+                <span class="summary-value {final_bad_class}">{final_bad}</span>
             </div>
             <div class="summary-item">
                 <span class="summary-label">Sectors Recovered:</span>
-                <span class="summary-value {'good' if recovered > 0 else ''}">{recovered} ({recovery_rate:.1f}%)</span>
+                <span class="summary-value {recovered_class}">{recovered}
+                ({recovery_rate:.1f}%)</span>
             </div>
             <div class="summary-item">
                 <span class="summary-label">Recovery Duration:</span>
@@ -1490,7 +1485,7 @@ class ReportWidget(QWidget):
             lines.append(f"Total Sectors:   {total}")
             lines.append(f"Good Sectors:    {good} ({good/total*100:.1f}%)")
             lines.append(f"Bad Sectors:     {bad} ({bad/total*100:.1f}%)")
-            lines.append(f"Scan Duration:   {elapsed_secs//60:02d}:{elapsed_secs%60:02d}")
+            lines.append(f"Scan Duration:   {elapsed_secs // 60:02d}:{elapsed_secs % 60:02d}")
             lines.append("")
 
             if bad == 0:
@@ -1502,7 +1497,8 @@ class ReportWidget(QWidget):
             if bad > 0:
                 lines.append("BAD SECTOR DETAILS")
                 lines.append("-" * 40)
-                lines.append(f"{'Sector':>8} {'Cylinder':>10} {'Head':>6} {'Sector':>8} {'Error':>12}")
+                header = f"{'Sector':>8} {'Cylinder':>10} {'Head':>6} {'Sector':>8} {'Error':>12}"
+                lines.append(header)
                 lines.append("-" * 48)
 
                 for bad_sector in bad_sectors[:50]:
@@ -1524,7 +1520,6 @@ class ReportWidget(QWidget):
             lines.append("")
 
             stats = self._report_data.get("statistics", {})
-            settings = self._report_data.get("settings", {})
 
             initial_bad = stats.get("initial_bad_count", 0)
             final_bad = stats.get("final_bad_count", 0)

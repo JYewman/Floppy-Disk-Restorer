@@ -21,10 +21,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
-
-from floppy_formatter.gui.resources import get_icon
 
 logger = logging.getLogger(__name__)
 

@@ -13,8 +13,8 @@ Part of Phase 7: Analytics Dashboard
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum, auto
-from typing import List, Optional, Dict, Any
+from enum import Enum
+from typing import List, Optional
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -23,14 +23,10 @@ from PyQt6.QtWidgets import (
     QLabel,
     QFrame,
     QPushButton,
-    QSplitter,
-    QGroupBox,
     QSizePolicy,
-    QScrollArea,
     QGridLayout,
-    QProgressBar,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPen,
@@ -206,14 +202,18 @@ class AlignmentVisualizationWidget(QWidget):
         if not self._results or not self._results.cylinders_tested:
             painter.setPen(QPen(COLOR_TEXT_DIM))
             painter.setFont(QFont("Segoe UI", 9))
-            painter.drawText(int(plot_left + plot_width / 2 - 60),
-                           int(center_y), "No alignment data")
+            painter.drawText(
+                int(plot_left + plot_width / 2 - 60),
+                int(center_y), "No alignment data"
+            )
             return
 
         # Draw reference line (center/optimal position)
         painter.setPen(QPen(COLOR_INFO, 1, Qt.PenStyle.DashLine))
-        painter.drawLine(int(plot_left), int(center_y),
-                        int(plot_right), int(center_y))
+        painter.drawLine(
+            int(plot_left), int(center_y),
+            int(plot_right), int(center_y)
+        )
 
         # Draw margin bands
         max_margin = max(self._results.inner_margin, self._results.outer_margin, 50)
@@ -221,21 +221,28 @@ class AlignmentVisualizationWidget(QWidget):
 
         # Inner margin band (above center)
         inner_height = self._results.inner_margin * scale
-        painter.fillRect(QRectF(plot_left, center_y - inner_height, plot_width, inner_height),
-                        QColor(COLOR_GOOD.red(), COLOR_GOOD.green(), COLOR_GOOD.blue(), 50))
+        painter.fillRect(
+            QRectF(plot_left, center_y - inner_height, plot_width, inner_height),
+            QColor(COLOR_GOOD.red(), COLOR_GOOD.green(), COLOR_GOOD.blue(), 50)
+        )
 
         # Outer margin band (below center)
         outer_height = self._results.outer_margin * scale
-        painter.fillRect(QRectF(plot_left, center_y, plot_width, outer_height),
-                        QColor(COLOR_GOOD.red(), COLOR_GOOD.green(), COLOR_GOOD.blue(), 50))
+        painter.fillRect(
+            QRectF(plot_left, center_y, plot_width, outer_height),
+            QColor(COLOR_GOOD.red(), COLOR_GOOD.green(), COLOR_GOOD.blue(), 50)
+        )
 
         # Draw per-cylinder quality bars
         n_cyls = len(self._results.cylinders_tested)
         if n_cyls > 0:
             bar_width = plot_width / n_cyls - 4
 
-            for i, (cyl, score) in enumerate(zip(self._results.cylinders_tested,
-                                                  self._results.per_cylinder_scores)):
+            cyls_scores = zip(
+                self._results.cylinders_tested,
+                self._results.per_cylinder_scores
+            )
+            for i, (cyl, score) in enumerate(cyls_scores):
                 x = plot_left + i * (plot_width / n_cyls) + 2
                 bar_height = (score / 100) * (plot_height / 2 - 10)
 
@@ -259,15 +266,20 @@ class AlignmentVisualizationWidget(QWidget):
                 painter.drawText(int(x), int(plot_bottom + 12), str(cyl))
 
         # Draw center offset indicator
-        offset_x = plot_left + plot_width / 2 + (self._results.center_offset / max_margin) * (plot_width / 4)
+        offset_ratio = self._results.center_offset / max_margin
+        offset_x = plot_left + plot_width / 2 + offset_ratio * (plot_width / 4)
         painter.setPen(QPen(COLOR_WARNING, 2))
         painter.drawLine(int(offset_x), int(center_y - 10), int(offset_x), int(center_y + 10))
 
         # Status text
         painter.setFont(QFont("Segoe UI", 9))
 
-        status_color = COLOR_GOOD if self._results.score >= 80 else \
-                       COLOR_WARNING if self._results.score >= 60 else COLOR_BAD
+        if self._results.score >= 80:
+            status_color = COLOR_GOOD
+        elif self._results.score >= 60:
+            status_color = COLOR_WARNING
+        else:
+            status_color = COLOR_BAD
 
         painter.setPen(QPen(status_color))
         status_text = f"{self._results.status} ({self._results.score:.0f}%)"
@@ -366,8 +378,12 @@ class RPMChartWidget(QWidget):
         painter.drawText(margin_left, 16, "RPM Stability")
 
         status = self.get_stability_status()
-        status_color = COLOR_GOOD if status == "Stable" else \
-                       COLOR_WARNING if status == "Minor variation" else COLOR_BAD
+        if status == "Stable":
+            status_color = COLOR_GOOD
+        elif status == "Minor variation":
+            status_color = COLOR_WARNING
+        else:
+            status_color = COLOR_BAD
 
         painter.setFont(QFont("Segoe UI", 9))
         painter.setPen(QPen(status_color))
@@ -386,16 +402,17 @@ class RPMChartWidget(QWidget):
 
         # Draw tolerance band
         tolerance_height = (RPM_TOLERANCE * 2 / rpm_range) * plot_height
-        painter.fillRect(QRectF(plot_left, target_y - tolerance_height / 2,
-                               plot_width, tolerance_height),
-                        QColor(COLOR_GOOD.red(), COLOR_GOOD.green(),
-                               COLOR_GOOD.blue(), 30))
+        painter.fillRect(
+            QRectF(plot_left, target_y - tolerance_height / 2, plot_width, tolerance_height),
+            QColor(COLOR_GOOD.red(), COLOR_GOOD.green(), COLOR_GOOD.blue(), 30)
+        )
 
         if not self._rpm_history:
             painter.setPen(QPen(COLOR_TEXT_DIM))
             painter.setFont(QFont("Segoe UI", 9))
-            painter.drawText(int(plot_left + plot_width / 2 - 30),
-                           int(target_y), "No data")
+            painter.drawText(
+                int(plot_left + plot_width / 2 - 30), int(target_y), "No data"
+            )
             return
 
         # Draw data line
@@ -521,7 +538,8 @@ class SelfTestWidget(QFrame):
         self._update_test_display()
 
         if results.timestamp:
-            self._timestamp_label.setText(f"Last run: {results.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+            ts_str = results.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            self._timestamp_label.setText(f"Last run: {ts_str}")
 
     def update_test_item(self, test_name: str, status: TestStatus, details: str = "") -> None:
         """Update a single test item."""

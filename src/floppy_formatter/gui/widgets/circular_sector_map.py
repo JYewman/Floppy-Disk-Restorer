@@ -21,26 +21,21 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Optional, Dict, List, Set, Tuple, Any
+from typing import Optional, Dict, List, Set, Tuple
 
 from PyQt6.QtWidgets import (
     QGraphicsView,
     QGraphicsScene,
     QGraphicsItem,
     QGraphicsEllipseItem,
-    QGraphicsPathItem,
     QToolTip,
     QApplication,
-    QFileDialog,
-    QMessageBox,
 )
 from PyQt6.QtCore import (
     Qt,
     QRectF,
     QPointF,
     QTimer,
-    QPropertyAnimation,
-    QEasingCurve,
     pyqtProperty,
     pyqtSignal,
     QSize,
@@ -51,10 +46,7 @@ from PyQt6.QtGui import (
     QColor,
     QPen,
     QBrush,
-    QRadialGradient,
     QImage,
-    QPixmap,
-    QTransform,
 )
 from PyQt6.QtSvg import QSvgGenerator
 
@@ -87,10 +79,10 @@ class ViewMode(Enum):
     """
     View modes for the sector map display.
     """
-    STATUS = auto()       # Show sector status (good/bad/etc.)
-    QUALITY = auto()      # Show flux quality gradient
-    ERRORS = auto()       # Highlight only error sectors, dim others
-    DATA_PATTERN = auto() # Show data pattern visualization
+    STATUS = auto()  # Show sector status (good/bad/etc.)
+    QUALITY = auto()  # Show flux quality gradient
+    ERRORS = auto()  # Highlight only error sectors, dim others
+    DATA_PATTERN = auto()  # Show data pattern visualization
 
 
 class ActivityType(Enum):
@@ -258,7 +250,9 @@ class SectorDataCache:
             self._metadata[sector_num].flux_quality = metrics
             self._metadata[sector_num].quality = metrics.get_overall_quality()
 
-    def add_history_entry(self, sector_num: int, operation: str, result: str, details: str = "") -> None:
+    def add_history_entry(
+        self, sector_num: int, operation: str, result: str, details: str = ""
+    ) -> None:
         """Add a history entry for a sector."""
         if sector_num in self._metadata:
             self._metadata[sector_num].add_history_entry(operation, result, details)
@@ -610,7 +604,8 @@ class SectorWedgeItem(QGraphicsItem):
 
         # Calculate display color (with animation interpolation)
         if self._animation_progress < 1.0:
-            r1, g1, b1 = self._current_color.red(), self._current_color.green(), self._current_color.blue()
+            cc = self._current_color
+            r1, g1, b1 = cc.red(), cc.green(), cc.blue()
             target = self._get_display_color()
             r2, g2, b2 = target.red(), target.green(), target.blue()
             p = self._animation_progress
@@ -1157,7 +1152,9 @@ class CircularSectorMap(QGraphicsView):
             else:
                 self._data_cache.set_status(sector_num, SectorStatus.BAD)
 
-    def set_sector_status(self, sector_num: int, status: SectorStatus, animate: bool = True) -> None:
+    def set_sector_status(
+        self, sector_num: int, status: SectorStatus, animate: bool = True
+    ) -> None:
         """Set sector status using SectorStatus enum."""
         if sector_num in self._wedges:
             self._wedges[sector_num].set_status(status, animate)
@@ -1176,7 +1173,9 @@ class CircularSectorMap(QGraphicsView):
             # Update cache
             self._data_cache._metadata[sector_num] = metadata
 
-    def update_all_sectors(self, sector_statuses: Dict[int, Optional[bool]], animate: bool = False) -> None:
+    def update_all_sectors(
+        self, sector_statuses: Dict[int, Optional[bool]], animate: bool = False
+    ) -> None:
         """Update multiple sectors at once."""
         for sector_num, is_good in sector_statuses.items():
             if sector_num in self._wedges:
@@ -1360,7 +1359,6 @@ class CircularSectorMap(QGraphicsView):
         # Calculate the radius range for this cylinder
         inner_r = self.INNER_RADIUS + (cylinder * self.RING_WIDTH)
         outer_r = inner_r + self.RING_WIDTH
-        mid_r = (inner_r + outer_r) / 2
 
         # Create a rect around this cylinder ring
         margin = self.RING_WIDTH * 3
@@ -1413,7 +1411,7 @@ class CircularSectorMap(QGraphicsView):
             # Save image
             return image.save(filepath)
 
-        except Exception as e:
+        except Exception:
             return False
 
     def export_to_svg(self, filepath: str) -> bool:
@@ -1445,7 +1443,7 @@ class CircularSectorMap(QGraphicsView):
             painter.end()
             return True
 
-        except Exception as e:
+        except Exception:
             return False
 
     def _draw_legend(self, painter: QPainter, width: int, height: int) -> None:
@@ -1503,7 +1501,9 @@ class CircularSectorMap(QGraphicsView):
         if sector_num in self._wedges:
             self._wedges[sector_num].set_quality(metrics.get_overall_quality())
 
-    def add_sector_history(self, sector_num: int, operation: str, result: str, details: str = "") -> None:
+    def add_sector_history(
+        self, sector_num: int, operation: str, result: str, details: str = ""
+    ) -> None:
         """Add a history entry for a sector."""
         self._data_cache.add_history_entry(sector_num, operation, result, details)
 

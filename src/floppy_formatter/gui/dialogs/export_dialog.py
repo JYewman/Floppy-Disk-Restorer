@@ -31,7 +31,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QStackedWidget,
 )
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 
@@ -191,7 +190,9 @@ class ExportDialog(QDialog):
         self._type_group.addButton(self._scp_radio, 1)
         type_layout.addWidget(self._scp_radio)
 
-        scp_desc = QLabel("Raw flux data in SuperCard Pro format. Best for archival and preservation.")
+        scp_desc = QLabel(
+            "Raw flux data in SuperCard Pro format. Best for archival and preservation."
+        )
         scp_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         scp_desc.setWordWrap(True)
         type_layout.addWidget(scp_desc)

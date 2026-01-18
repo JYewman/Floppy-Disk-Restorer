@@ -23,7 +23,6 @@ Sound files should be:
 Part of Phase 14: Polish & Professional Touches
 """
 
-import os
 from pathlib import Path
 
 # Sound directory path

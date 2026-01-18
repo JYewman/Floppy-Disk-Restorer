@@ -10,8 +10,7 @@ Provides detailed flux visualization including:
 Part of Phase 7: Analytics Dashboard
 """
 
-from dataclasses import dataclass
-from typing import List, Optional, Any, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -24,9 +23,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QFileDialog,
-    QMessageBox,
-    QGroupBox,
-    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 

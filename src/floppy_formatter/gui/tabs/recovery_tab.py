@@ -12,7 +12,7 @@ Part of Phase 7: Analytics Dashboard
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 import math
 
 from PyQt6.QtWidgets import (
@@ -24,13 +24,10 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
-    QSplitter,
-    QGroupBox,
     QSizePolicy,
-    QScrollArea,
     QProgressBar,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtGui import (
     QPainter,
     QPen,
@@ -225,8 +222,10 @@ class ConvergenceChartWidget(QWidget):
         if not self._data:
             painter.setPen(QPen(COLOR_TEXT_DIM))
             painter.setFont(QFont("Segoe UI", 9))
-            painter.drawText(int(plot_left + plot_width / 2 - 40),
-                           int(plot_top + plot_height / 2), "No data yet")
+            painter.drawText(
+                int(plot_left + plot_width / 2 - 40),
+                int(plot_top + plot_height / 2), "No data yet"
+            )
             return
 
         # Calculate scale
@@ -242,15 +241,21 @@ class ConvergenceChartWidget(QWidget):
         # Draw goal line at 0
         if self._target_line:
             painter.setPen(QPen(COLOR_GOAL, 1, Qt.PenStyle.DashLine))
-            painter.drawLine(int(plot_left), int(plot_bottom),
-                           int(plot_right), int(plot_bottom))
+            painter.drawLine(
+                int(plot_left), int(plot_bottom),
+                int(plot_right), int(plot_bottom)
+            )
 
         # Draw axes
         painter.setPen(QPen(COLOR_TEXT_DIM, 1))
-        painter.drawLine(int(plot_left), int(plot_bottom),
-                        int(plot_right), int(plot_bottom))
-        painter.drawLine(int(plot_left), int(plot_top),
-                        int(plot_left), int(plot_bottom))
+        painter.drawLine(
+            int(plot_left), int(plot_bottom),
+            int(plot_right), int(plot_bottom)
+        )
+        painter.drawLine(
+            int(plot_left), int(plot_top),
+            int(plot_left), int(plot_bottom)
+        )
 
         # Y axis labels
         painter.setFont(QFont("Consolas", 8))
@@ -267,8 +272,10 @@ class ConvergenceChartWidget(QWidget):
 
         # Axis titles
         painter.setFont(QFont("Segoe UI", 9))
-        painter.drawText(int(plot_left + plot_width / 2 - 20),
-                        int(self.height() - 5), "Pass")
+        painter.drawText(
+            int(plot_left + plot_width / 2 - 20),
+            int(self.height() - 5), "Pass"
+        )
 
         painter.save()
         painter.translate(12, int(plot_top + plot_height / 2))
@@ -304,7 +311,12 @@ class ConvergenceChartWidget(QWidget):
 
                 # Color based on position in gradient
                 ratio = 1 - (count / max_count) if max_count > 0 else 0
-                point_color = COLOR_GOOD if ratio > 0.7 else COLOR_WARNING if ratio > 0.3 else COLOR_BAD
+                if ratio > 0.7:
+                    point_color = COLOR_GOOD
+                elif ratio > 0.3:
+                    point_color = COLOR_WARNING
+                else:
+                    point_color = COLOR_BAD
 
                 painter.setBrush(QBrush(point_color))
                 painter.setPen(QPen(COLOR_PANEL_BG, 2))
@@ -529,7 +541,10 @@ class RecoveryTimelineWidget(QWidget):
 
     def set_recovered_sectors(self, sectors: List[RecoveredSector]) -> None:
         """Set all recovered sectors."""
-        self._recovered = sectors[-self._max_sectors:] if len(sectors) > self._max_sectors else list(sectors)
+        if len(sectors) > self._max_sectors:
+            self._recovered = sectors[-self._max_sectors:]
+        else:
+            self._recovered = list(sectors)
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -578,7 +593,8 @@ class RecoveryTimelineWidget(QWidget):
             painter.drawRect(QRectF(x, y, item_width, height))
 
             # Tooltip on hover could be added
-            self.setToolTip(f"Sector {sector.sector_num} (Pass {sector.pass_num}, {sector.technique})")
+            tip = f"Sector {sector.sector_num} (Pass {sector.pass_num}, {sector.technique})"
+            self.setToolTip(tip)
 
 
 # =============================================================================
@@ -702,11 +718,17 @@ class RecoveryPredictionWidget(QFrame):
                     self._confidence_label.setText(f"Confidence: {confidence}%")
 
                     if est_passes <= 3:
-                        self._rec_label.setText("Recovery progressing well - continue current approach")
+                        self._rec_label.setText(
+                            "Recovery progressing well - continue current approach"
+                        )
                     elif est_passes <= 10:
-                        self._rec_label.setText("Consider switching to aggressive mode for faster recovery")
+                        self._rec_label.setText(
+                            "Consider switching to aggressive mode for faster recovery"
+                        )
                     else:
-                        self._rec_label.setText("Recovery may take a while - consider forensic mode")
+                        self._rec_label.setText(
+                            "Recovery may take a while - consider forensic mode"
+                        )
                 else:
                     # No improvement
                     self._passes_label.setText("Recovery has converged")
@@ -882,7 +904,9 @@ class RecoveryTab(QWidget):
         table_layout.setSpacing(2)
 
         table_title = QLabel("Pass History")
-        table_title.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-weight: bold; font-size: 8pt; padding: 2px;")
+        table_title.setStyleSheet(
+            f"color: {COLOR_TEXT.name()}; font-weight: bold; font-size: 8pt; padding: 2px;"
+        )
         table_layout.addWidget(table_title)
 
         self._pass_table = PassComparisonTable()

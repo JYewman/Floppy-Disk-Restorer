@@ -23,15 +23,13 @@ Key Functions:
     reconstruct_slipped_sector: Piece together data around slips
 """
 
-import math
 import statistics
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional, Tuple, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Tuple, Dict, Any
 
-if TYPE_CHECKING:
-    from floppy_formatter.hardware import FluxData
+# FluxData imported at runtime in functions that need it
 
 from floppy_formatter.analysis.flux_analyzer import FluxCapture
 
@@ -106,6 +104,7 @@ class SlipPattern:
     periodic: bool = False
     period_samples: int = 0
     affected_sectors: List[int] = field(default_factory=list)
+
 
 @dataclass
 class BitSlipEvent:
@@ -339,7 +338,8 @@ def detect_bit_slips(flux: FluxCapture) -> List[BitSlipEvent]:
 
         # Condition 3: Phase drift accumulating
         elif len(phase_state.phase_history) >= PHASE_WINDOW_SIZE:
-            recent_drift = phase_state.phase_history[-1] - phase_state.phase_history[-PHASE_WINDOW_SIZE]
+            history = phase_state.phase_history
+            recent_drift = history[-1] - history[-PHASE_WINDOW_SIZE]
             if abs(recent_drift) > 1.5:
                 slip_detected = True
                 slip_amount = round(recent_drift)
@@ -356,7 +356,10 @@ def detect_bit_slips(flux: FluxCapture) -> List[BitSlipEvent]:
                 flux_index=i,
                 position_us=cumulative_position_us,
                 slip_amount=slip_amount,
-                phase_before=phase_state.phase_history[-2] if len(phase_state.phase_history) >= 2 else 0,
+                phase_before=(
+                    phase_state.phase_history[-2]
+                    if len(phase_state.phase_history) >= 2 else 0
+                ),
                 phase_after=phase_state.current_phase,
                 confidence=confidence,
                 probable_cause=cause,
@@ -398,7 +401,6 @@ def analyze_slip_pattern(slips: List[BitSlipEvent]) -> Dict[str, Any]:
 
     # Analyze slip distribution
     slip_amounts = [s.slip_amount for s in slips]
-    slip_positions = [s.position_us for s in slips]
 
     # Check for systematic bias (all slips in same direction)
     forward_count = sum(1 for s in slip_amounts if s > 0)
@@ -843,7 +845,10 @@ def _decode_corrected_flux(
 
         # Convert microseconds back to sample counts
         # Handle both FluxCapture (sample_rate) and FluxData (sample_freq)
-        sample_rate = getattr(original_flux, 'sample_freq', None) or getattr(original_flux, 'sample_rate', 72_000_000)
+        sample_rate = (
+            getattr(original_flux, 'sample_freq', None) or
+            getattr(original_flux, 'sample_rate', 72_000_000)
+        )
         factor = sample_rate / 1_000_000
         flux_times = [max(1, int(t * factor)) for t in timings_us]
 
@@ -880,8 +885,6 @@ def _try_alternative_corrections(
     Sometimes the slip amount estimate is off by ±1 bit.
     This tries variations to find working corrections.
     """
-    times_us = list(flux.get_times_microseconds())
-
     # Try variations of slip amounts
     for variation in [-1, 1, -2, 2]:
         modified_slips = []
@@ -933,7 +936,9 @@ def _validate_sector_crc(data: bytes) -> bool:
 # Utility Functions
 # =============================================================================
 
-def calculate_phase_continuity(flux_times: List[float], bit_cell_us: float = HD_BIT_CELL_US) -> float:
+def calculate_phase_continuity(
+    flux_times: List[float], bit_cell_us: float = HD_BIT_CELL_US
+) -> float:
     """
     Calculate phase continuity score for flux data.
 
@@ -958,8 +963,9 @@ def calculate_phase_continuity(flux_times: List[float], bit_cell_us: float = HD_
     phase_errors = []
     for t in flux_times:
         # Find closest expected pulse width
-        closest = min([expected_2t, expected_3t, expected_4t],
-                     key=lambda x: abs(t - x))
+        closest = min(
+            [expected_2t, expected_3t, expected_4t], key=lambda x: abs(t - x)
+        )
         # Calculate phase error as fraction of bit cell
         error = abs(t - closest) / bit_cell_us
         phase_errors.append(error)

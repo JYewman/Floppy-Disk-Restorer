@@ -17,7 +17,6 @@ analysis and advanced recovery techniques.
 """
 
 import time
-import statistics
 import logging
 from typing import Tuple, List, Dict, Optional, Any
 from dataclasses import dataclass
@@ -34,7 +33,6 @@ from floppy_formatter.hardware import (
     read_track_flux,
     write_track_flux,
     erase_track_flux,
-    merge_flux_captures,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,10 +135,10 @@ def _cache_track(device: GreaseweazleDevice, cylinder: int, head: int,
     global _track_cache
 
     # Check if we already have this track cached
-    if (_track_cache is not None and
-        _track_cache.cylinder == cylinder and
-        _track_cache.head == head and
-        _track_cache.is_valid()):
+    if (_track_cache is not None
+            and _track_cache.cylinder == cylinder
+            and _track_cache.head == head
+            and _track_cache.is_valid()):
         return _track_cache
 
     # Read flux data from track
@@ -219,8 +217,10 @@ def read_sector(device: GreaseweazleDevice, cylinder: int, head: int,
         # Check if sector was decoded successfully
         if not sector_data.is_good:
             # Sector has errors (CRC failure, etc.)
-            logger.debug("read_sector: sector %d has status %s",
-                        sector, sector_data.status.name)
+            logger.debug(
+                "read_sector: sector %d has status %s",
+                sector, sector_data.status.name
+            )
             _consecutive_errors += 1
             if sector_data.status == SectorStatus.CRC_ERROR:
                 return (False, None, ERROR_CRC)
@@ -243,9 +243,9 @@ def read_sector(device: GreaseweazleDevice, cylinder: int, head: int,
 
 
 def read_sector_by_lba(device: GreaseweazleDevice, lba: int,
-                        geometry: Any,
-                        bytes_per_sector: int = BYTES_PER_SECTOR
-                        ) -> Tuple[bool, Optional[bytes], int]:
+                       geometry: Any,
+                       bytes_per_sector: int = BYTES_PER_SECTOR
+                       ) -> Tuple[bool, Optional[bytes], int]:
     """
     Read a sector by linear block address (LBA).
 
@@ -396,11 +396,13 @@ def read_sector_multiread(device: GreaseweazleDevice, cylinder: int, head: int,
     for capture_num in range(num_captures):
         try:
             # Capture multiple revolutions at once
-            revolutions = min(revolutions_per_capture,
-                            max_attempts - len(successful_reads))
+            revolutions = min(
+                revolutions_per_capture, max_attempts - len(successful_reads)
+            )
 
-            flux_data = read_track_flux(device, cylinder, head,
-                                       revolutions=float(revolutions + 0.2))
+            flux_data = read_track_flux(
+                device, cylinder, head, revolutions=float(revolutions + 0.2)
+            )
 
             # Try to extract sector data from each revolution
             for rev in range(int(revolutions)):
@@ -423,8 +425,10 @@ def read_sector_multiread(device: GreaseweazleDevice, cylinder: int, head: int,
                     continue
 
         except Exception as e:
-            logger.debug("read_sector_multiread: capture %d failed: %s",
-                        capture_num, e)
+            logger.debug(
+                "read_sector_multiread: capture %d failed: %s",
+                capture_num, e
+            )
             continue
 
         # Early exit if we have enough good reads
@@ -566,8 +570,10 @@ def write_track(device: GreaseweazleDevice, cylinder: int, head: int,
     Returns:
         Tuple of (success_count, results)
     """
-    logger.debug("write_track: C%d H%d %d sectors",
-                cylinder, head, len(sector_data_list))
+    logger.debug(
+        "write_track: C%d H%d %d sectors",
+        cylinder, head, len(sector_data_list)
+    )
 
     # Build sector data dictionary
     data_dict = {s[0]: s[1] for s in sector_data_list}
@@ -650,8 +656,10 @@ def write_track_pattern(device: GreaseweazleDevice, cylinder: int, head: int,
     Returns:
         Tuple of (success_count, results)
     """
-    logger.debug("write_track_pattern: C%d H%d pattern=0x%02X",
-                cylinder, head, pattern_byte)
+    logger.debug(
+        "write_track_pattern: C%d H%d pattern=0x%02X",
+        cylinder, head, pattern_byte
+    )
 
     try:
         # Create pattern-filled sectors using MFM codec helper
@@ -692,8 +700,10 @@ def write_track_pattern(device: GreaseweazleDevice, cylinder: int, head: int,
         return (0, results)
 
 
-def format_track_low_level(device: GreaseweazleDevice, cylinder: int, head: int,
-                           geometry: Any, fill_byte: int = 0x00) -> Tuple[bool, int, List[int], int]:
+def format_track_low_level(
+    device: GreaseweazleDevice, cylinder: int, head: int,
+    geometry: Any, fill_byte: int = 0x00
+) -> Tuple[bool, int, List[int], int]:
     """
     Low-level track format using Greaseweazle.
 
@@ -710,8 +720,10 @@ def format_track_low_level(device: GreaseweazleDevice, cylinder: int, head: int,
     Returns:
         Tuple of (success, bad_sector_count, bad_sectors, error_code)
     """
-    logger.debug("format_track_low_level: C%d H%d fill=0x%02X",
-                cylinder, head, fill_byte)
+    logger.debug(
+        "format_track_low_level: C%d H%d fill=0x%02X",
+        cylinder, head, fill_byte
+    )
 
     try:
         # Erase the track first (DC erase)

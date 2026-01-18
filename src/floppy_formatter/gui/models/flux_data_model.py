@@ -17,13 +17,12 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import List, Optional, Dict, Any, Callable, TYPE_CHECKING
+from typing import List, Optional, Dict, Any
 
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, QMutex, QWaitCondition
 
-if TYPE_CHECKING:
-    from floppy_formatter.hardware import GreaseweazleDevice
-    from floppy_formatter.analysis.flux_analyzer import FluxCapture
+# TYPE_CHECKING imports removed - GreaseweazleDevice and FluxCapture
+# are imported at runtime in methods that need them
 
 logger = logging.getLogger(__name__)
 
@@ -494,9 +493,10 @@ class AnalysisWorker(QThread):
 
         peaks = []
         for i in range(1, len(bin_counts) - 1):
-            if (bin_counts[i] > threshold and
-                bin_counts[i] > bin_counts[i-1] and
-                bin_counts[i] > bin_counts[i+1]):
+            above_threshold = bin_counts[i] > threshold
+            above_prev = bin_counts[i] > bin_counts[i-1]
+            above_next = bin_counts[i] > bin_counts[i+1]
+            if above_threshold and above_prev and above_next:
                 peaks.append(bin_centers[i])
 
         result.peak_positions = peaks[:3]  # Keep top 3 peaks
@@ -565,7 +565,9 @@ class AnalysisWorker(QThread):
 
         return result
 
-    def _calculate_quality(self, track_data: TrackFluxData, analysis: TrackAnalysis) -> TrackQuality:
+    def _calculate_quality(
+        self, track_data: TrackFluxData, analysis: TrackAnalysis
+    ) -> TrackQuality:
         """Calculate track quality metrics."""
         quality = TrackQuality()
 
@@ -636,15 +638,21 @@ class AnalysisWorker(QThread):
         if analysis.jitter_stats:
             rms = analysis.jitter_stats.rms_ns
             if rms > 300:
-                recommendations.append(f"High jitter ({rms:.0f}ns RMS) - may indicate drive speed issues")
+                recommendations.append(
+                    f"High jitter ({rms:.0f}ns RMS) - may indicate drive speed issues"
+                )
 
             outliers = len(analysis.jitter_stats.outlier_indices)
             if outliers > 10:
-                recommendations.append(f"{outliers} timing outliers detected - possible read errors")
+                recommendations.append(
+                    f"{outliers} timing outliers detected - possible read errors"
+                )
 
         # Check flux quality
         if analysis.flux_quality < 0.6:
-            recommendations.append("Low overall flux quality - consider cleaning disk or drive head")
+            recommendations.append(
+                "Low overall flux quality - consider cleaning disk or drive head"
+            )
 
         if not recommendations:
             recommendations.append("Track looks healthy")
@@ -733,7 +741,10 @@ class FluxDataModel(QObject):
             return TrackAnalysis(
                 cyl=cyl,
                 head=head,
-                flux_quality=track_data.quality_metrics.overall_score if track_data.quality_metrics else 0,
+                flux_quality=(
+                    track_data.quality_metrics.overall_score
+                    if track_data.quality_metrics else 0
+                ),
                 jitter_stats=track_data.jitter_data,
                 histogram=track_data.histogram_data,
                 sector_quality={s.sector_num: s.quality_score for s in track_data.decoded_sectors},

@@ -16,8 +16,7 @@ Original code by Keir Fraser, released into public domain.
 import logging
 import struct
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Iterator
-import itertools as it
+from typing import List, Optional, Tuple
 
 # Try to import bitarray for efficient bit operations
 try:
@@ -51,6 +50,8 @@ MFM_SYNC_BYTES = b'\x44\x89' * 3
 MFM_IAM_SYNC_BYTES = b'\x52\x24' * 3
 
 # Address marks
+
+
 class Mark:
     IAM = 0xfc   # Index Address Mark
     IDAM = 0xfe  # ID Address Mark
@@ -416,11 +417,15 @@ class MFMSectorDecoder:
                 sector = DecodedSector(idam, dam)
 
                 if sector.crc_valid:
-                    logger.debug("Decoded valid sector C=%d H=%d R=%d (%d bytes)",
-                                idam.c, idam.h, idam.r, len(sector_data))
+                    logger.debug(
+                        "Decoded valid sector C=%d H=%d R=%d (%d bytes)",
+                        idam.c, idam.h, idam.r, len(sector_data)
+                    )
                 else:
-                    logger.debug("Decoded sector with CRC error C=%d H=%d R=%d",
-                                idam.c, idam.h, idam.r)
+                    logger.debug(
+                        "Decoded sector with CRC error C=%d H=%d R=%d",
+                        idam.c, idam.h, idam.r
+                    )
 
                 sectors.append(sector)
                 idam = None
@@ -467,8 +472,10 @@ class PLLMFMDecoder:
             logger.error("bitarray package not available - cannot use PLL decoder")
             return []
 
-        logger.info("PLL decoding track C%d H%d (%d flux transitions)",
-                   flux_data.cylinder, flux_data.head, len(flux_data.flux_times))
+        logger.info(
+            "PLL decoding track C%d H%d (%d flux transitions)",
+            flux_data.cylinder, flux_data.head, len(flux_data.flux_times)
+        )
 
         # Auto-detect bit cell if possible
         detected_bit_cell = flux_data.estimate_bit_cell_width()
@@ -487,8 +494,10 @@ class PLLMFMDecoder:
             logger.error("PLL conversion failed: %s", e)
             return []
 
-        logger.debug("PLL produced %d bits across %d revolution(s)",
-                    len(bits), len(revolutions))
+        logger.debug(
+            "PLL produced %d bits across %d revolution(s)",
+            len(bits), len(revolutions)
+        )
 
         # Decode sectors from bitstream
         sector_decoder = MFMSectorDecoder()

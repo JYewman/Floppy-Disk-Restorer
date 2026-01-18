@@ -19,12 +19,10 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import pyqtSignal
 
 from floppy_formatter.gui.tabs.overview_tab import (
     OverviewTab,
-    DiskStatistics,
     Recommendation,
 )
 from floppy_formatter.gui.tabs.flux_tab import FluxTab

@@ -24,7 +24,6 @@ Migration Guide:
 """
 
 import warnings
-from typing import Optional
 
 
 def open_device(device_path: str, read_only: bool = True) -> int:

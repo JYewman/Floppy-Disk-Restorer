@@ -20,14 +20,13 @@ Key Functions:
     reconstruct_from_captures: Statistical bit voting reconstruction
 """
 
-import math
 import statistics
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from floppy_formatter.hardware import GreaseweazleDevice, FluxData
+    from floppy_formatter.hardware import FluxData
 
 from floppy_formatter.analysis.flux_analyzer import FluxCapture
 from floppy_formatter.analysis.signal_quality import calculate_snr
@@ -382,13 +381,19 @@ def capture_multiple_revolutions(
     logger.info("Captured %d revolutions, avg RPM: %.1f (±%.2f)",
                 len(captures), average_rpm, rpm_stability)
 
+    if captures:
+        cap0 = captures[0]
+        rate = getattr(cap0, 'sample_rate', None) or getattr(cap0, 'sample_freq', 72_000_000)
+    else:
+        rate = 72_000_000
+
     return MultiCaptureResult(
         captures=captures,
         metadata=metadata,
         cylinder=cyl,
         head=head,
         total_revolutions=len(captures),
-        sample_rate=(getattr(captures[0], 'sample_rate', None) or getattr(captures[0], 'sample_freq', 72_000_000)) if captures else 72_000_000,
+        sample_rate=rate,
         average_rpm=average_rpm,
         rpm_stability=rpm_stability,
     )
@@ -439,7 +444,6 @@ def align_flux_captures(captures: List[FluxCapture]) -> AlignedCaptures:
 
     # Get reference timing in microseconds
     ref_timings = reference.get_times_microseconds()
-    ref_length = len(ref_timings)
 
     # Calculate quality weights for weighted voting
     max_quality = max(quality_scores)
@@ -487,7 +491,10 @@ def align_flux_captures(captures: List[FluxCapture]) -> AlignedCaptures:
         reference_index=reference_index,
         alignment_offsets=alignment_offsets,
         common_length=common_length,
-        sample_rate=getattr(reference, 'sample_rate', None) or getattr(reference, 'sample_freq', 72_000_000),
+        sample_rate=(
+            getattr(reference, 'sample_rate', None) or
+            getattr(reference, 'sample_freq', 72_000_000)
+        ),
         cylinder=reference.cylinder,
         head=reference.head,
         capture_count=len(captures),
@@ -562,8 +569,9 @@ def reconstruct_from_captures(captures: AlignedCaptures) -> ReconstructedFlux:
 
         # Find winning pulse type
         if quantized_votes:
-            winning_type = max(quantized_votes.keys(),
-                              key=lambda k: quantized_votes[k])
+            winning_type = max(
+                quantized_votes.keys(), key=lambda k: quantized_votes[k]
+            )
             winning_votes = quantized_votes[winning_type]
             total_votes = len(timings_at_pos)
             confidence = winning_votes / total_votes
@@ -1071,10 +1079,15 @@ def estimate_recovery_potential(
             other_times = capture.get_times_microseconds()
             if ref_times and other_times:
                 # Compare lengths
-                len_ratio = min(len(ref_times), len(other_times)) / max(len(ref_times), len(other_times))
+                min_len = min(len(ref_times), len(other_times))
+                max_len = max(len(ref_times), len(other_times))
+                len_ratio = min_len / max_len
                 consistency_scores.append(len_ratio)
 
-        consistency = sum(consistency_scores) / len(consistency_scores) if consistency_scores else 0.5
+        if consistency_scores:
+            consistency = sum(consistency_scores) / len(consistency_scores)
+        else:
+            consistency = 0.5
     else:
         consistency = 0.5
 

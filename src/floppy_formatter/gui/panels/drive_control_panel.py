@@ -18,20 +18,15 @@ from enum import Enum, auto
 from PyQt6.QtWidgets import (
     QWidget,
     QHBoxLayout,
-    QVBoxLayout,
-    QGridLayout,
     QPushButton,
     QLabel,
     QComboBox,
     QSlider,
     QSpinBox,
-    QGroupBox,
     QFrame,
     QMessageBox,
-    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont
 
 from floppy_formatter.hardware import GreaseweazleDevice
 from floppy_formatter.hardware import (
@@ -369,7 +364,10 @@ class DriveControlPanel(QWidget):
                     logger.info("Disk detected, RPM: %.1f", rpm)
                 except Exception:
                     # No disk or can't read - that's OK, user can insert later
-                    logger.info("No disk detected (or disk not readable) - insert disk and click Calibrate")
+                    logger.info(
+                        "No disk detected (or disk not readable) - "
+                        "insert disk and click Calibrate"
+                    )
                     self._calibration_status.setText("Insert disk")
                     self._calibration_status.setStyleSheet("color: #cccc33;")
 
@@ -701,12 +699,18 @@ class DriveControlPanel(QWidget):
                 status = f"Warning - {rpm:.0f} RPM"
                 color = "#cccc33"
                 success = True
-                message = f"Calibration complete with warnings. RPM: {rpm:.0f} (nominal: 300){trk0_warning}"
+                message = (
+                    f"Calibration complete with warnings. RPM: {rpm:.0f} "
+                    f"(nominal: 300){trk0_warning}"
+                )
             else:
                 status = f"Error - {rpm:.0f} RPM"
                 color = "#cc3333"
                 success = False
-                message = f"Calibration failed. RPM: {rpm:.0f} is outside acceptable range (280-320)"
+                message = (
+                    f"Calibration failed. RPM: {rpm:.0f} is outside "
+                    "acceptable range (280-320)"
+                )
 
             self._calibration_status.setText(status)
             self._calibration_status.setStyleSheet(f"color: {color};")

@@ -32,9 +32,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QFileDialog,
     QFormLayout,
-    QScrollArea,
-    QSizePolicy,
-    QGridLayout,
     QMessageBox,
     QToolButton,
 )

@@ -11,7 +11,6 @@ Phase 6: Enhanced Sector Map Visualization (integrated)
 Phase 7: Analytics Dashboard (integrated)
 """
 
-import sys
 import logging
 from pathlib import Path
 from typing import Optional
@@ -27,19 +26,15 @@ from PyQt6.QtWidgets import (
     QFrame,
     QApplication,
     QMessageBox,
-    QMenuBar,
-    QMenu,
-    QToolBar,
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, QUrl, QThread
-from PyQt6.QtGui import QIcon, QAction, QKeySequence, QDesktopServices, QShortcut
+from PyQt6.QtGui import QAction, QKeySequence, QDesktopServices, QShortcut
 
 from floppy_formatter.gui.panels import (
     DriveControlPanel,
     OperationToolbar,
     StatusStrip,
-    OperationState,
     AnalyticsPanel,
 )
 from floppy_formatter.gui.widgets import (
@@ -47,7 +42,6 @@ from floppy_formatter.gui.widgets import (
     SectorMapToolbar,
     SectorInfoPanel,
     SectorStatus,
-    ViewMode,
     ActivityType,
 )
 from floppy_formatter.gui.dialogs import (
@@ -56,27 +50,42 @@ from floppy_formatter.gui.dialogs import (
 )
 from floppy_formatter.gui.resources import get_icon, get_theme, set_theme
 from floppy_formatter.gui.utils import (
-    fade_in_widget,
-    fade_out_widget,
-    animations_enabled,
     play_complete_sound,
     play_error_sound,
     play_success_sound,
 )
 from floppy_formatter.core.geometry import DiskGeometry
 from floppy_formatter.hardware import GreaseweazleDevice, read_track_flux
-from floppy_formatter.gui.workers.scan_worker import ScanWorker, ScanMode, ScanResult, TrackResult
-from floppy_formatter.gui.workers.format_worker import FormatWorker, FormatType, FormatResult
-from floppy_formatter.gui.workers.restore_worker import RestoreWorker, RestoreConfig, RecoveryLevel, RecoveryStats, PassStats as WorkerPassStats
-from floppy_formatter.gui.tabs.recovery_tab import PassStats as RecoveryTabPassStats, RecoveredSector
+from floppy_formatter.gui.workers.scan_worker import (
+    ScanWorker, ScanMode, ScanResult, TrackResult,
+)
+from floppy_formatter.gui.workers.format_worker import (
+    FormatWorker, FormatType, FormatResult,
+)
+from floppy_formatter.gui.workers.restore_worker import (
+    RestoreWorker, RestoreConfig, RecoveryLevel, RecoveryStats,
+)
+from floppy_formatter.gui.tabs.recovery_tab import PassStats as RecoveryTabPassStats
 from floppy_formatter.gui.tabs.errors_tab import SectorError, ErrorType
 from floppy_formatter.gui.workers.analyze_worker import (
     AnalyzeWorker, AnalysisConfig, AnalysisDepth, AnalysisComponent, DiskAnalysisResult
 )
-from floppy_formatter.gui.workers.flux_capture_worker import FluxCaptureWorker, CaptureConfig, FluxSample
+from floppy_formatter.gui.workers.flux_capture_worker import FluxCaptureWorker
 from floppy_formatter.gui.workers.disk_image_worker import DiskImageWorker, WriteImageResult
-from floppy_formatter.gui.dialogs.write_image_config_dialog import WriteImageConfigDialog, WriteImageConfig
+from floppy_formatter.gui.dialogs.write_image_config_dialog import (
+    WriteImageConfigDialog, WriteImageConfig,
+)
 from floppy_formatter.analysis.flux_analyzer import FluxCapture
+from floppy_formatter.gui.dialogs.batch_verify_config_dialog import (  # noqa: F401
+    BatchVerifyConfigDialog, BatchVerifyConfig, FloppyDiskInfo, FloppyBrand,
+)
+from floppy_formatter.gui.dialogs.disk_prompt_dialog import (
+    DiskPromptDialog, DiskPromptResult
+)
+from floppy_formatter.gui.workers.batch_verify_worker import (
+    BatchVerifyWorker, SingleDiskResult, BatchVerificationResult, DiskGrade
+)
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +98,7 @@ class WorkbenchState(Enum):
     RESTORING = auto()
     ANALYZING = auto()
     WRITING_IMAGE = auto()
+    BATCH_VERIFYING = auto()
 
 
 class ThemeManager:
@@ -130,7 +140,8 @@ class ThemeManager:
             KeyError: If theme name is not registered
         """
         if theme_name not in self.THEMES:
-            raise KeyError(f"Theme '{theme_name}' not found. Available themes: {list(self.THEMES.keys())}")
+            available = list(self.THEMES.keys())
+            raise KeyError(f"Theme '{theme_name}' not found. Available: {available}")
 
         stylesheet_file = self.styles_dir / self.THEMES[theme_name]
 
@@ -409,7 +420,9 @@ class MainWindow(QMainWindow):
         # Initialize theme manager
         app = QApplication.instance()
         if app is None:
-            raise RuntimeError("QApplication instance not found. Create QApplication before MainWindow.")
+            raise RuntimeError(
+                "QApplication instance not found. Create QApplication before MainWindow."
+            )
 
         self.theme_manager = ThemeManager(app)
 
@@ -453,6 +466,15 @@ class MainWindow(QMainWindow):
         self._disk_image_worker: Optional[DiskImageWorker] = None
         self._disk_image_thread: Optional[QThread] = None
         self._write_image_config: Optional[WriteImageConfig] = None
+
+        # Batch verification state
+        self._batch_config: Optional[BatchVerifyConfig] = None
+        self._batch_results: list = []
+        self._current_batch_index: int = 0
+        self._batch_start_time: Optional[datetime] = None
+        self._batch_verify_worker: Optional[BatchVerifyWorker] = None
+        self._batch_verify_thread: Optional[QThread] = None
+        self._last_batch_result: Optional[BatchVerificationResult] = None
 
         # Build UI
         self._init_menu_bar()
@@ -625,6 +647,7 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.stop_clicked.connect(self._on_stop_clicked)
         self._operation_toolbar.pause_clicked.connect(self._on_pause_clicked)
         self._operation_toolbar.report_export_clicked.connect(self._on_report_export_clicked)
+        self._operation_toolbar.batch_verify_clicked.connect(self._on_batch_verify_clicked)
 
         # Sector map signals
         sector_map = self._sector_map_panel.get_sector_map()
@@ -702,8 +725,10 @@ class MainWindow(QMainWindow):
         is_connected = self._drive_control.is_connected()
 
         # Enable/disable operation toolbar
-        logger.debug("_update_state: is_connected=%s, is_idle=%s, enabling toolbar=%s",
-                    is_connected, is_idle, is_connected and is_idle)
+        logger.debug(
+            "_update_state: is_connected=%s, is_idle=%s, enabling toolbar=%s",
+            is_connected, is_idle, is_connected and is_idle
+        )
         self._operation_toolbar.set_enabled(is_connected and is_idle)
 
         # Update status strip based on connection
@@ -935,8 +960,10 @@ class MainWindow(QMainWindow):
         total_sectors = self._geometry.total_sectors
         self._sector_map_panel.set_all_sectors_pending(total_sectors)
 
-        # Clear errors from previous scan
+        # Clear analytics tabs from previous operations
+        self._analytics_panel.clear_overview()
         self._analytics_panel.clear_errors()
+        self._analytics_panel.clear_recovery_data()
 
         # Create thread and worker
         self._scan_thread = QThread()
@@ -972,8 +999,10 @@ class MainWindow(QMainWindow):
                 logger.debug("_cleanup_scan_worker: worker cancelled and cleared")
 
             if self._scan_thread:
-                logger.debug("_cleanup_scan_worker: cleaning up thread (isRunning=%s)",
-                            self._scan_thread.isRunning())
+                logger.debug(
+                    "_cleanup_scan_worker: cleaning up thread (isRunning=%s)",
+                    self._scan_thread.isRunning()
+                )
                 if self._scan_thread.isRunning():
                     logger.debug("_cleanup_scan_worker: calling thread.quit()")
                     self._scan_thread.quit()
@@ -1010,7 +1039,9 @@ class MainWindow(QMainWindow):
                     sectors_per_track=self._geometry.sectors_per_track,
                 )
                 self._analytics_panel.add_error(error)
-            self._sector_map_panel.set_sector_status(sector_result.linear_sector, status, animate=False)
+            self._sector_map_panel.set_sector_status(
+                sector_result.linear_sector, status, animate=False
+            )
 
         # Show activity on current track
         track_number = cylinder * 2 + head
@@ -1082,7 +1113,7 @@ class MainWindow(QMainWindow):
                 # No sectors decoded at all - likely flux decode issue
                 logger.debug("No sectors decoded")
                 self._status_strip.set_warning(
-                    f"Scan complete: No sectors decoded (flux read issue?)"
+                    "Scan complete: No sectors decoded (flux read issue?)"
                 )
             else:
                 logger.debug("Bad sectors found: %d", len(result.bad_sectors))
@@ -1123,11 +1154,15 @@ class MainWindow(QMainWindow):
                     details="This may indicate a flux read issue or incompatible disk format."
                 )
             else:
+                details = (
+                    f"Disk health: {self._disk_health}%\n\n"
+                    "Consider running a Restore operation to attempt recovery."
+                )
                 self._show_completion_dialog(
                     "Bad Sectors Found",
                     f"Found {len(result.bad_sectors)} bad sector(s) out of {total}.",
                     success=False,
-                    details=f"Disk health: {self._disk_health}%\n\nConsider running a Restore operation to attempt recovery."
+                    details=details
                 )
 
             logger.info("_on_scan_complete finished successfully")
@@ -1174,6 +1209,11 @@ class MainWindow(QMainWindow):
         # Reset sector map to pending state (no animation for instant visual update)
         total_sectors = self._geometry.total_sectors
         self._sector_map_panel.set_all_sectors_pending(total_sectors)
+
+        # Clear analytics tabs from previous operations
+        self._analytics_panel.clear_overview()
+        self._analytics_panel.clear_errors()
+        self._analytics_panel.clear_recovery_data()
 
         # Create thread and worker
         self._format_thread = QThread()
@@ -1232,7 +1272,9 @@ class MainWindow(QMainWindow):
             track_number = cylinder * 2 + head
             start_sector = track_number * self._geometry.sectors_per_track
             for i in range(self._geometry.sectors_per_track):
-                self._sector_map_panel.set_sector_status(start_sector + i, SectorStatus.WEAK, animate=False)
+                self._sector_map_panel.set_sector_status(
+                    start_sector + i, SectorStatus.WEAK, animate=False
+                )
             # Force scene repaint
             self._sector_map_panel.update_scenes()
 
@@ -1264,9 +1306,13 @@ class MainWindow(QMainWindow):
             play_error_sound()
             self._show_completion_dialog(
                 "Format Error",
-                f"Format completed with errors.",
+                "Format completed with errors.",
                 success=False,
-                details=f"Tracks formatted: {result.tracks_formatted}\nTracks failed: {result.tracks_failed}\nBad sectors: {len(result.bad_sectors)}"
+                details=(
+                    f"Tracks formatted: {result.tracks_formatted}\n"
+                    f"Tracks failed: {result.tracks_failed}\n"
+                    f"Bad sectors: {len(result.bad_sectors)}"
+                )
             )
 
     def _on_format_progress(self, progress: int) -> None:
@@ -1300,6 +1346,7 @@ class MainWindow(QMainWindow):
         self._cleanup_restore_worker()
 
         # Clear analytics tabs for fresh restore data
+        self._analytics_panel.clear_overview()
         self._analytics_panel.clear_recovery_data()
         self._analytics_panel.clear_errors()
 
@@ -1395,7 +1442,9 @@ class MainWindow(QMainWindow):
         logger.debug("Restore pass started: %d/%d", pass_num, total_passes)
         self._status_strip.set_restoring(pass_num, total_passes, 0, self._geometry.total_sectors)
 
-    def _on_restore_pass_complete(self, pass_num: int, bad_count: int, recovered_count: int) -> None:
+    def _on_restore_pass_complete(
+        self, pass_num: int, bad_count: int, recovered_count: int
+    ) -> None:
         """Handle restore pass completion."""
         logger.debug("Restore pass complete: pass=%d, bad=%d, recovered=%d",
                      pass_num, bad_count, recovered_count)
@@ -1525,11 +1574,15 @@ class MainWindow(QMainWindow):
                 f"Restore complete: All {stats.sectors_recovered} bad sectors recovered"
             )
             play_success_sound()
+            details = (
+                f"Passes completed: {stats.passes_completed}\n"
+                f"Time elapsed: {stats.elapsed_time:.1f}s"
+            )
             self._show_completion_dialog(
                 "Restore Successful",
                 f"All {stats.sectors_recovered} bad sector(s) have been recovered.",
                 success=True,
-                details=f"Passes completed: {stats.passes_completed}\nTime elapsed: {stats.elapsed_time:.1f}s"
+                details=details
             )
         elif stats.sectors_recovered > 0:
             self._status_strip.set_warning(
@@ -1537,22 +1590,32 @@ class MainWindow(QMainWindow):
                 f"{stats.final_bad_sectors} unrecoverable"
             )
             play_complete_sound()
+            details = (
+                f"Remaining bad sectors: {stats.final_bad_sectors}\n"
+                f"Passes completed: {stats.passes_completed}\n"
+                f"Time elapsed: {stats.elapsed_time:.1f}s"
+            )
             self._show_completion_dialog(
                 "Partial Recovery",
-                f"Recovered {stats.sectors_recovered} of {stats.initial_bad_sectors} bad sector(s).",
+                f"Recovered {stats.sectors_recovered} of "
+                f"{stats.initial_bad_sectors} bad sector(s).",
                 success=False,
-                details=f"Remaining bad sectors: {stats.final_bad_sectors}\nPasses completed: {stats.passes_completed}\nTime elapsed: {stats.elapsed_time:.1f}s"
+                details=details
             )
         else:
             self._status_strip.set_error(
                 f"Restore failed: {stats.final_bad_sectors} sectors unrecoverable"
             )
             play_error_sound()
+            details = (
+                "The disk may have physical damage that cannot be repaired.\n"
+                f"Passes completed: {stats.passes_completed}"
+            )
             self._show_completion_dialog(
                 "Restore Failed",
                 f"Could not recover any of the {stats.final_bad_sectors} bad sector(s).",
                 success=False,
-                details=f"The disk may have physical damage that cannot be repaired.\nPasses completed: {stats.passes_completed}"
+                details=details
             )
 
         # Update health based on recovery
@@ -1618,8 +1681,10 @@ class MainWindow(QMainWindow):
         """Start the analyze operation with worker thread."""
         self._cleanup_analyze_worker()
 
-        # Clear errors from previous operations
+        # Clear analytics tabs from previous operations
+        self._analytics_panel.clear_overview()
         self._analytics_panel.clear_errors()
+        self._analytics_panel.clear_recovery_data()
 
         # Get operation mode from toolbar and map to analysis config
         mode_text = self._operation_toolbar.get_selected_mode()
@@ -1734,7 +1799,8 @@ class MainWindow(QMainWindow):
         # Add errors for bad (F) or weak (D) grades
         if result.grade in ('F', 'D'):
             error_type = ErrorType.WEAK if result.grade == 'D' else ErrorType.OTHER
-            details = f"Track grade: {result.grade} (quality: {getattr(result, 'quality_score', 0):.0%})"
+            quality = getattr(result, 'quality_score', 0)
+            details = f"Track grade: {result.grade} (quality: {quality:.0%})"
             for i in range(self._geometry.sectors_per_track):
                 error = SectorError.from_chs(
                     cyl=cylinder,
@@ -1804,14 +1870,17 @@ class MainWindow(QMainWindow):
                 "Analysis Warning",
                 f"Disk received grade {grade} ({result.overall_quality_score:.0f}%).",
                 success=False,
-                details="Significant issues found. The disk may need restoration or data should be recovered immediately."
+                details=(
+                    "Significant issues found. The disk may need restoration or "
+                    "data should be recovered immediately."
+                )
             )
 
         # Update analytics panel with analysis results
         # Convert analysis result to overview format
         grade_dist = result.get_grade_distribution()
-        good_sectors = (grade_dist.get('A', 0) + grade_dist.get('B', 0)) * self._geometry.sectors_per_track
-        weak_sectors = (grade_dist.get('C', 0) + grade_dist.get('D', 0)) * self._geometry.sectors_per_track
+        good_grades = grade_dist.get('A', 0) + grade_dist.get('B', 0)
+        good_sectors = good_grades * self._geometry.sectors_per_track
         bad_sectors = grade_dist.get('F', 0) * self._geometry.sectors_per_track
 
         self._analytics_panel.update_overview(
@@ -1898,6 +1967,11 @@ class MainWindow(QMainWindow):
         # Initialize sector map with pending sectors
         self._sector_map_panel.set_all_sectors_pending(total_sectors)
 
+        # Clear analytics tabs from previous operations
+        self._analytics_panel.clear_overview()
+        self._analytics_panel.clear_errors()
+        self._analytics_panel.clear_recovery_data()
+
         # Update status
         self._status_strip.set_formatting(0, spec.total_tracks)
 
@@ -1958,8 +2032,10 @@ class MainWindow(QMainWindow):
         """Handle track verified signal from disk image worker."""
         if not verified:
             track_number = cylinder * 2 + head
-            logger.warning("Track verification failed: C%d H%d (track %d)",
-                          cylinder, head, track_number)
+            logger.warning(
+                "Track verification failed: C%d H%d (track %d)",
+                cylinder, head, track_number
+            )
 
     def _on_write_image_complete(self, result: WriteImageResult) -> None:
         """Handle write image completion."""
@@ -2452,9 +2528,15 @@ class MainWindow(QMainWindow):
             # Convert to AlignmentResults format expected by diagnostics tab
             from floppy_formatter.gui.tabs.diagnostics_tab import AlignmentResults
 
+            if alignment_ok:
+                status = "Aligned"
+            elif avg_score >= 0.5:
+                status = "Slightly Off"
+            else:
+                status = "Misaligned"
             alignment_results = AlignmentResults(
                 score=avg_score * 100,  # Convert to 0-100 scale
-                status="Aligned" if alignment_ok else "Slightly Off" if avg_score >= 0.5 else "Misaligned",
+                status=status,
                 inner_margin=0.0,  # Not measured
                 outer_margin=0.0,  # Not measured
                 center_offset=0.0,  # Not measured
@@ -2489,7 +2571,8 @@ class MainWindow(QMainWindow):
                 self._device.motor_on()
 
             # Get the currently selected drive unit (default to 0 if none selected)
-            drive_unit = self._device.selected_drive if self._device.selected_drive is not None else 0
+            selected = self._device.selected_drive
+            drive_unit = selected if selected is not None else 0
 
             # Run quick calibration/self-test on the current drive
             calibration = quick_calibration(self._device, drive_unit=drive_unit)
@@ -2528,17 +2611,20 @@ class MainWindow(QMainWindow):
                 ),
                 SelfTestItem(
                     name="Bit timing",
-                    status=TestStatus.PASS if calibration.bit_timing.within_spec else TestStatus.FAIL,
+                    status=(TestStatus.PASS if calibration.bit_timing.within_spec
+                            else TestStatus.FAIL),
                     details=f"{calibration.bit_timing.bit_cell_us:.3f}µs bit cell",
                 ),
                 SelfTestItem(
                     name="Head alignment",
-                    status=TestStatus.PASS if calibration.health.alignment_ok else TestStatus.FAIL,
+                    status=(TestStatus.PASS if calibration.health.alignment_ok
+                            else TestStatus.FAIL),
                     details=f"Score: {calibration.health.score:.0%}",
                 ),
                 SelfTestItem(
                     name="Overall health",
-                    status=TestStatus.PASS if calibration.calibration_successful else TestStatus.FAIL,
+                    status=(TestStatus.PASS if calibration.calibration_successful
+                            else TestStatus.FAIL),
                     details=f"Grade {calibration.health.grade_letter}",
                 ),
             ]
@@ -2844,7 +2930,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "No Report Data",
-                "No operation has been completed yet. Run a scan, format, restore, or analyze operation first."
+                "No operation has been completed yet. Run a scan, format, "
+                "restore, or analyze operation first."
             )
             return
 
@@ -2853,12 +2940,14 @@ class MainWindow(QMainWindow):
         report_format = settings.export.get_report_format()
 
         # Determine file extension and filter based on format
+        # Keys are lowercase to match ReportFormat.value (e.g., "html", "pdf", "txt")
         format_filters = {
-            "HTML": ("HTML Files (*.html)", ".html"),
-            "PDF": ("PDF Files (*.pdf)", ".pdf"),
-            "TXT": ("Text Files (*.txt)", ".txt"),
+            "html": ("HTML Files (*.html)", ".html"),
+            "pdf": ("PDF Files (*.pdf)", ".pdf"),
+            "txt": ("Text Files (*.txt)", ".txt"),
         }
-        filter_text, extension = format_filters.get(report_format.value, ("HTML Files (*.html)", ".html"))
+        default_filter = ("HTML Files (*.html)", ".html")
+        filter_text, extension = format_filters.get(report_format.value, default_filter)
 
         # Generate default filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2944,11 +3033,17 @@ class MainWindow(QMainWindow):
 
         device_path = ""
         if self._device:
-            device_path = str(self._device.port) if hasattr(self._device, 'port') else "Greaseweazle"
+            if hasattr(self._device, 'port'):
+                device_path = str(self._device.port)
+            else:
+                device_path = "Greaseweazle"
 
         geometry_str = ""
         if self._geometry:
-            geometry_str = f"{self._geometry.cylinders}C × {self._geometry.heads}H × {self._geometry.sectors_per_track}S"
+            geometry_str = (
+                f"{self._geometry.cylinders}C × {self._geometry.heads}H × "
+                f"{self._geometry.sectors_per_track}S"
+            )
 
         raw_data = {}
 
@@ -2962,20 +3057,29 @@ class MainWindow(QMainWindow):
                 "bad_sectors": len(result.bad_sectors),
                 "bad_sector_list": result.bad_sectors,
                 "good_sector_list": result.good_sectors,
-                "elapsed_ms": int(result.elapsed_time * 1000) if hasattr(result, 'elapsed_time') else 0,
+                "elapsed_ms": (
+                    int(result.elapsed_time * 1000) if hasattr(result, 'elapsed_time') else 0
+                ),
                 "health_percentage": self._disk_health or 0,
             }
 
             status = StatusLevel.SUCCESS if len(result.bad_sectors) == 0 else StatusLevel.WARNING
-            status_message = "All sectors readable" if len(result.bad_sectors) == 0 else f"{len(result.bad_sectors)} bad sectors found"
+            if len(result.bad_sectors) == 0:
+                status_message = "All sectors readable"
+            else:
+                status_message = f"{len(result.bad_sectors)} bad sectors found"
 
             summary_items = [
                 SummaryItem("Total Sectors", result.total_sectors),
                 SummaryItem("Good Sectors", len(result.good_sectors), StatusLevel.SUCCESS),
-                SummaryItem("Bad Sectors", len(result.bad_sectors),
-                           StatusLevel.SUCCESS if len(result.bad_sectors) == 0 else StatusLevel.ERROR),
-                SummaryItem("Disk Health", f"{self._disk_health or 0}%",
-                           StatusLevel.SUCCESS if (self._disk_health or 0) >= 95 else StatusLevel.WARNING),
+                SummaryItem(
+                    "Bad Sectors", len(result.bad_sectors),
+                    StatusLevel.SUCCESS if len(result.bad_sectors) == 0 else StatusLevel.ERROR
+                ),
+                SummaryItem(
+                    "Disk Health", f"{self._disk_health or 0}%",
+                    StatusLevel.SUCCESS if (self._disk_health or 0) >= 95 else StatusLevel.WARNING
+                ),
             ]
 
             metadata = ReportMetadata(
@@ -3000,13 +3104,18 @@ class MainWindow(QMainWindow):
             }
 
             status = StatusLevel.SUCCESS if result.success else StatusLevel.ERROR
-            status_message = "Format completed successfully" if result.success else f"Format completed with {result.tracks_failed} failed tracks"
+            if result.success:
+                status_message = "Format completed successfully"
+            else:
+                status_message = f"Format completed with {result.tracks_failed} failed tracks"
 
             summary_items = [
                 SummaryItem("Total Tracks", result.total_tracks),
                 SummaryItem("Tracks Formatted", result.tracks_formatted, StatusLevel.SUCCESS),
-                SummaryItem("Tracks Failed", result.tracks_failed,
-                           StatusLevel.SUCCESS if result.tracks_failed == 0 else StatusLevel.ERROR),
+                SummaryItem(
+                    "Tracks Failed", result.tracks_failed,
+                    StatusLevel.SUCCESS if result.tracks_failed == 0 else StatusLevel.ERROR
+                ),
                 SummaryItem("Status", "Success" if result.success else "Failed", status),
             ]
 
@@ -3044,7 +3153,9 @@ class MainWindow(QMainWindow):
                 "convergence_pass": stats.convergence_pass,
                 "elapsed_ms": int(stats.elapsed_time * 1000) if stats.elapsed_time else 0,
                 "convergence_history": convergence_history,
-                "recovery_percentage": int((stats.sectors_recovered / max(stats.initial_bad_sectors, 1)) * 100),
+                "recovery_percentage": int(
+                    (stats.sectors_recovered / max(stats.initial_bad_sectors, 1)) * 100
+                ),
             }
 
             if stats.final_bad_sectors == 0:
@@ -3052,21 +3163,34 @@ class MainWindow(QMainWindow):
                 status_message = "All sectors recovered successfully"
             elif stats.sectors_recovered > 0:
                 status = StatusLevel.WARNING
-                status_message = f"Partial recovery: {stats.sectors_recovered} of {stats.initial_bad_sectors} sectors recovered"
+                status_message = (
+                    f"Partial recovery: {stats.sectors_recovered} of "
+                    f"{stats.initial_bad_sectors} sectors recovered"
+                )
             else:
                 status = StatusLevel.ERROR
                 status_message = "Recovery failed - no sectors recovered"
 
             summary_items = [
                 SummaryItem("Initial Bad Sectors", stats.initial_bad_sectors),
-                SummaryItem("Sectors Recovered", stats.sectors_recovered, StatusLevel.SUCCESS if stats.sectors_recovered > 0 else StatusLevel.ERROR),
-                SummaryItem("Final Bad Sectors", stats.final_bad_sectors,
-                           StatusLevel.SUCCESS if stats.final_bad_sectors == 0 else StatusLevel.ERROR),
+                SummaryItem(
+                    "Sectors Recovered", stats.sectors_recovered,
+                    StatusLevel.SUCCESS if stats.sectors_recovered > 0 else StatusLevel.ERROR
+                ),
+                SummaryItem(
+                    "Final Bad Sectors", stats.final_bad_sectors,
+                    StatusLevel.SUCCESS if stats.final_bad_sectors == 0 else StatusLevel.ERROR
+                ),
                 SummaryItem("Passes Completed", stats.passes_completed),
-                SummaryItem("Converged", "Yes" if stats.converged else "No",
-                           StatusLevel.SUCCESS if stats.converged else StatusLevel.WARNING),
-                SummaryItem("Recovery Rate", f"{raw_data['recovery_percentage']}%",
-                           StatusLevel.SUCCESS if raw_data['recovery_percentage'] >= 80 else StatusLevel.WARNING),
+                SummaryItem(
+                    "Converged", "Yes" if stats.converged else "No",
+                    StatusLevel.SUCCESS if stats.converged else StatusLevel.WARNING
+                ),
+                SummaryItem(
+                    "Recovery Rate", f"{raw_data['recovery_percentage']}%",
+                    (StatusLevel.SUCCESS if raw_data['recovery_percentage'] >= 80
+                     else StatusLevel.WARNING)
+                ),
             ]
 
             metadata = ReportMetadata(
@@ -3118,8 +3242,10 @@ class MainWindow(QMainWindow):
                 SummaryItem("Overall Grade", result.overall_grade, status),
                 SummaryItem("Quality Score", f"{result.overall_quality_score:.1f}%", status),
                 SummaryItem("Format Type", result.format_type or "Unknown"),
-                SummaryItem("Copy Protected", "Yes" if result.is_copy_protected else "No",
-                           StatusLevel.WARNING if result.is_copy_protected else StatusLevel.INFO),
+                SummaryItem(
+                    "Copy Protected", "Yes" if result.is_copy_protected else "No",
+                    StatusLevel.WARNING if result.is_copy_protected else StatusLevel.INFO
+                ),
             ]
 
             # Add grade distribution
@@ -3226,6 +3352,469 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning("Failed to get app logo: %s", e)
             return ""
+
+    # =========================================================================
+    # Batch Verification
+    # =========================================================================
+
+    def _on_batch_verify_clicked(self) -> None:
+        """Handle Batch Verify button click."""
+        # Check device connection
+        if not self._device:
+            QMessageBox.warning(
+                self, "No Device",
+                "Please connect to a Greaseweazle device first."
+            )
+            return
+
+        # Check if an operation is running
+        if self._state != WorkbenchState.IDLE:
+            QMessageBox.warning(
+                self, "Operation in Progress",
+                "Please wait for the current operation to complete."
+            )
+            return
+
+        # Show config dialog
+        dialog = BatchVerifyConfigDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+
+        # Get config and start batch
+        self._batch_config = dialog.get_config()
+        self._batch_results = []
+        self._current_batch_index = 0
+        self._batch_start_time = datetime.now()
+
+        logger.info(
+            "Starting batch verification: %d disks, brand=%s, depth=%s",
+            self._batch_config.disk_count,
+            self._batch_config.brand.value,
+            self._batch_config.analysis_depth
+        )
+
+        # Start the batch verification loop
+        self._verify_next_disk()
+
+    def _verify_next_disk(self) -> None:
+        """Prompt for and verify the next disk in batch."""
+        if self._batch_config is None:
+            return
+
+        # Check if batch is complete
+        if self._current_batch_index >= self._batch_config.disk_count:
+            self._complete_batch_verification()
+            return
+
+        # Get current disk info
+        disk_info = self._batch_config.disks[self._current_batch_index]
+
+        # Ensure motor is off before disk swap
+        if self._device and self._device.is_motor_on():
+            try:
+                self._device.motor_off()
+                import time
+                time.sleep(0.5)  # Wait for spindown
+            except Exception as e:
+                logger.warning("Failed to stop motor: %s", e)
+
+        # Show prompt dialog
+        prompt = DiskPromptDialog(
+            self,
+            disk_info=disk_info,
+            current_index=self._current_batch_index,
+            total_count=self._batch_config.disk_count,
+        )
+        result: DiskPromptResult = prompt.exec_and_get_result()
+
+        if result.cancel_batch:
+            self._cancel_batch_verification()
+            return
+
+        if result.skip:
+            # Record skipped disk
+            skipped_result = SingleDiskResult(
+                disk_info=disk_info,
+                grade=DiskGrade.SKIPPED,
+                skipped=True,
+                timestamp=datetime.now(),
+            )
+            self._batch_results.append(skipped_result)
+            logger.info("Disk %d skipped", self._current_batch_index + 1)
+
+            self._current_batch_index += 1
+            # Use timer to avoid deep recursion
+            QTimer.singleShot(100, self._verify_next_disk)
+            return
+
+        # Start verification for this disk
+        self._start_single_disk_verification(disk_info)
+
+    def _start_single_disk_verification(self, disk_info: FloppyDiskInfo) -> None:
+        """Start verification of a single disk in the batch."""
+        if self._batch_config is None or self._geometry is None:
+            return
+
+        self._state = WorkbenchState.BATCH_VERIFYING
+        self._operation_toolbar.start_operation()
+        self._drive_control.pause_rpm_polling()
+
+        # Reset sector map
+        self._sector_map_panel.reset_all_sectors()
+
+        # Update status
+        disk_num = self._current_batch_index + 1
+        total = self._batch_config.disk_count
+        serial_info = f" ({disk_info.serial_number})" if disk_info.serial_number else ""
+        self._status_strip.set_status(f"Verifying disk {disk_num}/{total}{serial_info}...")
+
+        # Create and run worker
+        self._batch_verify_worker = BatchVerifyWorker(
+            device=self._device,
+            geometry=self._geometry,
+            disk_info=disk_info,
+            analysis_depth=self._batch_config.analysis_depth,
+        )
+        self._batch_verify_thread = QThread()
+        self._batch_verify_worker.moveToThread(self._batch_verify_thread)
+
+        # Connect signals
+        self._batch_verify_thread.started.connect(self._batch_verify_worker.run)
+        self._batch_verify_worker.disk_verified.connect(self._on_disk_verified)
+        self._batch_verify_worker.verification_failed.connect(self._on_disk_verification_failed)
+        self._batch_verify_worker.progress.connect(self._on_batch_progress)
+        self._batch_verify_worker.track_analyzed.connect(self._on_batch_track_analyzed)
+        self._batch_verify_worker.finished.connect(self._on_single_verification_finished)
+
+        self._batch_verify_thread.start()
+
+    def _on_disk_verified(self, result: SingleDiskResult) -> None:
+        """Handle single disk verification completion."""
+        self._batch_results.append(result)
+        logger.info(
+            "Disk %d verified: grade=%s, score=%.1f",
+            self._current_batch_index + 1,
+            result.grade.value,
+            result.overall_score
+        )
+
+    def _on_disk_verification_failed(self, error: str) -> None:
+        """Handle disk verification failure."""
+        logger.error("Disk %d verification failed: %s", self._current_batch_index + 1, error)
+        self._status_strip.set_error(f"Verification failed: {error}")
+
+    def _on_batch_progress(self, progress: int) -> None:
+        """Handle progress update during batch verification."""
+        self._operation_toolbar.set_progress(progress)
+
+    def _on_batch_track_analyzed(self, cyl: int, head: int, quality) -> None:
+        """Handle track analysis result for sector map update."""
+        # Update sector map based on track quality
+        sectors_per_track = self._geometry.sectors_per_track if self._geometry else 18
+        base_sector = (cyl * 2 + head) * sectors_per_track
+
+        # Determine status based on quality grade
+        if hasattr(quality, 'grade'):
+            grade = quality.grade
+            grade_name = grade.name if hasattr(grade, 'name') else str(grade)
+            if grade_name in ('A', 'B'):
+                status = SectorStatus.GOOD
+            elif grade_name == 'C':
+                status = SectorStatus.WEAK
+            else:
+                status = SectorStatus.BAD
+        else:
+            status = SectorStatus.GOOD
+
+        # Update sectors for this track
+        for s in range(sectors_per_track):
+            sector_num = base_sector + s
+            if sector_num < 2880:
+                self._sector_map_panel.set_sector_status(sector_num, status)
+
+    def _on_single_verification_finished(self) -> None:
+        """Handle single disk verification thread cleanup."""
+        self._cleanup_batch_verify_worker()
+        self._drive_control.resume_rpm_polling()
+
+        self._current_batch_index += 1
+
+        # Continue to next disk
+        QTimer.singleShot(100, self._verify_next_disk)
+
+    def _complete_batch_verification(self) -> None:
+        """Finalize batch verification and generate report."""
+        if self._batch_config is None:
+            return
+
+        end_time = datetime.now()
+
+        # Build final result
+        batch_result = BatchVerificationResult(
+            config=self._batch_config,
+            disk_results=self._batch_results,
+            start_time=self._batch_start_time or datetime.now(),
+            end_time=end_time,
+        )
+        batch_result.finalize()
+
+        # Store for report export
+        self._last_batch_result = batch_result
+        self._last_operation_type = "batch_verify"
+
+        # Reset state
+        self._state = WorkbenchState.IDLE
+        self._operation_toolbar.stop_operation()
+        self._operation_toolbar.set_report_enabled(True)
+
+        # Generate report
+        self._generate_batch_report(batch_result)
+
+        # Show completion message
+        play_complete_sound()
+        QMessageBox.information(
+            self, "Batch Complete",
+            f"Verified {batch_result.disks_verified} disk(s).\n"
+            f"Skipped: {batch_result.disks_skipped}\n"
+            f"Failed: {batch_result.disks_failed}\n"
+            f"Pass rate: {batch_result.pass_rate:.1f}%\n\n"
+            f"Average score: {batch_result.average_score:.1f}%"
+        )
+
+        self._status_strip.set_status("Batch verification complete")
+        logger.info("Batch verification complete: %s", batch_result.get_summary())
+
+    def _cancel_batch_verification(self) -> None:
+        """Handle batch verification cancellation."""
+        logger.info("Batch verification cancelled at disk %d", self._current_batch_index + 1)
+
+        # Clean up any running worker
+        if self._batch_verify_worker:
+            self._batch_verify_worker.cancel()
+        self._cleanup_batch_verify_worker()
+
+        # Generate partial report if any disks were verified
+        if self._batch_results and self._batch_config:
+            batch_result = BatchVerificationResult(
+                config=self._batch_config,
+                disk_results=self._batch_results,
+                start_time=self._batch_start_time or datetime.now(),
+                end_time=datetime.now(),
+            )
+            batch_result.finalize()
+            self._last_batch_result = batch_result
+            self._last_operation_type = "batch_verify"
+
+        # Reset state
+        self._state = WorkbenchState.IDLE
+        self._operation_toolbar.stop_operation()
+        self._drive_control.resume_rpm_polling()
+
+        self._status_strip.set_status("Batch verification cancelled")
+
+        QMessageBox.information(
+            self, "Batch Cancelled",
+            f"Batch verification was cancelled.\n"
+            f"Verified {len(self._batch_results)} disk(s) before cancellation."
+        )
+
+    def _generate_batch_report(self, result: BatchVerificationResult) -> None:
+        """Generate and save the batch report."""
+        from PyQt6.QtWidgets import QFileDialog
+        from floppy_formatter.core.settings import get_settings
+
+        try:
+            settings = get_settings()
+            report_format = settings.get("export", {}).get("default_report_format", "html")
+
+            # Build report content
+            html_content = self._build_batch_report_html(result)
+
+            # Get save location
+            default_name = f"batch_report_{result.start_time.strftime('%Y%m%d_%H%M%S')}"
+            if report_format == "pdf":
+                file_filter = "PDF Files (*.pdf)"
+                default_ext = ".pdf"
+            else:
+                file_filter = "HTML Files (*.html)"
+                default_ext = ".html"
+
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Batch Report",
+                default_name + default_ext,
+                file_filter
+            )
+
+            if not file_path:
+                return
+
+            if report_format == "pdf":
+                self._save_batch_report_pdf(html_content, file_path)
+            else:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+
+            self._status_strip.set_status(f"Report saved to {file_path}")
+            logger.info("Batch report saved to %s", file_path)
+
+        except Exception as e:
+            logger.error("Failed to generate batch report: %s", e, exc_info=True)
+            QMessageBox.warning(self, "Report Error", f"Failed to save report: {e}")
+
+    def _build_batch_report_html(self, result: BatchVerificationResult) -> str:
+        """Build HTML content for batch report."""
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Batch Verification Report</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #1e1e1e; color: #cccccc; padding: 20px;
+        }}
+        h1 {{ color: #4ec9b0; border-bottom: 2px solid #3a3d41; padding-bottom: 10px; }}
+        h2 {{ color: #569cd6; margin-top: 30px; }}
+        .summary {{ background: #252526; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+        .summary-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }}
+        .summary-item {{
+            background: #2d2d30; padding: 15px; border-radius: 6px; text-align: center;
+        }}
+        .summary-value {{ font-size: 24px; font-weight: bold; color: #4ec9b0; }}
+        .summary-label {{ font-size: 12px; color: #858585; margin-top: 5px; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #3a3d41; }}
+        th {{ background: #2d2d30; color: #cccccc; font-weight: bold; }}
+        tr:hover {{ background: #2a2a2a; }}
+        .grade-A {{ color: #4ec9b0; font-weight: bold; }}
+        .grade-B {{ color: #89d185; font-weight: bold; }}
+        .grade-C {{ color: #dcdcaa; font-weight: bold; }}
+        .grade-D {{ color: #ce9178; font-weight: bold; }}
+        .grade-F {{ color: #f14c4c; font-weight: bold; }}
+        .grade-S {{ color: #858585; font-weight: bold; }}
+        .pass {{ color: #4ec9b0; }}
+        .fail {{ color: #f14c4c; }}
+        .timestamp {{ color: #858585; font-size: 12px; }}
+    </style>
+</head>
+<body>
+    <h1>Batch Verification Report</h1>
+    <p class="timestamp">Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+
+    <div class="summary">
+        <h2>Summary</h2>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="summary-value">{result.config.disk_count}</div>
+                <div class="summary-label">Total Disks</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value">{result.disks_verified}</div>
+                <div class="summary-label">Verified</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value">{result.pass_rate:.1f}%</div>
+                <div class="summary-label">Pass Rate</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value">{result.average_score:.1f}%</div>
+                <div class="summary-label">Avg Score</div>
+            </div>
+        </div>
+        <p style="margin-top: 15px;">
+            <strong>Batch:</strong> {result.config.batch_name}<br>
+            <strong>Brand:</strong> {result.config.brand.value}<br>
+            <strong>Analysis Depth:</strong> {result.config.analysis_depth}
+        </p>
+    </div>
+
+    <h2>Results by Disk</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Serial/ID</th>
+                <th>Grade</th>
+                <th>Score</th>
+                <th>Good</th>
+                <th>Bad</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+"""
+        for i, disk_result in enumerate(result.disk_results):
+            serial = disk_result.disk_info.serial_number or f"Disk {i + 1}"
+            grade = disk_result.display_grade
+            grade_class = f"grade-{grade}"
+
+            if disk_result.skipped:
+                status = '<span class="grade-S">Skipped</span>'
+            elif disk_result.error_message:
+                status = f'<span class="fail">Error: {disk_result.error_message}</span>'
+            elif disk_result.is_passing:
+                status = '<span class="pass">Pass</span>'
+            else:
+                status = '<span class="fail">Fail</span>'
+
+            html += f"""
+            <tr>
+                <td>{i + 1}</td>
+                <td>{serial}</td>
+                <td class="{grade_class}">{grade}</td>
+                <td>{disk_result.overall_score:.1f}%</td>
+                <td>{disk_result.good_sectors}</td>
+                <td>{disk_result.bad_sectors}</td>
+                <td>{status}</td>
+            </tr>
+"""
+
+        html += """
+        </tbody>
+    </table>
+
+    <p class="timestamp" style="margin-top: 30px;">
+        Generated by Floppy Workbench
+    </p>
+</body>
+</html>
+"""
+        return html
+
+    def _save_batch_report_pdf(self, html_content: str, file_path: str) -> None:
+        """Save batch report as PDF."""
+        from PyQt6.QtGui import QTextDocument
+        from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtCore import QMarginsF
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(file_path)
+        printer.setPageMargins(QMarginsF(15, 15, 15, 15))
+
+        doc = QTextDocument()
+        doc.setHtml(html_content)
+        doc.print_(printer)
+
+    def _cleanup_batch_verify_worker(self) -> None:
+        """Clean up batch verify worker and thread."""
+        if self._batch_verify_worker:
+            try:
+                self._batch_verify_worker.deleteLater()
+            except RuntimeError:
+                pass
+            self._batch_verify_worker = None
+
+        if self._batch_verify_thread:
+            try:
+                if self._batch_verify_thread.isRunning():
+                    self._batch_verify_thread.quit()
+                    self._batch_verify_thread.wait(2000)
+                self._batch_verify_thread.deleteLater()
+            except RuntimeError:
+                pass
+            self._batch_verify_thread = None
 
     # =========================================================================
     # Event Handlers

@@ -377,9 +377,7 @@ def detect_copy_protection(
         ...     for sig in result.signatures:
         ...         print(f"  - {sig.description}")
     """
-    from floppy_formatter.analysis.flux_analyzer import (
-        FluxCapture, generate_histogram, detect_encoding_type
-    )
+    from floppy_formatter.analysis.flux_analyzer import detect_encoding_type
     from floppy_formatter.analysis.signal_quality import detect_weak_bits
 
     protection_types = []
@@ -718,7 +716,6 @@ def extract_deleted_data(
         ...         print("  Original data differs from current!")
     """
     from floppy_formatter.hardware import decode_flux_data
-    from floppy_formatter.analysis.signal_quality import detect_weak_bits
 
     deleted_sectors = []
 
@@ -1022,7 +1019,6 @@ def _extract_sector_info(flux: 'FluxCapture', encoding: str) -> List[SectorInfo]
         decoded = decode_flux_data(flux_data)
 
         # Convert to SectorInfo
-        cumulative_pos = 0.0
         times_us = flux.get_timings_microseconds()
 
         for sector in decoded:

@@ -534,15 +534,15 @@ __all__ = [
 # =============================================================================
 
 # Import classes from submodules - these depend on base classes defined above
-from .flux_io import FluxData, FluxReader, FluxWriter
-from .greaseweazle_device import GreaseweazleDevice
-from .mfm_codec import (
+from .flux_io import FluxData, FluxReader, FluxWriter  # noqa: E402
+from .greaseweazle_device import GreaseweazleDevice  # noqa: E402
+from .mfm_codec import (  # noqa: E402
     MFMDecoder, MFMEncoder, MFMBitstream,
     decode_flux_to_sectors, encode_sectors_to_flux,
     verify_sector_crc, calculate_crc,
     create_formatted_track, create_pattern_track,
 )
-from .drive_calibration import (
+from .drive_calibration import (  # noqa: E402
     DriveCalibration, RPMMeasurement, BitTimingMeasurement,
     AlignmentResult, DriveHealth, HealthGrade,
     calibrate_drive, quick_calibration, measure_rpm,
@@ -551,7 +551,7 @@ from .drive_calibration import (
 )
 
 # Also import the flux I/O functions
-from .flux_io import (
+from .flux_io import (  # noqa: E402
     read_track_flux, write_track_flux, erase_track_flux,
     analyze_flux_quality, compare_flux_captures, merge_flux_captures,
 )

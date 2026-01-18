@@ -29,7 +29,7 @@ def check_admin_privileges() -> bool:
         import ctypes
         try:
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
-        except:
+        except Exception:
             return False
 
 

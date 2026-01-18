@@ -17,14 +17,12 @@ from PyQt6.QtCore import (
     QEasingCurve,
     pyqtProperty,
     QRect,
-    QSize,
 )
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QFrame,
-    QGridLayout,
     QSizePolicy,
 )
 from PyQt6.QtGui import (
@@ -522,7 +520,6 @@ class SkeletonSectorMap(QWidget):
         shimmer_rad = math.radians(self._shimmer_angle)
 
         for i in range(num_rings):
-            inner_radius = i * ring_width
             outer_radius = (i + 1) * ring_width
 
             # Draw ring segments
@@ -544,12 +541,10 @@ class SkeletonSectorMap(QWidget):
                 color.setRedF(
                     base_color.redF() + (shimmer_color.redF() - base_color.redF()) * shimmer_factor
                 )
-                color.setGreenF(
-                    base_color.greenF() + (shimmer_color.greenF() - base_color.greenF()) * shimmer_factor
-                )
-                color.setBlueF(
-                    base_color.blueF() + (shimmer_color.blueF() - base_color.blueF()) * shimmer_factor
-                )
+                green_diff = shimmer_color.greenF() - base_color.greenF()
+                color.setGreenF(base_color.greenF() + green_diff * shimmer_factor)
+                blue_diff = shimmer_color.blueF() - base_color.blueF()
+                color.setBlueF(base_color.blueF() + blue_diff * shimmer_factor)
 
                 painter.setBrush(QBrush(color))
                 painter.setPen(QPen(QColor("#2d2d30"), 1))

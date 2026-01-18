@@ -53,7 +53,8 @@ def handle_disk_error(error_code: int, operation: str = "disk operation") -> str
         errno.EINVAL: "Invalid argument - check sector alignment",  # EINVAL = 22
     }
 
-    message = error_messages.get(error_code, f"Unknown error {error_code}: {errno.errorcode.get(error_code, 'UNKNOWN')}")
+    code_name = errno.errorcode.get(error_code, 'UNKNOWN')
+    message = error_messages.get(error_code, f"Unknown error {error_code}: {code_name}")
     return f"{operation} failed: {message}"
 
 
@@ -146,8 +147,8 @@ def is_retryable_error(error_code: int) -> bool:
         ...             break
     """
     retryable_errors = {
-        ERROR_CRC,              # EIO - I/O error
-        ERROR_SECTOR_NOT_FOUND, # ENXIO - Sector not found
+        ERROR_CRC,  # EIO - I/O error
+        ERROR_SECTOR_NOT_FOUND,  # ENXIO - Sector not found
     }
     return error_code in retryable_errors
 

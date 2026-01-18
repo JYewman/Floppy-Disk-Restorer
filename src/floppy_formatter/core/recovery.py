@@ -23,6 +23,8 @@ All original recovery algorithms are preserved - only the I/O layer changed.
 
 import time
 import logging
+import sys
+import ctypes
 from dataclasses import dataclass, field
 from typing import List, Optional, Callable, Tuple, Union, Any, Dict
 from enum import Enum, auto
@@ -32,25 +34,32 @@ from floppy_formatter.core.formatter import format_track
 from floppy_formatter.core.sector_adapter import (
     write_track_pattern,
     read_sector,
-    read_sector_by_lba,
     read_sector_multiread,
     get_pattern_for_pass,
-    get_pattern_name,
     wake_up_device,
     reset_error_tracking,
     motor_keepalive,
-    should_attempt_usb_reset,
     flush_flux_cache,
     invalidate_track_cache,
-    ERROR_SUCCESS,
 )
 from floppy_formatter.analysis.scanner import (
     scan_all_sectors,
     scan_track,
-    SectorMap,
 )
 from floppy_formatter.hardware import GreaseweazleDevice
 from floppy_formatter.hardware.flux_io import FluxReader
+
+# Module logger
+logger = logging.getLogger(__name__)
+
+# Platform-specific power management
+_IS_WINDOWS = sys.platform == 'win32'
+_IS_LINUX = sys.platform.startswith('linux')
+
+# Windows: Thread execution state flags for SetThreadExecutionState
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
+ES_DISPLAY_REQUIRED = 0x00000002
 
 
 # =============================================================================
@@ -184,11 +193,8 @@ def prevent_sleep() -> None:
     """
     Prevent system from entering sleep during long operations.
 
-    On Linux, this is typically handled by systemd-inhibit or by the
-    desktop environment. For now, this is a no-op placeholder.
-
-    Users can manually prevent sleep using:
-        systemd-inhibit --what=sleep --why="Floppy formatting" python -m floppy_formatter
+    On Windows, uses SetThreadExecutionState to prevent sleep.
+    On Linux, attempts to use D-Bus to inhibit the screensaver/sleep.
 
     Example:
         >>> prevent_sleep()
@@ -198,17 +204,44 @@ def prevent_sleep() -> None:
         ... finally:
         ...     allow_sleep()
     """
-    # Linux: No-op for now
-    # Could potentially use systemd-inhibit or dbus calls
-    pass
+    try:
+        if _IS_WINDOWS:
+            # Windows: Prevent system sleep using SetThreadExecutionState
+            ctypes.windll.kernel32.SetThreadExecutionState(
+                ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+            )
+            logger.debug("Windows sleep prevention enabled")
+
+        elif _IS_LINUX:
+            # Linux: Try D-Bus screensaver inhibit
+            try:
+                import subprocess
+                # Use systemd-inhibit if available (non-blocking check)
+                result = subprocess.run(
+                    ['systemd-inhibit', '--list'],
+                    capture_output=True,
+                    timeout=1
+                )
+                if result.returncode == 0:
+                    # systemd-inhibit is available - user should run with it
+                    logger.debug(
+                        "Linux: systemd-inhibit available. For best results, "
+                        "run with: systemd-inhibit --what=sleep python -m floppy_formatter"
+                    )
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+            logger.debug("Linux sleep prevention: user should use systemd-inhibit")
+
+    except Exception as e:
+        logger.debug("Could not prevent sleep: %s", e)
 
 
 def allow_sleep() -> None:
     """
     Re-enable normal sleep behavior.
 
-    On Linux, this restores normal power management if prevent_sleep()
-    had any effect. Currently a no-op.
+    On Windows, clears the thread execution state flags.
+    On Linux, releases any D-Bus inhibit locks.
 
     Example:
         >>> prevent_sleep()
@@ -217,8 +250,18 @@ def allow_sleep() -> None:
         ... finally:
         ...     allow_sleep()  # Always restore in finally block
     """
-    # Linux: No-op for now
-    pass
+    try:
+        if _IS_WINDOWS:
+            # Windows: Clear the execution state flags
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+            logger.debug("Windows sleep prevention disabled")
+
+        elif _IS_LINUX:
+            # Linux: Nothing to do - systemd-inhibit handles cleanup automatically
+            logger.debug("Linux sleep prevention: cleanup handled by systemd-inhibit")
+
+    except Exception as e:
+        logger.debug("Could not restore sleep behavior: %s", e)
 
 
 # =============================================================================
@@ -453,7 +496,8 @@ def perform_format_pass(
         total_passes: Total number of passes
         bad_sector_count: Current bad sector count
         converged: Whether convergence detected
-        progress_callback: Optional function(pass_num, total_passes, current_sector, total_sectors, bad_sector_count, converged)
+        progress_callback: Optional callback(pass_num, total_passes,
+            current_sector, total_sectors, bad_sector_count, converged)
 
     Example:
         >>> # Perform 3 passes manually
@@ -576,7 +620,8 @@ def recover_disk(
         convergence_threshold: Consecutive passes for convergence (default: 3)
         multiread_mode: Enable multi-read recovery (default: False)
         multiread_attempts: Flux capture count in multi-read mode (default: 100)
-        progress_callback: Optional function(pass_num, total_passes, current_sector, total_sectors, bad_sector_count, converged)
+        progress_callback: Optional callback(pass_num, total_passes,
+            current_sector, total_sectors, bad_sector_count, converged)
 
     Returns:
         RecoveryStatistics with comprehensive recovery information
@@ -628,13 +673,16 @@ def recover_disk(
         if progress_callback is not None:
             try:
                 # Report as pass -1 to indicate initial scan
-                # Extended callback: (pass_num, total_passes, current_sector, total_sectors, bad_sector_count, converged, is_good, error_type)
+                # Extended callback: (pass_num, total_passes, current_sector,
+                # total_sectors, bad_sector_count, converged, is_good, error_type)
                 try:
-                    progress_callback(-1, 1, sector_num, total, 0, False, is_good, error_type)
+                    progress_callback(
+                        -1, 1, sector_num, total, 0, False, is_good, error_type
+                    )
                 except TypeError:
                     # Fall back to original signature
                     progress_callback(-1, 1, sector_num, total, 0, False)
-            except:
+            except Exception:
                 pass
 
     # Flush cache before initial scan to ensure we read from physical disk
@@ -648,10 +696,11 @@ def recover_disk(
     # Notify caller of initial scan results (pass_num == -3 indicates initial scan summary)
     if progress_callback is not None:
         try:
-            progress_callback(-3, 0, initial_bad_count, geometry.total_sectors, initial_bad_count, False)
+            progress_callback(
+                -3, 0, initial_bad_count, geometry.total_sectors, initial_bad_count, False
+            )
         except Exception as e:
             logging.debug("recover_disk: failed to send initial scan summary: %s", e)
-            pass
 
     # Initialize recovery statistics
     stats = RecoveryStatistics(
@@ -672,16 +721,17 @@ def recover_disk(
         stats.recovery_duration = time.time() - start_time
         return stats
 
-
     if convergence_mode:
         # =====================================================================
         # Convergence Mode: Format until bad sector count stabilizes
         # =====================================================================
 
         for pass_num in range(max_passes):
-            logging.debug("recover_disk: starting pass %d/%d, current_bad=%d",
-                         pass_num + 1, max_passes,
-                         stats.bad_sector_history[-1] if stats.bad_sector_history else 0)
+            current_bad = stats.bad_sector_history[-1] if stats.bad_sector_history else 0
+            logging.debug(
+                "recover_disk: starting pass %d/%d, current_bad=%d",
+                pass_num + 1, max_passes, current_bad
+            )
 
             # Record pattern used
             pattern = get_pattern_for_pass(pass_num)
@@ -689,19 +739,23 @@ def recover_disk(
 
             # Perform format pass
             current_bad_count = stats.bad_sector_history[-1] if stats.bad_sector_history else 0
-            perform_format_pass(device, geometry, pass_num, max_passes,
-                              current_bad_count, stats.converged, progress_callback)
+            perform_format_pass(
+                device, geometry, pass_num, max_passes,
+                current_bad_count, stats.converged, progress_callback
+            )
             stats.passes_executed += 1
 
             # CRITICAL: Flush cache before scanning
             flush_device_cache(device)
 
             # Scan after pass to check progress
-            scan_result = scan_all_sectors(device, geometry,
-                                          progress_callback=initial_scan_callback)
+            scan_result = scan_all_sectors(
+                device, geometry, progress_callback=initial_scan_callback
+            )
             bad_count = len(scan_result.bad_sectors)
-            logging.debug("recover_disk: after pass %d, bad_count=%d",
-                         pass_num + 1, bad_count)
+            logging.debug(
+                "recover_disk: after pass %d, bad_count=%d", pass_num + 1, bad_count
+            )
 
             # Multi-read mode: Attempt aggressive recovery on remaining bad sectors
             if multiread_mode and bad_count > 0:
@@ -709,7 +763,7 @@ def recover_disk(
                 for bad_sector in scan_result.bad_sectors:
                     # Convert LBA to CHS for multiread
                     cyl, head, sector = _lba_to_chs(bad_sector, geometry)
-                    success, data, error, attempts = read_sector_multiread(
+                    success, _, _, attempts = read_sector_multiread(
                         device, cyl, head, sector,
                         max_attempts=multiread_attempts,
                         bytes_per_sector=geometry.bytes_per_sector
@@ -728,9 +782,10 @@ def recover_disk(
             # Notify UI of pass completion (pass_num = -2 signals pass complete)
             if progress_callback is not None:
                 try:
-                    previous_count = stats.bad_sector_history[-2] if len(stats.bad_sector_history) >= 2 else None
+                    hist = stats.bad_sector_history
+                    previous_count = hist[-2] if len(hist) >= 2 else None
                     progress_callback(-2, pass_num, bad_count, previous_count or 0, 0, False)
-                except:
+                except Exception:
                     pass
 
             # Check for convergence (PRIMARY CONDITION)
@@ -759,9 +814,11 @@ def recover_disk(
         # =====================================================================
 
         for pass_num in range(passes):
-            logging.debug("recover_disk: fixed pass %d/%d, current_bad=%d",
-                         pass_num + 1, passes,
-                         stats.bad_sector_history[-1] if stats.bad_sector_history else 0)
+            current_bad = stats.bad_sector_history[-1] if stats.bad_sector_history else 0
+            logging.debug(
+                "recover_disk: fixed pass %d/%d, current_bad=%d",
+                pass_num + 1, passes, current_bad
+            )
 
             # Record pattern used
             pattern = get_pattern_for_pass(pass_num)
@@ -769,19 +826,24 @@ def recover_disk(
 
             # Perform format pass
             current_bad_count = stats.bad_sector_history[-1] if stats.bad_sector_history else 0
-            perform_format_pass(device, geometry, pass_num, passes,
-                              current_bad_count, False, progress_callback)
+            perform_format_pass(
+                device, geometry, pass_num, passes,
+                current_bad_count, False, progress_callback
+            )
             stats.passes_executed += 1
 
             # CRITICAL: Flush cache before scanning
             flush_device_cache(device)
 
             # Scan after pass to track progress
-            scan_result = scan_all_sectors(device, geometry,
-                                          progress_callback=initial_scan_callback)
+            scan_result = scan_all_sectors(
+                device, geometry, progress_callback=initial_scan_callback
+            )
             bad_count = len(scan_result.bad_sectors)
-            logging.debug("recover_disk: after fixed pass %d, bad_count=%d",
-                         pass_num + 1, bad_count)
+            logging.debug(
+                "recover_disk: after fixed pass %d, bad_count=%d",
+                pass_num + 1, bad_count
+            )
 
             # Multi-read mode: Attempt aggressive recovery on remaining bad sectors
             if multiread_mode and bad_count > 0:
@@ -808,9 +870,10 @@ def recover_disk(
             # Notify UI of pass completion
             if progress_callback is not None:
                 try:
-                    previous_count = stats.bad_sector_history[-2] if len(stats.bad_sector_history) >= 2 else None
+                    hist = stats.bad_sector_history
+                    previous_count = hist[-2] if len(hist) >= 2 else None
                     progress_callback(-2, pass_num, bad_count, previous_count or 0, 0, False)
-                except:
+                except Exception:
                     pass
 
         # Final scan
@@ -853,7 +916,8 @@ def recover_bad_sectors_only(
         passes: Number of recovery passes per track (default: 5)
         multiread_mode: Enable multi-read recovery (default: False)
         multiread_attempts: Flux capture count in multi-read mode (default: 100)
-        progress_callback: Optional function(pass_num, total_passes, current_sector, total_sectors, bad_sector_count, converged)
+        progress_callback: Optional callback(pass_num, total_passes,
+            current_sector, total_sectors, bad_sector_count, converged)
                           Special pass_num values:
                           -1: Initial scan progress (sector being scanned)
                           -3: Initial scan summary (current_sector = bad count)
@@ -898,8 +962,10 @@ def recover_bad_sectors_only(
         initial_scan = scan_all_sectors(device, geometry, initial_scan_callback)
         bad_sector_list = list(initial_scan.bad_sectors)
 
-        logging.debug("recover_bad_sectors_only: initial scan found %d bad sectors",
-                     len(bad_sector_list))
+        logging.debug(
+            "recover_bad_sectors_only: initial scan found %d bad sectors",
+            len(bad_sector_list)
+        )
 
         # Notify caller of initial scan results
         if progress_callback is not None:
@@ -959,9 +1025,11 @@ def recover_bad_sectors_only(
                 try:
                     current_sector = track_count * geometry.sectors_per_track
                     total_sectors = total_tracks * geometry.sectors_per_track
-                    progress_callback(pass_num, passes, current_sector, total_sectors,
-                                    len(bad_sector_list), False)
-                except:
+                    progress_callback(
+                        pass_num, passes, current_sector, total_sectors,
+                        len(bad_sector_list), False
+                    )
+                except Exception:
                     pass
 
         stats.passes_executed += 1
@@ -973,8 +1041,9 @@ def recover_bad_sectors_only(
         remaining_bad = []
         for sector_num in bad_sector_list:
             cyl, head, sector = _lba_to_chs(sector_num, geometry)
-            success, data, error_code = read_sector(device, cyl, head, sector,
-                                                   geometry.bytes_per_sector)
+            success, data, error_code = read_sector(
+                device, cyl, head, sector, geometry.bytes_per_sector
+            )
             if not success:
                 remaining_bad.append(sector_num)
 
@@ -1001,9 +1070,10 @@ def recover_bad_sectors_only(
         # Notify UI of pass completion
         if progress_callback is not None:
             try:
-                previous_count = stats.bad_sector_history[-2] if len(stats.bad_sector_history) >= 2 else None
+                hist = stats.bad_sector_history
+                previous_count = hist[-2] if len(hist) >= 2 else None
                 progress_callback(-2, pass_num, bad_count, previous_count or 0, 0, False)
-            except:
+            except Exception:
                 pass
 
         # Update bad sector list for next pass

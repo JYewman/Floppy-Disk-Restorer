@@ -2,7 +2,7 @@
 Sound notification system for Floppy Workbench.
 
 Provides audio feedback for operation completion, errors, and other events.
-Supports system sounds and custom sound files.
+Uses native system sounds for reliability across platforms.
 
 Part of Phase 14: Polish & Professional Touches
 """
@@ -11,15 +11,32 @@ import logging
 import struct
 import wave
 import io
-import os
+import sys
+import subprocess
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional, Dict
 
-from PyQt6.QtCore import QObject, QUrl, QByteArray, QBuffer, QIODevice
+from PyQt6.QtCore import QObject, QUrl
 
 # Module logger
 logger = logging.getLogger(__name__)
+
+# Platform detection
+_IS_WINDOWS = sys.platform == 'win32'
+_IS_LINUX = sys.platform.startswith('linux')
+_IS_MACOS = sys.platform == 'darwin'
+
+# Windows sound support
+if _IS_WINDOWS:
+    try:
+        import winsound
+        _WINSOUND_AVAILABLE = True
+    except ImportError:
+        _WINSOUND_AVAILABLE = False
+        logger.debug("winsound not available")
+else:
+    _WINSOUND_AVAILABLE = False
 
 # Try to import Qt multimedia (may not be available on all systems)
 _AUDIO_AVAILABLE = False
@@ -29,6 +46,7 @@ try:
 except ImportError as e:
     logger.warning("Qt multimedia not available: %s - sound notifications disabled", e)
     # Create stub classes for systems without audio support
+
     class QSoundEffect:
         """Stub for QSoundEffect when audio is unavailable."""
         def __init__(self, *args, **kwargs): pass
@@ -234,10 +252,10 @@ class ToneGenerator:
 
         # Major chord arpeggio: C5 -> E5 -> G5 -> C6
         notes = [
-            (523.25, 0.0, 0.4),   # C5
+            (523.25, 0.0, 0.4),  # C5
             (659.25, 0.15, 0.4),  # E5
-            (783.99, 0.3, 0.4),   # G5
-            (1046.5, 0.45, 0.55), # C6
+            (783.99, 0.3, 0.4),  # G5
+            (1046.5, 0.45, 0.55),  # C6
         ]
 
         samples = []
@@ -315,8 +333,6 @@ class ToneGenerator:
     @classmethod
     def generate_click(cls, volume: float = 0.3) -> bytes:
         """Generate a subtle click sound."""
-        import math
-
         duration_ms = 30
         num_samples = int(cls.SAMPLE_RATE * duration_ms / 1000)
 
@@ -451,8 +467,12 @@ class SoundManager(QObject):
         """Initialize sound effects."""
         # Generate sounds programmatically
         self._sound_data[SoundType.OPERATION_COMPLETE] = ToneGenerator.generate_chime(self._volume)
-        self._sound_data[SoundType.OPERATION_ERROR] = ToneGenerator.generate_error_sound(self._volume)
-        self._sound_data[SoundType.RECOVERY_SUCCESS] = ToneGenerator.generate_success_fanfare(self._volume)
+        self._sound_data[SoundType.OPERATION_ERROR] = (
+            ToneGenerator.generate_error_sound(self._volume)
+        )
+        self._sound_data[SoundType.RECOVERY_SUCCESS] = (
+            ToneGenerator.generate_success_fanfare(self._volume)
+        )
         self._sound_data[SoundType.WARNING] = ToneGenerator.generate_warning_sound(self._volume)
         self._sound_data[SoundType.CLICK] = ToneGenerator.generate_click(self._volume)
         self._sound_data[SoundType.NOTIFICATION] = ToneGenerator.generate_notification(self._volume)
@@ -636,32 +656,84 @@ def play_sound(sound_type: SoundType) -> None:
     get_sound_manager().play_sound(sound_type)
 
 
+def _play_system_sound(sound_type: str) -> None:
+    """
+    Play a system sound based on platform.
+
+    Args:
+        sound_type: One of 'complete', 'error', 'success', 'warning'
+    """
+    try:
+        if _IS_WINDOWS and _WINSOUND_AVAILABLE:
+            # Windows system sounds
+            if sound_type == 'error':
+                winsound.MessageBeep(winsound.MB_ICONHAND)
+            elif sound_type == 'warning':
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            elif sound_type in ('complete', 'success'):
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            else:
+                winsound.MessageBeep(winsound.MB_OK)
+        elif _IS_LINUX:
+            # Linux - try paplay with freedesktop sounds, fall back to bell
+            sound_files = {
+                'complete': '/usr/share/sounds/freedesktop/stereo/complete.oga',
+                'success': '/usr/share/sounds/freedesktop/stereo/complete.oga',
+                'error': '/usr/share/sounds/freedesktop/stereo/dialog-error.oga',
+                'warning': '/usr/share/sounds/freedesktop/stereo/dialog-warning.oga',
+            }
+            sound_file = sound_files.get(sound_type, sound_files['complete'])
+
+            if Path(sound_file).exists():
+                subprocess.Popen(
+                    ['paplay', sound_file],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                # Fall back to terminal bell
+                print('\a', end='', flush=True)
+        elif _IS_MACOS:
+            # macOS - use afplay with system sounds
+            sound_files = {
+                'complete': '/System/Library/Sounds/Glass.aiff',
+                'success': '/System/Library/Sounds/Hero.aiff',
+                'error': '/System/Library/Sounds/Basso.aiff',
+                'warning': '/System/Library/Sounds/Sosumi.aiff',
+            }
+            sound_file = sound_files.get(sound_type, sound_files['complete'])
+
+            if Path(sound_file).exists():
+                subprocess.Popen(
+                    ['afplay', sound_file],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+        else:
+            # Unknown platform - try terminal bell
+            print('\a', end='', flush=True)
+    except Exception as e:
+        logger.debug("Could not play system sound: %s", e)
+
+
 def play_complete_sound() -> None:
-    """Play the operation complete sound."""
-    # DISABLED: Qt multimedia causing crashes on some systems
-    # get_sound_manager().play_operation_complete()
-    pass
+    """Play the operation complete sound using system sounds."""
+    _play_system_sound('complete')
 
 
 def play_error_sound() -> None:
-    """Play the error sound."""
-    # DISABLED: Qt multimedia causing crashes on some systems
-    # get_sound_manager().play_error()
-    pass
+    """Play the error sound using system sounds."""
+    _play_system_sound('error')
 
 
 def play_success_sound() -> None:
-    """Play the recovery success sound."""
-    # DISABLED: Qt multimedia causing crashes on some systems
-    # get_sound_manager().play_recovery_success()
-    pass
+    """Play the recovery success sound using system sounds."""
+    _play_system_sound('success')
 
 
 def play_warning_sound() -> None:
-    """Play the warning sound."""
-    # DISABLED: Qt multimedia causing crashes on some systems
-    # get_sound_manager().play_warning()
-    pass
+    """Play the warning sound using system sounds."""
+    _play_system_sound('warning')
 
 
 # =============================================================================

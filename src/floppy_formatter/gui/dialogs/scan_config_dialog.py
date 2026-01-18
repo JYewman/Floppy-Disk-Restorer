@@ -25,7 +25,6 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QFrame,
 )
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 
@@ -126,7 +125,9 @@ class ScanConfigDialog(QDialog):
         self._mode_group.addButton(self._quick_radio, 0)
         mode_layout.addWidget(self._quick_radio)
 
-        quick_desc = QLabel("Scans tracks 0, 40, 79 plus random samples. Fast but may miss problems.")
+        quick_desc = QLabel(
+            "Scans tracks 0, 40, 79 plus random samples. Fast but may miss problems."
+        )
         quick_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         quick_desc.setWordWrap(True)
         mode_layout.addWidget(quick_desc)
@@ -138,18 +139,25 @@ class ScanConfigDialog(QDialog):
         self._mode_group.addButton(self._standard_radio, 1)
         mode_layout.addWidget(self._standard_radio)
 
-        standard_desc = QLabel("Scans all tracks with single-revolution capture. Recommended for routine checks.")
+        standard_desc = QLabel(
+            "Scans all tracks with single-revolution capture. Recommended for routine checks."
+        )
         standard_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         standard_desc.setWordWrap(True)
         mode_layout.addWidget(standard_desc)
 
         # Thorough mode
         self._thorough_radio = QRadioButton("Thorough")
-        self._thorough_radio.setToolTip("Deep scan with multiple revolutions for quality assessment")
+        self._thorough_radio.setToolTip(
+            "Deep scan with multiple revolutions for quality assessment"
+        )
         self._mode_group.addButton(self._thorough_radio, 2)
         mode_layout.addWidget(self._thorough_radio)
 
-        thorough_desc = QLabel("Multi-revolution capture for quality assessment. Slower but detects marginal sectors.")
+        thorough_desc = QLabel(
+            "Multi-revolution capture for quality assessment. "
+            "Slower but detects marginal sectors."
+        )
         thorough_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         thorough_desc.setWordWrap(True)
         mode_layout.addWidget(thorough_desc)
@@ -165,7 +173,10 @@ class ScanConfigDialog(QDialog):
         self._capture_flux_check.setToolTip("Store raw flux timing data for detailed analysis")
         flux_layout.addWidget(self._capture_flux_check)
 
-        flux_desc = QLabel("Enables detailed flux analysis in the Flux tab. View waveforms, histograms, and signal quality.")
+        flux_desc = QLabel(
+            "Enables detailed flux analysis in the Flux tab. "
+            "View waveforms, histograms, and signal quality."
+        )
         flux_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         flux_desc.setWordWrap(True)
         flux_layout.addWidget(flux_desc)

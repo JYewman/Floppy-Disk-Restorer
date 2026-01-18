@@ -15,7 +15,7 @@ Part of Phase 8: Flux Visualization Widgets
 import math
 import statistics
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -26,13 +26,12 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QToolTip,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QPointF, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPen,
     QBrush,
     QColor,
-    QPainterPath,
     QFont,
     QFontMetrics,
     QPaintEvent,
@@ -438,7 +437,10 @@ class TimingJitterWidget(QWidget):
         # Calculate R-squared
         mean_y = sum_y / n
         ss_tot = sum((p.deviation_ns - mean_y) ** 2 for p in self._points)
-        ss_res = sum((p.deviation_ns - (slope * p.bit_position + intercept)) ** 2 for p in self._points)
+        ss_res = sum(
+            (p.deviation_ns - (slope * p.bit_position + intercept)) ** 2
+            for p in self._points
+        )
 
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
 
@@ -627,13 +629,12 @@ class TimingJitterWidget(QWidget):
         plot_top = MARGIN_TOP
         plot_bottom = self.height() - MARGIN_BOTTOM
 
-        painter.drawLine(int(plot_left), int(max(plot_top, min(plot_bottom, y1))),
-                        int(plot_right), int(max(plot_top, min(plot_bottom, y2))))
+        y1_clipped = int(max(plot_top, min(plot_bottom, y1)))
+        y2_clipped = int(max(plot_top, min(plot_bottom, y2)))
+        painter.drawLine(int(plot_left), y1_clipped, int(plot_right), y2_clipped)
 
     def _draw_points(self, painter: QPainter) -> None:
         """Draw scatter plot points."""
-        plot_left = MARGIN_LEFT
-        plot_right = self.width() - MARGIN_RIGHT
         plot_top = MARGIN_TOP
         plot_bottom = self.height() - MARGIN_BOTTOM
 
@@ -674,12 +675,14 @@ class TimingJitterWidget(QWidget):
         plot_bottom = self.height() - MARGIN_BOTTOM
 
         # X axis
-        painter.drawLine(int(plot_left), int(plot_bottom),
-                        int(plot_right), int(plot_bottom))
+        painter.drawLine(
+            int(plot_left), int(plot_bottom), int(plot_right), int(plot_bottom)
+        )
 
         # Y axis
-        painter.drawLine(int(plot_left), int(plot_top),
-                        int(plot_left), int(plot_bottom))
+        painter.drawLine(
+            int(plot_left), int(plot_top), int(plot_left), int(plot_bottom)
+        )
 
         # X axis labels
         bit_range = self._view_end_bit - self._view_start_bit
@@ -695,8 +698,8 @@ class TimingJitterWidget(QWidget):
             painter.drawText(int(x - 15), int(plot_bottom + 15), label)
 
         # X axis title
-        painter.drawText(int((plot_left + plot_right) / 2 - 30),
-                        int(self.height() - 5), "Bit Position")
+        title_x = int((plot_left + plot_right) / 2 - 30)
+        painter.drawText(title_x, int(self.height() - 5), "Bit Position")
 
         # Y axis labels
         for ns in [-400, -200, 0, 200, 400]:
@@ -725,8 +728,12 @@ class TimingJitterWidget(QWidget):
 
         # RMS with color
         rms = self._statistics.rms_ns
-        rms_color = COLOR_POINT_GOOD if rms < 100 else \
-                   COLOR_POINT_MARGINAL if rms < 300 else COLOR_POINT_POOR
+        if rms < 100:
+            rms_color = COLOR_POINT_GOOD
+        elif rms < 300:
+            rms_color = COLOR_POINT_MARGINAL
+        else:
+            rms_color = COLOR_POINT_POOR
 
         painter.setPen(QPen(rms_color))
         painter.drawText(int(x), int(y), f"RMS: {rms:.1f} ns")
@@ -748,7 +755,6 @@ class TimingJitterWidget(QWidget):
         """Handle mouse move for hover effects."""
         pos = event.position()
         bit_pos = self._x_to_bit(pos.x())
-        dev_ns = self._y_to_ns(pos.y())
 
         # Find nearest point
         old_hover = self._hover_point_idx

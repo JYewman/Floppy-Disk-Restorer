@@ -9,15 +9,14 @@ Part of Phase 14: Polish & Professional Touches
 
 import logging
 from pathlib import Path
-from typing import Optional, Callable, List, Set
+from typing import Optional, Callable, Set
 
-from PyQt6.QtCore import Qt, QMimeData, QUrl, pyqtSignal, QTimer, QPoint
+from PyQt6.QtCore import Qt, QMimeData, pyqtSignal, QPoint
 from PyQt6.QtWidgets import (
     QWidget,
     QLabel,
     QVBoxLayout,
     QFrame,
-    QApplication,
     QMessageBox,
 )
 from PyQt6.QtGui import (

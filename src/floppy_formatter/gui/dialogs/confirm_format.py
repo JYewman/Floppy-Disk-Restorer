@@ -5,7 +5,7 @@ Provides a warning dialog used before starting a destructive disk format
 operation to ensure the user understands the consequences.
 """
 
-from PyQt6.QtWidgets import QMessageBox, QWidget, QPushButton
+from PyQt6.QtWidgets import QMessageBox, QWidget
 from typing import Optional
 
 

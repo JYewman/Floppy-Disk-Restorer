@@ -26,7 +26,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
 )
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 
@@ -140,7 +139,9 @@ class AnalyzeConfigDialog(QDialog):
         self._depth_group.addButton(self._quick_radio, 0)
         depth_layout.addWidget(self._quick_radio)
 
-        quick_desc = QLabel("Fast quality check on sample tracks (0, 40, 79). Basic signal metrics only.")
+        quick_desc = QLabel(
+            "Fast quality check on sample tracks (0, 40, 79). Basic signal metrics only."
+        )
         quick_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         quick_desc.setWordWrap(True)
         depth_layout.addWidget(quick_desc)
@@ -152,7 +153,10 @@ class AnalyzeConfigDialog(QDialog):
         self._depth_group.addButton(self._full_radio, 1)
         depth_layout.addWidget(self._full_radio)
 
-        full_desc = QLabel("Complete analysis of all tracks. Includes flux timing, histograms, and quality grading.")
+        full_desc = QLabel(
+            "Complete analysis of all tracks. Includes flux timing, histograms, and "
+            "quality grading."
+        )
         full_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         full_desc.setWordWrap(True)
         depth_layout.addWidget(full_desc)
@@ -163,7 +167,10 @@ class AnalyzeConfigDialog(QDialog):
         self._depth_group.addButton(self._comprehensive_radio, 2)
         depth_layout.addWidget(self._comprehensive_radio)
 
-        comp_desc = QLabel("Full analysis plus forensic examination. Detects copy protection, non-standard formats, deleted data.")
+        comp_desc = QLabel(
+            "Full analysis plus forensic examination. Detects copy protection, "
+            "non-standard formats, deleted data."
+        )
         comp_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         comp_desc.setWordWrap(True)
         depth_layout.addWidget(comp_desc)
@@ -195,15 +202,21 @@ class AnalyzeConfigDialog(QDialog):
         components_layout.addWidget(alignment_desc)
 
         self._forensics_check = QCheckBox("Forensic Analysis")
-        self._forensics_check.setToolTip("Copy protection detection, format analysis, deleted data recovery")
+        self._forensics_check.setToolTip(
+            "Copy protection detection, format analysis, deleted data recovery"
+        )
         components_layout.addWidget(self._forensics_check)
 
-        forensics_desc = QLabel("Detects copy protection, analyzes format type, attempts deleted data recovery.")
+        forensics_desc = QLabel(
+            "Detects copy protection, analyzes format type, attempts deleted data recovery."
+        )
         forensics_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
         forensics_desc.setWordWrap(True)
         components_layout.addWidget(forensics_desc)
 
-        components_note = QLabel("Components are auto-selected based on depth but can be manually adjusted.")
+        components_note = QLabel(
+            "Components are auto-selected based on depth but can be manually adjusted."
+        )
         components_note.setStyleSheet("color: #b89500; font-size: 9pt; font-style: italic;")
         components_note.setWordWrap(True)
         components_layout.addWidget(components_note)
