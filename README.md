@@ -8,34 +8,75 @@
 
 A comprehensive floppy disk analysis and recovery application using **Greaseweazle V4.1** for flux-level disk access. Floppy Workbench provides professional-grade tools for disk preservation, recovery, and analysis.
 
+![Floppy Workbench Screenshot](screenshots/Screenshot_1.png)
+
 ## Features
 
 ### Flux-Level Analysis
+
 - **Real-time flux waveform visualization** - Oscilloscope-style view of magnetic transitions
 - **Pulse width histogram** - Analyze MFM timing distribution
 - **Signal quality metrics** - SNR, jitter, and weak bit detection
-- **Automatic format detection** - MFM, FM, and non-standard formats
+- **Automatic format detection** - MFM, FM, GCR, and non-standard formats
+- **Copy protection detection** - Forensic analysis of protection schemes
 
 ### Advanced Data Recovery
+
 - **Multi-capture recovery** - Read same track multiple times for statistical bit voting
 - **PLL tuning** - Find optimal decoder parameters for marginal disks
 - **Convergence-based recovery** - Automatically stop when no further improvement
-- **Pattern write recovery** - Refresh weak magnetic areas with rotating patterns
+- **Bit-slip correction** - Recover from synchronization errors
 - **Targeted recovery** - Focus on bad sectors while preserving good data
 
+### Disk Operations
+
+- **Scan** - Full surface analysis with sector-by-sector health mapping
+- **Format** - Write fresh formatted disk with verification
+- **Restore** - Multi-pass recovery with configurable intensity
+- **Write Image** - Write disk images to physical media
+- **Batch Verify** - Verify multiple disks in sequence
+
 ### Diagnostics
+
 - **Head alignment measurement** - Detect azimuth errors and track centering issues
 - **RPM stability monitoring** - Real-time drive speed analysis
 - **Drive health assessment** - Comprehensive drive diagnostics
 
 ### Professional Workbench GUI
+
 - **Single-page workbench layout** - All controls accessible at once
-- **Circular sector map** - Visual disk health with zoom and selection
+- **Circular sector map** - Visual disk health with zoom and selection (2,880 sectors)
 - **Tabbed analytics panel** - Overview, flux, errors, recovery, diagnostics
 - **Keyboard shortcuts** - Fast operation access
 - **Dark/Light themes** - Comfortable viewing in any environment
+- **Native system sounds** - Audio feedback on Windows, Linux, and macOS
+
+### Supported Disk Formats
+
+#### IBM PC (MFM)
+
+- 360KB 5.25" DD (40 cylinders, 9 sectors/track)
+- 720KB 3.5" DD (80 cylinders, 9 sectors/track)
+- 1.2MB 5.25" HD (80 cylinders, 15 sectors/track)
+- 1.44MB 3.5" HD (80 cylinders, 18 sectors/track)
+
+#### Amiga (Amiga MFM)
+
+- 880KB DD (80 cylinders, 11 sectors/track)
+- 1.76MB HD (80 cylinders, 22 sectors/track)
+
+#### Atari ST (MFM)
+
+- 360KB DD (80 cylinders, 9 sectors/track)
+- 720KB DD (80 cylinders, 9 sectors/track)
+
+#### BBC Micro
+
+- DFS 100KB/200KB (FM encoding)
+- ADFS 640KB/800KB (MFM encoding)
 
 ### Import/Export
+
 - **Sector images**: IMG, IMA, DSK formats
 - **Flux images**: SCP (SuperCard Pro), HFE (HxC Floppy Emulator)
 - **Reports**: PDF and HTML with embedded charts
@@ -43,15 +84,18 @@ A comprehensive floppy disk analysis and recovery application using **Greaseweaz
 ## Hardware Requirements
 
 ### Required
+
 - **Greaseweazle V4.1** (or compatible V4, F7 models)
 - **3.5" HD floppy drive** (PC-type, 34-pin interface)
 - **USB connection** to host computer
 
 ### Where to Get Greaseweazle
+
 - Official project: [Greaseweazle on GitHub](https://github.com/keirf/greaseweazle)
 - Pre-built units available from various retro computing vendors
 
 ### Supported Drive Types
+
 - 3.5" HD (1.44MB) - Primary support
 - 3.5" DD (720KB) - Supported
 - 5.25" drives - Experimental support
@@ -61,7 +105,7 @@ A comprehensive floppy disk analysis and recovery application using **Greaseweaz
 - **Python 3.10** or higher
 - **PyQt6** (installed automatically)
 - **Greaseweazle library** (installed automatically)
-- **Operating System**: Linux or Windows
+- **Operating System**: Windows, Linux, or macOS
 
 ## Installation
 
@@ -88,10 +132,13 @@ pip install -e .
 ### Dependencies
 
 The following packages are installed automatically:
+
 - `PyQt6` - GUI framework
 - `PyQt6-Charts` - Chart widgets
 - `greaseweazle` - Hardware communication
 - `numpy` - Numerical operations
+- `bitarray` - Efficient bit operations
+- `crcmod` - CRC calculations
 - `reportlab` - PDF generation
 - `pydantic` - Settings validation
 
@@ -136,12 +183,14 @@ python -m floppy_formatter
 ### Scanning Disks
 
 The scan operation reads all sectors and displays their status:
+
 - **Green**: Good sector, data readable
 - **Red**: Bad sector, CRC error or unreadable
 - **Yellow**: Weak sector, marginal signal
 - **Blue**: Currently being read
 
 **Scan modes:**
+
 - **Quick**: Sample tracks (fast overview)
 - **Standard**: All sectors, single read
 - **Thorough**: Multi-read verification
@@ -149,6 +198,7 @@ The scan operation reads all sectors and displays their status:
 ### Formatting Disks
 
 Format operations write fresh data to the disk:
+
 - **Standard**: Normal format with verification
 - **Low-level Refresh**: Rewrite all sectors to refresh magnetic signal
 - **Secure Erase**: Multiple overwrite passes
@@ -170,6 +220,7 @@ For disks with bad sectors:
 ### Flux Analysis
 
 The Flux tab provides low-level analysis:
+
 - **Waveform view**: See individual flux transitions
 - **Histogram**: Analyze pulse width distribution
 - **Quality metrics**: Signal-to-noise ratio, timing jitter
@@ -177,13 +228,20 @@ The Flux tab provides low-level analysis:
 ### Exporting Images
 
 Save disk contents to files:
+
 - **IMG/IMA**: Standard sector images (for working disks)
 - **SCP**: SuperCard Pro flux format (preserves raw flux)
 - **HFE**: HxC Floppy Emulator format
 
 ## Configuration
 
-Settings are stored in `~/.config/floppy-workbench/settings.json`:
+Settings are stored in platform-specific locations:
+
+- **Windows**: `%APPDATA%/FloppyWorkbench/settings.json`
+- **Linux**: `~/.config/floppy-workbench/settings.json`
+- **macOS**: `~/Library/Application Support/FloppyWorkbench/settings.json`
+
+Example configuration:
 
 ```json
 {
@@ -226,9 +284,11 @@ Settings are stored in `~/.config/floppy-workbench/settings.json`:
 1. Check USB connection
 2. Verify Greaseweazle LED is lit
 3. On Linux, ensure user is in `plugdev` group:
+
    ```bash
    sudo usermod -a -G plugdev $USER
    ```
+
 4. Try running with sudo: `sudo floppy-workbench`
 
 ### "No disk detected"
@@ -251,11 +311,13 @@ If using Windows Subsystem for Linux:
 
 1. Install [USBIPD-WIN](https://github.com/dorssel/usbipd-win)
 2. In PowerShell (Admin):
+
    ```powershell
    usbipd list
    usbipd bind --busid <BUSID>
    usbipd attach --wsl --busid <BUSID>
    ```
+
 3. Verify in WSL: `lsusb | grep -i greaseweazle`
 
 ## Contributing
@@ -280,6 +342,7 @@ poetry install --with dev
 poetry run pytest
 
 # Run linting
+poetry run flake8 src/ --max-line-length=100
 poetry run ruff check src/
 poetry run black --check src/
 ```
