@@ -142,7 +142,9 @@ class OperationToolbar(QWidget):
     start_clicked = pyqtSignal()
     stop_clicked = pyqtSignal()
     pause_clicked = pyqtSignal()
+    export_image_clicked = pyqtSignal()
     report_export_clicked = pyqtSignal()
+    print_report_clicked = pyqtSignal()
     batch_verify_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -229,6 +231,14 @@ class OperationToolbar(QWidget):
         self._batch_verify_button.clicked.connect(self._on_batch_verify_clicked)
         main_layout.addWidget(self._batch_verify_button)
 
+        # Export Image button - opens export dialog directly, not checkable
+        self._export_image_button = LargeOperationButton(
+            "Export", "download", "Export disk to image file (IMG, SCP, HFE)"
+        )
+        self._export_image_button.setCheckable(False)
+        self._export_image_button.clicked.connect(self._on_export_image_clicked)
+        main_layout.addWidget(self._export_image_button)
+
         self._operation_buttons = [
             self._scan_button,
             self._format_button,
@@ -304,6 +314,18 @@ class OperationToolbar(QWidget):
         self._report_button.setEnabled(False)  # Disabled until operation completes
         self._report_button.clicked.connect(self._on_report_clicked)
         main_layout.addWidget(self._report_button)
+
+        # Print Report button (thermal printer)
+        self._print_button = QPushButton("Print Report")
+        self._print_button.setToolTip("Print report to thermal printer (TSP100)")
+        print_icon = get_colored_icon("printer", color="#cccccc", size=16)
+        if not print_icon.isNull():
+            self._print_button.setIcon(print_icon)
+        self._print_button.setFixedWidth(120)
+        self._print_button.setEnabled(False)  # Disabled until operation completes
+        self._print_button.setVisible(False)  # Hidden until enabled in settings
+        self._print_button.clicked.connect(self._on_print_clicked)
+        main_layout.addWidget(self._print_button)
 
         # Add stretch
         main_layout.addStretch(1)
@@ -426,6 +448,9 @@ class OperationToolbar(QWidget):
 
         # Batch verify button - enabled when idle and connected
         self._batch_verify_button.setEnabled(is_idle and self._is_enabled)
+
+        # Export image button - enabled when idle and connected (needs scan data)
+        self._export_image_button.setEnabled(is_idle and self._is_enabled)
 
         # Progress bar
         if is_idle:
@@ -617,3 +642,59 @@ class OperationToolbar(QWidget):
             self._batch_verify_button.setToolTip("Verify multiple disks in batch")
         else:
             self._batch_verify_button.setToolTip("Connect to device to enable batch verification")
+
+    def _on_export_image_clicked(self) -> None:
+        """Handle export image button click."""
+        logger.debug("Export Image button clicked")
+        self.export_image_clicked.emit()
+
+    def set_export_image_enabled(self, enabled: bool) -> None:
+        """
+        Enable or disable the Export Image button.
+
+        Args:
+            enabled: True to enable, False to disable
+        """
+        self._export_image_button.setEnabled(enabled)
+        if enabled:
+            self._export_image_button.setToolTip("Export disk to image file (IMG, SCP, HFE)")
+        else:
+            self._export_image_button.setToolTip("Scan a disk first to enable export")
+
+    def _on_print_clicked(self) -> None:
+        """Handle print report button click."""
+        logger.debug("Print Report button clicked")
+        self.print_report_clicked.emit()
+
+    def set_print_enabled(self, enabled: bool) -> None:
+        """
+        Enable or disable the Print Report button.
+
+        Args:
+            enabled: True to enable, False to disable
+        """
+        self._print_button.setEnabled(enabled)
+        if enabled:
+            self._print_button.setToolTip("Print report to thermal printer (TSP100)")
+        else:
+            self._print_button.setToolTip("Complete an operation to enable printing")
+
+    def set_print_visible(self, visible: bool) -> None:
+        """
+        Show or hide the Print Report button.
+
+        Used to hide the button when thermal printing is disabled in settings.
+
+        Args:
+            visible: True to show, False to hide
+        """
+        self._print_button.setVisible(visible)
+
+    def is_print_visible(self) -> bool:
+        """
+        Check if print button is visible.
+
+        Returns:
+            True if print button is visible
+        """
+        return self._print_button.isVisible()

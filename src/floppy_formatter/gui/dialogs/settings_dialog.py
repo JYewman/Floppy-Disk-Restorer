@@ -1005,6 +1005,363 @@ class ExportSettingsTab(QWidget):
 
 
 # =============================================================================
+# Printer Settings Tab
+# =============================================================================
+
+class PrinterSettingsTab(QWidget):
+    """Tab for thermal printer settings (TSP100 and compatible)."""
+
+    def __init__(self, settings: Settings, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.settings = settings
+        self._setup_ui()
+        self._load_settings()
+
+    def _setup_ui(self) -> None:
+        """Set up the printer settings UI."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        # Printer Enable Group
+        enable_group = QGroupBox("Thermal Printer")
+        enable_layout = QFormLayout(enable_group)
+        enable_layout.setContentsMargins(8, 12, 8, 8)
+        enable_layout.setSpacing(6)
+
+        # Enable thermal printing
+        self.enable_check = QCheckBox("Enable thermal printer support")
+        self.enable_check.setToolTip(
+            "Enable printing reports to a thermal receipt printer (Star TSP100)"
+        )
+        self.enable_check.stateChanged.connect(self._on_enable_changed)
+        enable_layout.addRow("", self.enable_check)
+
+        # Printer selection
+        printer_layout = QHBoxLayout()
+        self.printer_combo = QComboBox()
+        self.printer_combo.setToolTip("Select the thermal printer to use")
+        self.printer_combo.setMinimumWidth(250)
+        printer_layout.addWidget(self.printer_combo)
+
+        self.refresh_button = QToolButton()
+        self.refresh_button.setText("Refresh")
+        self.refresh_button.setToolTip("Refresh printer list")
+        self.refresh_button.clicked.connect(self._refresh_printers)
+        printer_layout.addWidget(self.refresh_button)
+        printer_layout.addStretch()
+        enable_layout.addRow("Printer:", printer_layout)
+
+        layout.addWidget(enable_group)
+
+        # Paper Settings Group
+        paper_group = QGroupBox("Paper Settings")
+        paper_layout = QFormLayout(paper_group)
+        paper_layout.setContentsMargins(8, 12, 8, 8)
+        paper_layout.setSpacing(6)
+
+        # Paper width
+        width_layout = QHBoxLayout()
+        self.paper_width_combo = QComboBox()
+        self.paper_width_combo.addItems(["80mm (Standard)", "58mm (Narrow)"])
+        self.paper_width_combo.setToolTip("Paper width for the thermal printer")
+        self.paper_width_combo.currentIndexChanged.connect(self._on_paper_width_changed)
+        width_layout.addWidget(self.paper_width_combo)
+        width_layout.addStretch()
+        paper_layout.addRow("Paper Width:", width_layout)
+
+        # Characters per line (auto-updated based on paper width)
+        char_layout = QHBoxLayout()
+        self.char_width_spin = QSpinBox()
+        self.char_width_spin.setRange(32, 80)
+        self.char_width_spin.setSuffix(" chars")
+        self.char_width_spin.setToolTip("Characters per line (depends on paper width)")
+        char_layout.addWidget(self.char_width_spin)
+        char_layout.addStretch()
+        paper_layout.addRow("Characters/Line:", char_layout)
+
+        layout.addWidget(paper_group)
+
+        # Print Options Group
+        options_group = QGroupBox("Print Options")
+        options_layout = QFormLayout(options_group)
+        options_layout.setContentsMargins(8, 12, 8, 8)
+        options_layout.setSpacing(4)
+
+        # Auto-cut
+        self.auto_cut_check = QCheckBox("Auto-cut paper after printing")
+        self.auto_cut_check.setToolTip(
+            "Automatically cut the paper after printing the report"
+        )
+        options_layout.addRow("", self.auto_cut_check)
+
+        # Print logo
+        self.print_logo_check = QCheckBox("Print application logo")
+        self.print_logo_check.setToolTip(
+            "Include ASCII art logo at the top of the report"
+        )
+        options_layout.addRow("", self.print_logo_check)
+
+        # Print sector map
+        self.print_sector_map_check = QCheckBox("Print sector map")
+        self.print_sector_map_check.setToolTip(
+            "Include ASCII sector map visualization in the report"
+        )
+        options_layout.addRow("", self.print_sector_map_check)
+
+        # Print statistics
+        self.print_statistics_check = QCheckBox("Print detailed statistics")
+        self.print_statistics_check.setToolTip(
+            "Include detailed scan/format/restore statistics"
+        )
+        options_layout.addRow("", self.print_statistics_check)
+
+        # Print timestamp
+        self.print_timestamp_check = QCheckBox("Print date and time")
+        self.print_timestamp_check.setToolTip(
+            "Include date and time on the printed report"
+        )
+        options_layout.addRow("", self.print_timestamp_check)
+
+        layout.addWidget(options_group)
+
+        # Advanced Group
+        advanced_group = QGroupBox("Advanced")
+        advanced_layout = QFormLayout(advanced_group)
+        advanced_layout.setContentsMargins(8, 12, 8, 8)
+        advanced_layout.setSpacing(6)
+
+        # Font size
+        font_layout = QHBoxLayout()
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.addItems(["Small", "Normal", "Large"])
+        self.font_size_combo.setToolTip("Font size for printed text")
+        font_layout.addWidget(self.font_size_combo)
+        font_layout.addStretch()
+        advanced_layout.addRow("Font Size:", font_layout)
+
+        # Copies
+        copies_layout = QHBoxLayout()
+        self.copies_spin = QSpinBox()
+        self.copies_spin.setRange(1, 10)
+        self.copies_spin.setToolTip("Number of copies to print")
+        copies_layout.addWidget(self.copies_spin)
+        copies_layout.addStretch()
+        advanced_layout.addRow("Copies:", copies_layout)
+
+        layout.addWidget(advanced_group)
+
+        # Test Print Button
+        test_layout = QHBoxLayout()
+        self.test_button = QPushButton("Print Test Page")
+        self.test_button.setToolTip("Print a test page to verify printer settings")
+        self.test_button.clicked.connect(self._on_test_print)
+        test_layout.addWidget(self.test_button)
+        test_layout.addStretch()
+        layout.addLayout(test_layout)
+
+        # Spacer
+        layout.addStretch()
+
+        # Refresh printers on load
+        self._refresh_printers()
+
+    def _refresh_printers(self) -> None:
+        """Refresh the list of available printers."""
+        try:
+            from floppy_formatter.utils.thermal_printer import ThermalPrinter
+            printers = ThermalPrinter.get_available_printers()
+
+            current = self.printer_combo.currentText()
+            self.printer_combo.clear()
+
+            if printers:
+                self.printer_combo.addItems(printers)
+                # Restore selection if still available
+                index = self.printer_combo.findText(current)
+                if index >= 0:
+                    self.printer_combo.setCurrentIndex(index)
+            else:
+                self.printer_combo.addItem("(No printers found)")
+
+        except Exception as e:
+            logger.warning("Failed to refresh printers: %s", e)
+            self.printer_combo.clear()
+            self.printer_combo.addItem("(Error detecting printers)")
+
+    def _on_enable_changed(self, state: int) -> None:
+        """Handle enable checkbox change."""
+        enabled = state == Qt.CheckState.Checked.value
+        self._update_controls_state(enabled)
+
+    def _on_paper_width_changed(self, index: int) -> None:
+        """Handle paper width change - update char width."""
+        if index == 0:  # 80mm
+            self.char_width_spin.setValue(48)
+        else:  # 58mm
+            self.char_width_spin.setValue(32)
+
+    def _update_controls_state(self, enabled: bool) -> None:
+        """Update controls enabled state based on printer enable."""
+        self.printer_combo.setEnabled(enabled)
+        self.refresh_button.setEnabled(enabled)
+        self.paper_width_combo.setEnabled(enabled)
+        self.char_width_spin.setEnabled(enabled)
+        self.auto_cut_check.setEnabled(enabled)
+        self.print_logo_check.setEnabled(enabled)
+        self.print_sector_map_check.setEnabled(enabled)
+        self.print_statistics_check.setEnabled(enabled)
+        self.print_timestamp_check.setEnabled(enabled)
+        self.font_size_combo.setEnabled(enabled)
+        self.copies_spin.setEnabled(enabled)
+        self.test_button.setEnabled(enabled)
+
+    def _on_test_print(self) -> None:
+        """Print a test page."""
+        try:
+            from floppy_formatter.utils.thermal_printer import (
+                ThermalPrinter,
+                ThermalReportData,
+            )
+
+            printer_name = self.printer_combo.currentText()
+            if not printer_name or printer_name.startswith("("):
+                QMessageBox.warning(
+                    self,
+                    "No Printer",
+                    "Please select a valid printer first."
+                )
+                return
+
+            printer = ThermalPrinter(
+                printer_name=printer_name,
+                auto_cut=self.auto_cut_check.isChecked()
+            )
+
+            if not printer.is_available:
+                QMessageBox.warning(
+                    self,
+                    "Printer Not Available",
+                    f"Could not connect to printer: {printer_name}"
+                )
+                return
+
+            # Create test data
+            from datetime import datetime
+            test_data = ThermalReportData(
+                title="TEST PRINT",
+                disk_label="Test Disk",
+                timestamp=datetime.now(),
+                format_type="IBM PC 1.44MB HD",
+                cylinders=80,
+                heads=2,
+                sectors_per_track=18,
+                total_sectors=2880,
+                good_sectors=2800,
+                bad_sectors=50,
+                weak_sectors=30,
+                signal_quality=85.5,
+                read_success_rate=97.2,
+                operation_type="Test",
+                duration_seconds=45.0,
+            )
+
+            success = printer.print_report(
+                test_data,
+                include_sector_map=self.print_sector_map_check.isChecked(),
+                include_logo=self.print_logo_check.isChecked(),
+                char_width=self.char_width_spin.value()
+            )
+
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Test Print",
+                    "Test page sent to printer successfully."
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Print Failed",
+                    "Failed to print test page. Please check the printer."
+                )
+
+        except Exception as e:
+            logger.exception("Test print failed: %s", e)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Test print failed:\n\n{e}"
+            )
+
+    def _load_settings(self) -> None:
+        """Load current settings into controls."""
+        printer = self.settings.printer
+
+        self.enable_check.setChecked(printer.enabled)
+
+        # Set printer name if available
+        if printer.printer_name:
+            index = self.printer_combo.findText(printer.printer_name)
+            if index >= 0:
+                self.printer_combo.setCurrentIndex(index)
+
+        # Paper width
+        if printer.paper_width_mm == 58:
+            self.paper_width_combo.setCurrentIndex(1)
+        else:
+            self.paper_width_combo.setCurrentIndex(0)
+
+        self.char_width_spin.setValue(printer.char_width)
+        self.auto_cut_check.setChecked(printer.auto_cut)
+        self.print_logo_check.setChecked(printer.print_logo)
+        self.print_sector_map_check.setChecked(printer.print_sector_map)
+        self.print_statistics_check.setChecked(printer.print_statistics)
+        self.print_timestamp_check.setChecked(printer.print_timestamp)
+
+        # Font size
+        font_index = {"small": 0, "normal": 1, "large": 2}.get(
+            printer.font_size.lower(), 1
+        )
+        self.font_size_combo.setCurrentIndex(font_index)
+
+        self.copies_spin.setValue(printer.copies)
+
+        # Update controls state
+        self._update_controls_state(printer.enabled)
+
+    def save_settings(self) -> None:
+        """Save control values to settings."""
+        printer = self.settings.printer
+
+        printer.enabled = self.enable_check.isChecked()
+
+        # Only save printer name if not a placeholder
+        printer_name = self.printer_combo.currentText()
+        if printer_name and not printer_name.startswith("("):
+            printer.printer_name = printer_name
+
+        # Paper width
+        if self.paper_width_combo.currentIndex() == 1:
+            printer.paper_width_mm = 58
+        else:
+            printer.paper_width_mm = 80
+
+        printer.char_width = self.char_width_spin.value()
+        printer.auto_cut = self.auto_cut_check.isChecked()
+        printer.print_logo = self.print_logo_check.isChecked()
+        printer.print_sector_map = self.print_sector_map_check.isChecked()
+        printer.print_statistics = self.print_statistics_check.isChecked()
+        printer.print_timestamp = self.print_timestamp_check.isChecked()
+
+        # Font size
+        font_sizes = ["small", "normal", "large"]
+        printer.font_size = font_sizes[self.font_size_combo.currentIndex()]
+
+        printer.copies = self.copies_spin.value()
+
+
+# =============================================================================
 # Main Settings Dialog
 # =============================================================================
 
@@ -1080,12 +1437,14 @@ class SettingsDialog(QDialog):
         self.display_tab = DisplaySettingsTab(self.settings)
         self.recovery_tab = RecoverySettingsTab(self.settings)
         self.export_tab = ExportSettingsTab(self.settings)
+        self.printer_tab = PrinterSettingsTab(self.settings)
 
         # Add tabs
         self.tab_widget.addTab(self.device_tab, "Device")
         self.tab_widget.addTab(self.display_tab, "Display")
         self.tab_widget.addTab(self.recovery_tab, "Recovery")
         self.tab_widget.addTab(self.export_tab, "Export")
+        self.tab_widget.addTab(self.printer_tab, "Printer")
 
         # Connect theme preview signal
         self.display_tab.theme_preview_requested.connect(self._on_theme_preview)
@@ -1479,6 +1838,7 @@ class SettingsDialog(QDialog):
             self.display_tab._load_settings()
             self.recovery_tab._load_settings()
             self.export_tab._load_settings()
+            self.printer_tab._load_settings()
 
             # Update dialog styling
             self._apply_dialog_style()
@@ -1518,6 +1878,7 @@ class SettingsDialog(QDialog):
             self.display_tab.save_settings()
             self.recovery_tab.save_settings()
             self.export_tab.save_settings()
+            self.printer_tab.save_settings()
 
             # Check if theme changed
             new_theme = self.display_tab.get_current_theme()
@@ -1535,6 +1896,7 @@ class SettingsDialog(QDialog):
                     self.settings.signals.display_settings_changed.emit()
                     self.settings.signals.recovery_settings_changed.emit()
                     self.settings.signals.export_settings_changed.emit()
+                    self.settings.signals.printer_settings_changed.emit()
 
                 logger.info("Settings saved successfully")
                 return True
@@ -1600,5 +1962,6 @@ __all__ = [
     'DisplaySettingsTab',
     'RecoverySettingsTab',
     'ExportSettingsTab',
+    'PrinterSettingsTab',
     'show_settings_dialog',
 ]

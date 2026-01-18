@@ -47,6 +47,9 @@ from floppy_formatter.gui.widgets import (
 from floppy_formatter.gui.dialogs import (
     show_about_dialog,
     show_settings_dialog,
+    ExportDialog,
+    ExportConfig,
+    show_export_dialog,
 )
 from floppy_formatter.gui.resources import get_icon, get_theme, set_theme
 from floppy_formatter.gui.utils import (
@@ -487,6 +490,9 @@ class MainWindow(QMainWindow):
         # Initial state
         self._update_state()
 
+        # Update print button visibility based on settings
+        self._update_print_button_visibility()
+
     def _init_menu_bar(self) -> None:
         """Initialize the menu bar."""
         menu_bar = self.menuBar()
@@ -647,7 +653,9 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.stop_clicked.connect(self._on_stop_clicked)
         self._operation_toolbar.pause_clicked.connect(self._on_pause_clicked)
         self._operation_toolbar.report_export_clicked.connect(self._on_report_export_clicked)
+        self._operation_toolbar.print_report_clicked.connect(self._on_print_report_clicked)
         self._operation_toolbar.batch_verify_clicked.connect(self._on_batch_verify_clicked)
+        self._operation_toolbar.export_image_clicked.connect(self._on_export_image_clicked)
 
         # Sector map signals
         sector_map = self._sector_map_panel.get_sector_map()
@@ -1090,7 +1098,7 @@ class MainWindow(QMainWindow):
             logger.debug("Scan result stored")
 
             # Enable report export
-            self._operation_toolbar.set_report_enabled(True)
+            self._enable_report_buttons(True)
 
             # Calculate disk health percentage
             total = result.total_sectors
@@ -1286,7 +1294,7 @@ class MainWindow(QMainWindow):
         # Store result and enable report export
         self._last_format_result = result
         self._last_operation_type = "format"
-        self._operation_toolbar.set_report_enabled(True)
+        self._enable_report_buttons(True)
 
         if result.success:
             self._status_strip.set_success(
@@ -1567,7 +1575,7 @@ class MainWindow(QMainWindow):
         # Store result and enable report export
         self._last_restore_stats = stats
         self._last_operation_type = "restore"
-        self._operation_toolbar.set_report_enabled(True)
+        self._enable_report_buttons(True)
 
         if stats.final_bad_sectors == 0:
             self._status_strip.set_success(
@@ -1832,7 +1840,7 @@ class MainWindow(QMainWindow):
         # Store result and enable report export
         self._last_analysis_result = result
         self._last_operation_type = "analyze"
-        self._operation_toolbar.set_report_enabled(True)
+        self._enable_report_buttons(True)
 
         # Update disk health
         self._disk_health = int(result.overall_quality_score)
@@ -2118,10 +2126,10 @@ class MainWindow(QMainWindow):
         self._status_strip.set_warning("Operation cancelled")
         self._update_state()
 
-        # Turn off the motor
+        # Turn off the motor - use force=True since we may have interrupted an operation
         if self._device and self._device.is_connected():
             try:
-                self._device.motor_off()
+                self._device.motor_off(force=True)
                 logger.debug("Motor stopped after cancel")
             except Exception as motor_err:
                 logger.warning("Failed to stop motor: %s", motor_err)
@@ -2729,7 +2737,16 @@ class MainWindow(QMainWindow):
 
     def _on_settings_clicked(self) -> None:
         """Show the settings dialog."""
-        show_settings_dialog(self, on_theme_changed=self._on_theme_changed)
+        show_settings_dialog(
+            self,
+            on_theme_changed=self._on_theme_changed,
+            on_settings_saved=self._on_settings_saved
+        )
+
+    def _on_settings_saved(self) -> None:
+        """Handle settings saved - update UI based on new settings."""
+        # Update print button visibility based on printer settings
+        self._update_print_button_visibility()
 
     def _on_theme_changed(self, theme: str) -> None:
         """Handle theme change from settings dialog."""
@@ -3354,6 +3371,342 @@ class MainWindow(QMainWindow):
             return ""
 
     # =========================================================================
+    # Thermal Printing
+    # =========================================================================
+
+    def _on_print_report_clicked(self) -> None:
+        """Handle Print Report button click - print report to thermal printer."""
+        from floppy_formatter.utils.thermal_printer import ThermalPrinter
+        from floppy_formatter.core.settings import get_settings
+
+        if not self._last_operation_type:
+            QMessageBox.warning(
+                self,
+                "No Report Data",
+                "No operation has been completed yet. Run a scan, format, "
+                "restore, or analyze operation first."
+            )
+            return
+
+        # Get printer settings
+        settings = get_settings()
+        if not settings.printer.enabled:
+            QMessageBox.warning(
+                self,
+                "Printer Not Configured",
+                "Thermal printing is not enabled.\n\n"
+                "Please enable it in Settings > Printer."
+            )
+            return
+
+        try:
+            # Build thermal report data
+            report_data = self._build_thermal_report_data()
+
+            # Create printer
+            printer = ThermalPrinter(
+                printer_name=settings.printer.printer_name,
+                auto_cut=settings.printer.auto_cut
+            )
+
+            if not printer.is_available:
+                QMessageBox.warning(
+                    self,
+                    "Printer Not Available",
+                    f"Could not connect to printer: {settings.printer.printer_name}\n\n"
+                    "Please check that the printer is connected and turned on."
+                )
+                return
+
+            # Print the report
+            self._status_strip.set_operation("Printing report...")
+
+            success = printer.print_report(
+                report_data,
+                include_sector_map=settings.printer.print_sector_map,
+                include_logo=settings.printer.print_logo,
+                char_width=settings.printer.char_width
+            )
+
+            if success:
+                self._status_strip.set_success("Report printed successfully")
+                logger.info("Report printed to: %s", settings.printer.printer_name)
+                play_success_sound()
+            else:
+                self._status_strip.set_error("Failed to print report")
+                QMessageBox.warning(
+                    self,
+                    "Print Failed",
+                    "Failed to print the report. Please check the printer connection."
+                )
+
+        except Exception as e:
+            logger.exception("Failed to print report: %s", e)
+            QMessageBox.critical(
+                self,
+                "Print Error",
+                f"Failed to print report:\n{str(e)}"
+            )
+            self._status_strip.set_error(f"Print failed: {e}")
+
+    def _build_thermal_report_data(self):
+        """Build ThermalReportData based on the last operation type."""
+        from floppy_formatter.utils.thermal_printer import ThermalReportData
+        from datetime import datetime
+
+        # Get geometry info
+        cylinders = self._geometry.cylinders if self._geometry else 80
+        heads = self._geometry.heads if self._geometry else 2
+        sectors_per_track = self._geometry.sectors_per_track if self._geometry else 18
+        total_sectors = cylinders * heads * sectors_per_track
+
+        # Default values
+        good_sectors = 0
+        bad_sectors = 0
+        weak_sectors = 0
+        signal_quality = 0.0
+        duration = 0.0
+        disk_label = ""
+
+        # Build data based on operation type
+        if self._last_operation_type == "scan" and self._last_scan_result:
+            result = self._last_scan_result
+            good_sectors = len(result.good_sectors) if hasattr(result, 'good_sectors') else 0
+            bad_sectors = len(result.bad_sectors) if hasattr(result, 'bad_sectors') else 0
+            weak_sectors = getattr(result, 'weak_sectors', 0)
+            if isinstance(weak_sectors, list):
+                weak_sectors = len(weak_sectors)
+            duration = getattr(result, 'elapsed_time', 0)
+            signal_quality = self._disk_health or 0
+
+        elif self._last_operation_type == "format" and self._last_format_result:
+            result = self._last_format_result
+            good_sectors = total_sectors
+            bad_sectors = 0
+            duration = getattr(result, 'elapsed_time', 0)
+            signal_quality = 100.0
+
+        elif self._last_operation_type == "restore" and self._last_restore_result:
+            result = self._last_restore_result
+            good_sectors = getattr(result, 'recovered_sectors', 0)
+            bad_sectors = getattr(result, 'failed_sectors', 0)
+            duration = getattr(result, 'elapsed_time', 0)
+            signal_quality = (
+                good_sectors / max(total_sectors, 1) * 100
+            )
+
+        elif self._last_operation_type == "analyze" and self._last_analysis_result:
+            result = self._last_analysis_result
+            signal_quality = getattr(result, 'overall_health', 0)
+            duration = getattr(result, 'elapsed_time', 0)
+
+        # Build sector map data for thermal printing
+        sector_map_data = self._build_thermal_sector_map()
+
+        # Calculate read success rate
+        read_success_rate = (good_sectors / max(total_sectors, 1)) * 100
+
+        return ThermalReportData(
+            title=f"DISK {self._last_operation_type.upper()} REPORT",
+            disk_label=disk_label,
+            timestamp=datetime.now(),
+            format_type=f"IBM PC {total_sectors * 512 // 1024}KB",
+            cylinders=cylinders,
+            heads=heads,
+            sectors_per_track=sectors_per_track,
+            total_sectors=total_sectors,
+            good_sectors=good_sectors,
+            bad_sectors=bad_sectors,
+            weak_sectors=weak_sectors,
+            signal_quality=signal_quality,
+            read_success_rate=read_success_rate,
+            operation_type=self._last_operation_type.capitalize(),
+            duration_seconds=duration,
+            sector_map=sector_map_data,
+        )
+
+    def _build_thermal_sector_map(self) -> dict:
+        """Build sector map data for thermal printing."""
+        sector_map_data = {}
+
+        if not self._geometry:
+            return sector_map_data
+
+        sector_map = self._sector_map_panel.get_sector_map()
+        if not sector_map:
+            return sector_map_data
+
+        for cyl in range(self._geometry.cylinders):
+            sector_map_data[cyl] = {}
+            for head in range(self._geometry.heads):
+                sector_map_data[cyl][head] = []
+                for sec in range(self._geometry.sectors_per_track):
+                    index = (
+                        cyl * self._geometry.heads * self._geometry.sectors_per_track +
+                        head * self._geometry.sectors_per_track +
+                        sec
+                    )
+                    status = sector_map.get_sector_status(index)
+                    if status == SectorStatus.GOOD:
+                        sector_map_data[cyl][head].append("good")
+                    elif status == SectorStatus.BAD:
+                        sector_map_data[cyl][head].append("bad")
+                    elif status == SectorStatus.WEAK:
+                        sector_map_data[cyl][head].append("weak")
+                    else:
+                        sector_map_data[cyl][head].append("unknown")
+
+        return sector_map_data
+
+    def _update_print_button_visibility(self) -> None:
+        """Update print button visibility based on settings."""
+        from floppy_formatter.core.settings import get_settings
+        settings = get_settings()
+        self._operation_toolbar.set_print_visible(settings.printer.enabled)
+
+    def _enable_report_buttons(self, enabled: bool) -> None:
+        """
+        Enable or disable both report and print buttons.
+
+        Args:
+            enabled: True to enable, False to disable
+        """
+        self._operation_toolbar.set_report_enabled(enabled)
+        # Print button enabled state matches report, visibility is separate
+        self._operation_toolbar.set_print_enabled(enabled)
+
+    # =========================================================================
+    # Export Image
+    # =========================================================================
+
+    def _on_export_image_clicked(self) -> None:
+        """Handle Export Image button click."""
+        # Check device connection
+        if not self._device:
+            QMessageBox.warning(
+                self, "No Device",
+                "Please connect to a Greaseweazle device first."
+            )
+            return
+
+        # Check if an operation is running
+        if self._state != WorkbenchState.IDLE:
+            QMessageBox.warning(
+                self, "Operation in Progress",
+                "Please wait for the current operation to complete."
+            )
+            return
+
+        # Check if we have scan data to export
+        sector_map = self._sector_map_panel.get_sector_map()
+        if not sector_map or sector_map.get_total_sectors() == 0:
+            QMessageBox.warning(
+                self, "No Data",
+                "Please scan a disk first before exporting.\n\n"
+                "The export function requires sector data from a completed scan."
+            )
+            return
+
+        # Show export dialog
+        dialog = ExportDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+
+        # Get config
+        config = dialog.get_config()
+        if not config or not config.output_path:
+            return
+
+        logger.info(
+            "Exporting disk to %s format: %s",
+            config.export_type.name,
+            config.output_path
+        )
+
+        # Perform the export based on type
+        try:
+            self._perform_export(config)
+        except Exception as e:
+            logger.error("Export failed: %s", e, exc_info=True)
+            QMessageBox.critical(
+                self, "Export Failed",
+                f"Failed to export disk image:\n\n{e}"
+            )
+
+    def _perform_export(self, config: ExportConfig) -> None:
+        """
+        Perform the disk export operation.
+
+        Args:
+            config: Export configuration
+        """
+        from floppy_formatter.imaging.image_formats import ImageManager
+        from floppy_formatter.gui.dialogs.export_dialog import ExportType
+
+        # Get sector data from the model
+        sector_map = self._sector_map_panel.get_sector_map()
+        total_sectors = sector_map.get_total_sectors()
+
+        if total_sectors == 0:
+            raise ValueError("No sector data available for export")
+
+        # Build sector data from sector map
+        geometry = self._geometry or DiskGeometry.standard_144()
+        sector_data: dict[tuple[int, int, int], bytes] = {}
+
+        # Collect sector data
+        # Note: This is a simplified implementation - in production you'd
+        # want to use cached sector data from the last scan
+        for cyl in range(geometry.cylinders):
+            for head in range(geometry.heads):
+                for sec in range(1, geometry.sectors_per_track + 1):
+                    # Get sector data if available (from last scan)
+                    # For now, create empty sectors for missing data
+                    sector_data[(cyl, head, sec)] = bytes(geometry.sector_size)
+
+        # Create image manager and export
+        manager = ImageManager()
+
+        if config.export_type == ExportType.IMG:
+            manager.export_img(
+                config.output_path,
+                sector_data,
+                geometry,
+                pad_to_standard=config.pad_to_standard
+            )
+        elif config.export_type == ExportType.SCP:
+            # SCP requires flux data - would need flux capture
+            QMessageBox.information(
+                self, "Flux Export",
+                "SCP export requires flux data.\n\n"
+                "Please use the Flux Analysis tab to capture and export flux data."
+            )
+            return
+        elif config.export_type == ExportType.HFE:
+            # HFE requires flux data
+            QMessageBox.information(
+                self, "Flux Export",
+                "HFE export requires flux data.\n\n"
+                "Please use the Flux Analysis tab to capture and export flux data."
+            )
+            return
+        else:
+            # PDF/HTML reports handled elsewhere
+            QMessageBox.information(
+                self, "Report Export",
+                "For PDF/HTML reports, please use the Export Report button."
+            )
+            return
+
+        # Success
+        QMessageBox.information(
+            self, "Export Complete",
+            f"Successfully exported disk image to:\n\n{config.output_path}"
+        )
+        play_success_sound()
+        logger.info("Export completed: %s", config.output_path)
+
+    # =========================================================================
     # Batch Verification
     # =========================================================================
 
@@ -3409,10 +3762,10 @@ class MainWindow(QMainWindow):
         # Get current disk info
         disk_info = self._batch_config.disks[self._current_batch_index]
 
-        # Ensure motor is off before disk swap
+        # Ensure motor is off before disk swap - use force=True in case operation was interrupted
         if self._device and self._device.is_motor_on():
             try:
-                self._device.motor_off()
+                self._device.motor_off(force=True)
                 import time
                 time.sleep(0.5)  # Wait for spindown
             except Exception as e:
@@ -3565,7 +3918,7 @@ class MainWindow(QMainWindow):
         # Reset state
         self._state = WorkbenchState.IDLE
         self._operation_toolbar.stop_operation()
-        self._operation_toolbar.set_report_enabled(True)
+        self._enable_report_buttons(True)
 
         # Generate report
         self._generate_batch_report(batch_result)

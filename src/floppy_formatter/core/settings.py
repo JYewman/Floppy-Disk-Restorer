@@ -361,6 +361,22 @@ class WindowSettings:
 
 
 @dataclass
+class PrinterSettings:
+    """Thermal printer settings for TSP100 and compatible printers."""
+    enabled: bool = False                    # Enable thermal printing feature
+    printer_name: str = ""                   # OS printer name (e.g., "Star TSP100")
+    paper_width_mm: int = 80                 # Paper width in mm (80mm standard)
+    char_width: int = 48                     # Characters per line (48 for 80mm)
+    auto_cut: bool = True                    # Auto-cut paper after printing
+    print_logo: bool = True                  # Print application logo
+    print_sector_map: bool = True            # Print ASCII sector map
+    print_statistics: bool = True            # Print detailed statistics
+    print_timestamp: bool = True             # Print date/time on receipt
+    font_size: str = "normal"                # Font size: "small", "normal", "large"
+    copies: int = 1                          # Number of copies to print
+
+
+@dataclass
 class RecentFile:
     """A recent file entry."""
     path: str
@@ -393,6 +409,7 @@ class SettingsSignals(QObject):
     recovery_settings_changed = pyqtSignal()
     export_settings_changed = pyqtSignal()
     window_settings_changed = pyqtSignal()
+    printer_settings_changed = pyqtSignal()
 
     # Specific setting signals
     theme_changed = pyqtSignal(str)
@@ -441,6 +458,7 @@ class Settings:
         self.recovery = RecoverySettings()
         self.export = ExportSettings()
         self.window = WindowSettings()
+        self.printer = PrinterSettings()
 
         # Recent files list
         self._recent_files: List[RecentFile] = []
@@ -510,6 +528,8 @@ class Settings:
                 self._load_dataclass(self.export, data['export'])
             if 'window' in data:
                 self._load_dataclass(self.window, data['window'])
+            if 'printer' in data:
+                self._load_dataclass(self.printer, data['printer'])
 
             logger.info(f"Settings loaded from {settings_file}")
             return True
@@ -549,6 +569,7 @@ class Settings:
                 'recovery': asdict(self.recovery),
                 'export': asdict(self.export),
                 'window': asdict(self.window),
+                'printer': asdict(self.printer),
             }
 
             # Write to temp file first, then rename (atomic)
@@ -758,6 +779,15 @@ class Settings:
                 self.signals.settings_changed.emit(f'window.{name}', value)
                 self.signals.window_settings_changed.emit()
 
+    def set_printer_setting(self, name: str, value: Any) -> None:
+        """Set a printer setting and emit change signal."""
+        if hasattr(self.printer, name):
+            setattr(self.printer, name, value)
+            self._dirty = True
+            if self.signals:
+                self.signals.settings_changed.emit(f'printer.{name}', value)
+                self.signals.printer_settings_changed.emit()
+
     # =========================================================================
     # Context Manager
     # =========================================================================
@@ -825,6 +855,11 @@ class Settings:
             if self.signals:
                 self.signals.window_settings_changed.emit()
 
+        if category is None or category == 'printer':
+            self.printer = PrinterSettings()
+            if self.signals:
+                self.signals.printer_settings_changed.emit()
+
         self._dirty = True
         logger.info(f"Settings reset to defaults: {category or 'all'}")
 
@@ -890,6 +925,7 @@ __all__ = [
     'RecoverySettings',
     'ExportSettings',
     'WindowSettings',
+    'PrinterSettings',
     'RecentFile',
 
     # Color schemes

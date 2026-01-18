@@ -33,15 +33,15 @@ try:
     from greaseweazle import usb as gw_usb
     from greaseweazle.usb import BusType
     from greaseweazle.flux import Flux
-    from greaseweazle.tools.util import usb_open, find_port
+    # NOTE: We don't import usb_open or find_port from greaseweazle.tools.util
+    # because they have a bug in list_ports_windows.py that crashes when any
+    # device on the system has port_name=None. We use pyserial directly instead.
     GREASEWEAZLE_AVAILABLE = True
 except ImportError:
     GREASEWEAZLE_AVAILABLE = False
     gw_usb = None
     BusType = None
     Flux = None
-    usb_open = None
-    find_port = None
 
 from . import (
     IFloppyDevice,
@@ -181,16 +181,20 @@ class GreaseweazleDevice(IFloppyDevice):
 
             if device_path is None:
                 # Auto-detect the Greaseweazle device
-                try:
-                    device_path = find_port()
-                    logger.debug("Auto-detected Greaseweazle at: %s", device_path)
-                except Exception as e:
+                # NOTE: We use pyserial instead of greaseweazle's find_port() because
+                # find_port() has a bug in list_ports_windows.py that crashes when
+                # any device on the system has port_name=None
+                device_path = self._find_greaseweazle_port()
+                if device_path is None:
                     raise NoDeviceError(
                         "No Greaseweazle device found. Please check USB connection."
-                    ) from e
+                    )
+                logger.debug("Auto-detected Greaseweazle at: %s", device_path)
 
-            # Open the device (mode_check=False to avoid update mode prompts)
-            self._unit = usb_open(device_path, is_update=False, mode_check=True)
+            # Open the device directly using pyserial + Unit
+            # NOTE: We bypass usb_open() because it also triggers the same bug
+            # in list_ports_windows.py when calling port_info()
+            self._unit = self._open_device_direct(device_path)
             self._usb_path = device_path
             logger.debug("Connected to device: %s", device_path)
 
@@ -288,6 +292,77 @@ class GreaseweazleDevice(IFloppyDevice):
             return f"Greaseweazle V{hw_model} (FW: {fw_major}.{fw_minor})"
         except Exception:
             return "Greaseweazle (unknown model)"
+
+    def _find_greaseweazle_port(self) -> Optional[str]:
+        """
+        Find Greaseweazle device using pyserial.
+
+        This is a workaround for a bug in greaseweazle's find_port() function
+        which crashes on Windows when any device has port_name=None.
+
+        Returns:
+            COM port string (e.g., 'COM3') or None if not found
+        """
+        # Greaseweazle USB VID:PID
+        GW_VID = 0x1209
+        GW_PID = 0x4D69
+
+        try:
+            import serial.tools.list_ports
+            for port in serial.tools.list_ports.comports():
+                if port.vid == GW_VID and port.pid == GW_PID:
+                    logger.debug(
+                        "Found Greaseweazle at %s (serial: %s)",
+                        port.device, port.serial_number
+                    )
+                    return port.device
+            return None
+        except Exception as e:
+            logger.warning("Error scanning for Greaseweazle: %s", e)
+            return None
+
+    def _open_device_direct(self, device_path: str):
+        """
+        Open Greaseweazle device directly using pyserial.
+
+        This bypasses greaseweazle's usb_open() which has the same bug
+        as find_port() - it calls comports() internally.
+
+        Args:
+            device_path: COM port path (e.g., 'COM3')
+
+        Returns:
+            Connected gw_usb.Unit object
+
+        Raises:
+            ConnectionError: If connection fails
+        """
+        import serial
+
+        try:
+            # Open serial port with standard Greaseweazle settings
+            ser = serial.Serial(device_path, baudrate=115200, timeout=1)
+
+            # Create Unit object directly
+            unit = gw_usb.Unit(ser)
+
+            logger.debug(
+                "Opened Greaseweazle: hw_model=%s, fw=%s",
+                unit.hw_model, unit.version
+            )
+
+            return unit
+
+        except serial.SerialException as e:
+            raise ConnectionError(
+                f"Failed to open serial port {device_path}: {e}",
+                usb_path=device_path
+            ) from e
+        except Exception as e:
+            raise ConnectionError(
+                f"Failed to initialize Greaseweazle on {device_path}: {e}",
+                usb_path=device_path
+            ) from e
 
     # =========================================================================
     # Drive Selection
@@ -421,16 +496,45 @@ class GreaseweazleDevice(IFloppyDevice):
                 device_info=self._device_info
             ) from e
 
-    def motor_off(self) -> None:
+    def _flush_serial(self) -> None:
+        """
+        Flush the serial buffers to clear any pending data.
+
+        This is useful when cancelling operations mid-stream to
+        ensure the serial communication is back in a clean state.
+        """
+        if self._unit is None or not hasattr(self._unit, 'ser'):
+            return
+
+        try:
+            ser = self._unit.ser
+            # Flush both input and output buffers
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+            # Small delay to let any in-flight data settle
+            time.sleep(0.1)
+            # Read and discard any remaining data
+            while ser.in_waiting > 0:
+                ser.read(ser.in_waiting)
+                time.sleep(0.05)
+            logger.debug("Serial buffers flushed")
+        except Exception as e:
+            logger.warning("Failed to flush serial buffers: %s", e)
+
+    def motor_off(self, force: bool = False) -> None:
         """
         Turn off the drive motor.
 
         Safely stops the drive motor. This should be called when
         operations are complete to avoid unnecessary wear.
 
+        Args:
+            force: If True, flush serial buffers first and retry on failure.
+                   Use this when cancelling mid-operation.
+
         Raises:
             ConnectionError: If not connected
-            MotorError: If motor control fails
+            MotorError: If motor control fails (unless force=True)
         """
         self._ensure_connected()
 
@@ -445,17 +549,45 @@ class GreaseweazleDevice(IFloppyDevice):
 
         logger.info("Turning motor off for drive %d", self._selected_drive)
 
-        try:
-            self._unit.drive_motor(self._selected_drive, False)
+        # If force mode, flush serial first to clear any pending operations
+        if force:
+            self._flush_serial()
+
+        max_attempts = 3 if force else 1
+        last_error = None
+
+        for attempt in range(max_attempts):
+            try:
+                self._unit.drive_motor(self._selected_drive, False)
+                self._motor_running = False
+                logger.debug("Motor is off")
+                return
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "Failed to turn off motor (attempt %d/%d): %s",
+                    attempt + 1, max_attempts, e
+                )
+                if force and attempt < max_attempts - 1:
+                    # Flush and retry
+                    self._flush_serial()
+                    time.sleep(0.2)
+
+        # All attempts failed
+        if force:
+            # In force mode, just mark motor as off and log warning
+            # The motor will turn off when the drive is deselected anyway
+            logger.warning(
+                "Could not turn off motor after %d attempts, marking as off",
+                max_attempts
+            )
             self._motor_running = False
-            logger.debug("Motor is off")
-        except Exception as e:
-            logger.error("Failed to turn off motor: %s", e)
+        else:
             raise MotorError(
-                f"Failed to turn off motor: {e}",
+                f"Failed to turn off motor: {last_error}",
                 motor_state=True,
                 device_info=self._device_info
-            ) from e
+            ) from last_error
 
     def is_motor_on(self) -> bool:
         """
