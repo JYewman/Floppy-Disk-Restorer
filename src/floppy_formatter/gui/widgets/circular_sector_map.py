@@ -422,8 +422,10 @@ class SectorWedgeItem(QGraphicsItem):
         """Create and cache the wedge path for efficient painting."""
         path = QPainterPath()
 
-        # Small gap for subtle separation
-        gap = 0.5
+        # No gap between wedges - adjacent wedges touch exactly
+        # Z-ordering ensures inner cylinders render on top of outer ones
+        # so there's no z-fighting, and no gaps for outer colors to bleed through
+        gap = 0.0
         effective_span = self.span_angle - gap
 
         # Create outer and inner arc rectangles
@@ -471,7 +473,7 @@ class SectorWedgeItem(QGraphicsItem):
         outer_r = self.outer_radius + margin
         inner_r = self.inner_radius - margin
 
-        gap = 0.3
+        gap = 0.0
         effective_span = self.span_angle - gap
 
         outer_rect = QRectF(-outer_r, -outer_r, outer_r * 2, outer_r * 2)
@@ -887,12 +889,13 @@ class CircularSectorMap(QGraphicsView):
     zoom_changed = pyqtSignal(float)
     double_clicked = pyqtSignal(int)  # cylinder number
 
-    # Layout constants
-    # Center hole should be large enough to represent the physical spindle hole
-    # INNER_RADIUS is where cylinder 0 (outermost data area) starts
+    # Layout constants matching real floppy disk geometry:
+    # - Cylinder 0 is at the OUTER edge (largest radius)
+    # - Cylinder 79 is at the INNER edge (smallest radius, near spindle)
+    # - Each track has 18 sectors spanning 360 degrees (20° per sector)
     CENTER_HOLE_RADIUS = 50  # Spindle hole visual
-    INNER_RADIUS = 55        # Where cylinder 79 (innermost) starts
-    OUTER_RADIUS = 350       # Where cylinder 0 (outermost) ends
+    INNER_RADIUS = 55        # Where cylinder 79 (innermost track) ends
+    OUTER_RADIUS = 350       # Where cylinder 0 (outermost track) starts
     RING_WIDTH = (350 - 55) / 80  # ~3.6875 pixels per cylinder
 
     def __init__(self, parent=None, head_filter: Optional[int] = None):
@@ -1008,28 +1011,27 @@ class CircularSectorMap(QGraphicsView):
         self.scene.addItem(metal_ring)
 
     def _create_wedges(self) -> None:
-        """Create sector wedge items.
+        """Create sector wedge items matching real floppy disk geometry.
+
+        Real floppy disk layout:
+        - 80 cylinders (cylinder 0 = outermost track, cylinder 79 = innermost)
+        - 2 heads (sides of the disk)
+        - 18 sectors per track, each spanning 20 degrees (360° / 18)
 
         When head_filter is None (both heads mode):
             - Creates 2,880 wedges (80 cylinders × 2 heads × 18 sectors)
-            - Each head occupies 180 degrees (head 0: -90 to 90, head 1: 90 to 270)
-            - Each sector spans 10 degrees
+            - Each head occupies 180 degrees (head 0: right half, head 1: left half)
 
         When head_filter is 0 or 1 (single head mode):
             - Creates 1,440 wedges for the specified head only
-            - Uses full 360 degrees
-            - Each sector spans 20 degrees (360/18)
+            - Uses full 360 degrees, 20 degrees per sector
         """
         total_sectors = 2880
         sectors_per_track = 18
 
-        # Determine angle span based on mode
-        if self._head_filter is not None:
-            # Single head mode: full circle, 20 degrees per sector
-            sector_span = 360.0 / sectors_per_track  # 20 degrees
-        else:
-            # Both heads mode: each head gets 180 degrees, 10 degrees per sector
-            sector_span = 180.0 / sectors_per_track  # 10 degrees
+        # Each sector spans 20 degrees (full circle / 18 sectors)
+        # This is physically accurate - all tracks have same angular sector spacing
+        sector_span = 360.0 / sectors_per_track  # 20 degrees
 
         for sector_num in range(total_sectors):
             cylinder = sector_num // (sectors_per_track * 2)
@@ -1040,17 +1042,23 @@ class CircularSectorMap(QGraphicsView):
             if self._head_filter is not None and head != self._head_filter:
                 continue
 
-            # Calculate angle based on mode
+            # Calculate angle - sector position around the disk
+            # Start at top (-90 degrees from horizontal, i.e., 12 o'clock) and go clockwise
+            # Each of the 18 sectors spans 20 degrees
             if self._head_filter is not None:
-                # Single head mode: use full 360 degrees
-                # Start at top (-90 degrees) and go clockwise
+                # Single head mode: full 360 degrees
                 angle = (sector_offset * sector_span) - 90
             else:
-                # Both heads mode: head 0 on one half, head 1 on other half
-                angle = (head * 180) + (sector_offset * sector_span) - 90
+                # Both heads mode: each head gets 180 degrees
+                # Head 0: right half (-90 to +90), Head 1: left half (+90 to +270)
+                half_span = 180.0 / sectors_per_track  # 10 degrees per sector in this mode
+                angle = (head * 180) + (sector_offset * half_span) - 90
+                sector_span = half_span  # Use reduced span for both-heads mode
 
-            inner_radius = self.INNER_RADIUS + (cylinder * self.RING_WIDTH)
-            outer_radius = inner_radius + self.RING_WIDTH
+            # Calculate radius - cylinder 0 at OUTER edge, cylinder 79 at INNER edge
+            # This matches real floppy disk geometry where track 0 is outermost
+            outer_radius = self.OUTER_RADIUS - (cylinder * self.RING_WIDTH)
+            inner_radius = outer_radius - self.RING_WIDTH
 
             wedge = SectorWedgeItem(
                 sector_num=sector_num,
@@ -1064,13 +1072,17 @@ class CircularSectorMap(QGraphicsView):
             )
 
             self.scene.addItem(wedge)
-            wedge.setZValue(80 - cylinder)
+            # Z-order: inner cylinders (higher number) drawn on top of outer ones
+            wedge.setZValue(cylinder)
             self._wedges[sector_num] = wedge
 
             # Link metadata
             metadata = self._data_cache.get_metadata(sector_num)
             if metadata:
                 wedge.set_metadata(metadata)
+
+            # Reset sector_span for next iteration if we modified it
+            sector_span = 360.0 / sectors_per_track
 
     def _start_trail_timer(self) -> None:
         """Start timer for cleaning up activity trail."""
@@ -1357,8 +1369,9 @@ class CircularSectorMap(QGraphicsView):
             return
 
         # Calculate the radius range for this cylinder
-        inner_r = self.INNER_RADIUS + (cylinder * self.RING_WIDTH)
-        outer_r = inner_r + self.RING_WIDTH
+        # Cylinder 0 is at outer edge, cylinder 79 at inner edge
+        outer_r = self.OUTER_RADIUS - (cylinder * self.RING_WIDTH)
+        inner_r = outer_r - self.RING_WIDTH
 
         # Create a rect around this cylinder ring
         margin = self.RING_WIDTH * 3
@@ -1546,8 +1559,8 @@ class CircularSectorMap(QGraphicsView):
         if distance < self.INNER_RADIUS or distance > self.OUTER_RADIUS:
             return None
 
-        # Calculate cylinder
-        cylinder = int((distance - self.INNER_RADIUS) / self.RING_WIDTH)
+        # Calculate cylinder - cylinder 0 is at OUTER edge, cylinder 79 at INNER edge
+        cylinder = int((self.OUTER_RADIUS - distance) / self.RING_WIDTH)
         return max(0, min(79, cylinder))
 
     # =========================================================================

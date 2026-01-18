@@ -6,17 +6,26 @@ and troubleshooting.
 """
 
 import logging
+import logging.handlers
 import sys
 import platform
 from pathlib import Path
+
+# Log rotation settings
+MAX_LOG_SIZE_MB = 5  # Rotate when file reaches this size
+MAX_BACKUP_COUNT = 3  # Keep this many backup files (.log.1, .log.2, .log.3)
 
 
 def setup_logging(log_file: str = "floppy_formatter.log", level: int = logging.DEBUG) -> None:
     """
     Configure structured logging for the application.
 
-    Sets up file-based logging with DEBUG level and captures system information
-    on startup for troubleshooting purposes.
+    Sets up rotating file-based logging with DEBUG level and captures system
+    information on startup for troubleshooting purposes.
+
+    Log files are rotated when they reach MAX_LOG_SIZE_MB (5MB by default),
+    with MAX_BACKUP_COUNT (3) backup files kept. Older backups are deleted
+    automatically.
 
     Args:
         log_file: Path to log file (default: "floppy_formatter.log")
@@ -30,20 +39,35 @@ def setup_logging(log_file: str = "floppy_formatter.log", level: int = logging.D
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Configure logging
-    logging.basicConfig(
-        filename=log_file,
-        level=level,
-        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    # Get root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+
+    # Clear any existing handlers (prevents duplicate handlers on restart)
+    root_logger.handlers.clear()
+
+    # Create rotating file handler
+    # Rotates when file reaches MAX_LOG_SIZE_MB, keeps MAX_BACKUP_COUNT backups
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=MAX_LOG_SIZE_MB * 1024 * 1024,  # Convert MB to bytes
+        backupCount=MAX_BACKUP_COUNT,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(level)
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(name)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
+    file_handler.setFormatter(file_formatter)
+    root_logger.addHandler(file_handler)
 
     # Also log to console for development
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_formatter = logging.Formatter('%(levelname)s - %(message)s')
     console_handler.setFormatter(console_formatter)
-    logging.getLogger().addHandler(console_handler)
+    root_logger.addHandler(console_handler)
 
     # Log system information on startup
     log_system_info()

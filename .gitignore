@@ -67,3 +67,6 @@ desktop.ini
 test_pll_decoder.py
 test.img
 CLAUDE.md
+floppy_formatter.log.1
+floppy_formatter.log.2
+floppy_formatter.log.3
