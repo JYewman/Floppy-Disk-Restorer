@@ -19,7 +19,7 @@ from PyQt6.QtCore import pyqtSignal
 from floppy_formatter.gui.workers.base_worker import GreaseweazleWorker
 
 if TYPE_CHECKING:
-    from floppy_formatter.hardware import GreaseweazleDevice
+    from floppy_formatter.hardware import GreaseweazleDevice, SectorData
     from floppy_formatter.core.geometry import DiskGeometry
 
 logger = logging.getLogger(__name__)
@@ -270,7 +270,12 @@ class FormatWorker(GreaseweazleWorker):
             verified=self._verify,
         )
 
-        # Ensure motor is on
+        # Ensure drive is selected and motor is on
+        if self._device.selected_drive is None:
+            raise RuntimeError(
+                "No drive selected. Please click 'Calibrate' in the Drive Control "
+                "panel to initialize the drive before formatting."
+            )
         if not self._device.is_motor_on():
             self._device.motor_on()
 
@@ -410,7 +415,8 @@ class FormatWorker(GreaseweazleWorker):
                 )
 
                 # Encode to MFM flux
-                flux = encode_sectors_to_flux(sector_data, cylinder, head)
+                # NOTE: Argument order is (cylinder, head, sectors) - NOT (sectors, cylinder, head)
+                flux = encode_sectors_to_flux(cylinder, head, sector_data)
 
                 # Write to disk
                 write_track_flux(self._device, cylinder, head, flux)
@@ -486,7 +492,7 @@ class FormatWorker(GreaseweazleWorker):
         cylinder: int,
         head: int,
         pattern: int
-    ) -> List[bytes]:
+    ) -> List['SectorData']:
         """
         Create sector data for a track filled with pattern.
 
@@ -496,14 +502,26 @@ class FormatWorker(GreaseweazleWorker):
             pattern: Fill byte value
 
         Returns:
-            List of 18 sector data buffers
+            List of SectorData objects for all sectors in the track
         """
+        from floppy_formatter.hardware import SectorData, SectorStatus
+
         sector_data = []
         bytes_per_sector = 512  # Standard sector size
 
         for sector_num in range(1, self._geometry.sectors_per_track + 1):
             data = bytes([pattern] * bytes_per_sector)
-            sector_data.append(data)
+            # Create proper SectorData object as expected by encode_sectors_to_flux
+            sector = SectorData(
+                cylinder=cylinder,
+                head=head,
+                sector=sector_num,
+                data=data,
+                status=SectorStatus.GOOD,
+                crc_valid=True,
+                signal_quality=1.0
+            )
+            sector_data.append(sector)
 
         return sector_data
 

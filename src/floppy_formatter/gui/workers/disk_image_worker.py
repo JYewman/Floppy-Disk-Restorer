@@ -209,8 +209,13 @@ class DiskImageWorker(GreaseweazleWorker):
                 len(self._image_data)
             )
 
-            # Reinitialize drive (uses already-selected drive unit, starts motor, seeks to track 0)
+            # Ensure drive is selected and reinitialize
             self.status_update.emit("Initializing drive...")
+            if self._device.selected_drive is None:
+                raise RuntimeError(
+                    "No drive selected. Please click 'Calibrate' in the Drive Control "
+                    "panel to initialize the drive before writing an image."
+                )
             self._device.reinitialize_drive()
 
             # Write all tracks

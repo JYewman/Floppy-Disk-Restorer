@@ -286,7 +286,14 @@ class ScanWorker(GreaseweazleWorker):
             mode=self._mode,
         )
 
-        # Ensure drive is properly initialized and motor is on
+        # Ensure drive is selected and motor is on
+        if self._device.selected_drive is None:
+            raise RuntimeError(
+                "No drive selected. Please click 'Calibrate' in the Drive Control "
+                "panel to initialize the drive before scanning."
+            )
+
+        # Ensure motor is properly initialized
         # Use reinitialize_drive() to ensure proper bus state synchronization
         if not self._device.is_motor_on():
             logger.info("Motor not running, reinitializing drive before scan...")
