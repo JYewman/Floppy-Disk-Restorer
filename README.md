@@ -1,12 +1,12 @@
-# Floppy Workbench
+# Floppy Disk Workbench
 
-**Professional Floppy Disk Analysis & Recovery Tool**
+**Floppy Disk Analysis, Restoration & Recovery Tool**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version: 2.0.0](https://img.shields.io/badge/version-2.0.0-green.svg)](https://github.com/JYewman/Floppy-Disk-Restorer/releases)
 
-A comprehensive floppy disk analysis and recovery application using **Greaseweazle V4.1** for flux-level disk access. Floppy Workbench provides professional-grade tools for disk preservation, recovery, and analysis.
+The Floppy Disk Workbench is a floppy disk analysis, restoration and recovery tool using **Greaseweazle V4.1** for flux-level disk access. Floppy Disk Workbench provides tools for disk preservation, recovery, and analysis.
 
 ![Floppy Workbench Screenshot](screenshots/Screenshot_1.png)
 
