@@ -814,6 +814,7 @@ def _try_decode_sector(flux: FluxCapture, sector_num: int) -> Optional[bytes]:
             index_positions=flux.index_positions,
             cylinder=flux.cylinder,
             head=flux.head,
+            index_cued=getattr(flux, 'index_cued', True),
         )
 
         sectors = decode_flux_data(flux_data)
@@ -858,6 +859,7 @@ def _decode_corrected_flux(
             index_positions=original_flux.index_positions,
             cylinder=original_flux.cylinder,
             head=original_flux.head,
+            index_cued=getattr(original_flux, 'index_cued', True),
         )
 
         sectors = decode_flux_data(flux_data)

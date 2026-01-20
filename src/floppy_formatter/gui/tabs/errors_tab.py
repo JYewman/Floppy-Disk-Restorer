@@ -26,11 +26,11 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QComboBox,
     QPushButton,
-    QSplitter,
     QFileDialog,
     QAbstractItemView,
     QSizePolicy,
     QTextEdit,
+    QScrollArea,
 )
 from PyQt6.QtCore import Qt, QRectF, pyqtSignal
 from PyQt6.QtGui import (
@@ -268,32 +268,33 @@ class ErrorHeatmapWidget(QWidget):
 
         # Draw axis labels
         painter.setPen(QPen(COLOR_TEXT_DIM))
-        painter.setFont(QFont("Consolas", 8))
+        painter.setFont(QFont("Segoe UI", 9))
 
         # X axis (sectors)
         for sec in range(0, self._sectors, 3):
             x = plot_left + (sec + 0.5) * cell_width
-            painter.drawText(int(x - 5), int(plot_bottom + 15), str(sec + 1))
+            painter.drawText(int(x - 5), int(plot_bottom + 16), str(sec + 1))
 
         # Y axis (cylinders)
         for cyl in range(0, self._cylinders, 10):
             y = plot_top + (cyl + 0.5) * cell_height
-            painter.drawText(5, int(y + 4), str(cyl))
+            painter.drawText(8, int(y + 4), str(cyl))
 
         # Axis titles
-        painter.setFont(QFont("Segoe UI", 9))
-        painter.drawText(int(plot_left + plot_width / 2 - 20), int(self.height() - 3), "Sector")
+        painter.setFont(QFont("Segoe UI", 10))
+        painter.drawText(int(plot_left + plot_width / 2 - 20), int(self.height() - 5), "Sector")
 
         painter.save()
-        painter.translate(12, int(plot_top + plot_height / 2))
+        painter.translate(14, int(plot_top + plot_height / 2))
         painter.rotate(-90)
         painter.drawText(0, 0, "Cyl")
         painter.restore()
 
         # Title
         painter.setPen(QPen(COLOR_TEXT))
+        painter.setFont(QFont("Segoe UI", 11))
         head_text = f"Head {self._head}" if self._head >= 0 else "Both Heads"
-        painter.drawText(int(plot_left), 12, f"Error Heatmap ({head_text})")
+        painter.drawText(int(plot_left), 14, f"Error Heatmap ({head_text})")
 
     def _get_heat_color(self, intensity: float) -> QColor:
         """Get heatmap color for intensity (0-1)."""
@@ -384,24 +385,20 @@ class ErrorPieChartWidget(QWidget):
         # Background
         painter.fillRect(self.rect(), COLOR_PANEL_BG)
 
-        # Title
-        painter.setPen(QPen(COLOR_TEXT))
-        painter.setFont(QFont("Segoe UI", 10))
-        painter.drawText(10, 18, "Error Types")
-
         if self._total_errors == 0:
             painter.setPen(QPen(COLOR_TEXT_DIM))
-            painter.drawText(int(self.width() / 2 - 30), int(self.height() / 2), "No errors")
+            painter.setFont(QFont("Segoe UI", 12))
+            painter.drawText(int(self.width() / 2 - 40), int(self.height() / 2), "No errors")
             return
 
         # Calculate pie dimensions
-        margin = 20
-        legend_width = 100
-        pie_size = min(self.width() - legend_width - margin * 2, self.height() - margin * 2 - 20)
-        pie_size = max(50, pie_size)
+        margin = 15
+        legend_width = 120
+        pie_size = min(self.width() - legend_width - margin * 2, self.height() - margin * 2)
+        pie_size = max(60, pie_size)
 
         cx = margin + pie_size / 2
-        cy = margin + 20 + pie_size / 2
+        cy = margin + pie_size / 2
 
         # Draw pie slices
         start_angle = 90 * 16  # Start from top
@@ -428,22 +425,22 @@ class ErrorPieChartWidget(QWidget):
             start_angle -= span_angle
 
         # Draw legend
-        legend_x = cx + radius + 20
-        legend_y = margin + 30
+        legend_x = cx + radius + 15
+        legend_y = margin + 10
 
-        painter.setFont(QFont("Consolas", 9))
+        painter.setFont(QFont("Segoe UI", 11))
 
         for i, (error_type, count) in enumerate(sorted_types):
-            y = legend_y + i * 20
+            y = legend_y + i * 24
 
             # Color box
             color = ERROR_COLORS.get(error_type, COLOR_TEXT_DIM)
-            painter.fillRect(QRectF(legend_x, y - 8, 12, 12), color)
+            painter.fillRect(QRectF(legend_x, y - 8, 14, 14), color)
 
             # Label
             pct = count / self._total_errors * 100
             painter.setPen(QPen(COLOR_TEXT))
-            painter.drawText(int(legend_x + 18), int(y + 2), f"{error_type}: {count} ({pct:.0f}%)")
+            painter.drawText(int(legend_x + 20), int(y + 4), f"{error_type}: {count} ({pct:.0f}%)")
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         """Handle mouse move for hover effects."""
@@ -622,20 +619,25 @@ class PatternDetectionWidget(QFrame):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
 
+        self.setObjectName("patternWidget")
         self.setStyleSheet(f"""
-            PatternDetectionWidget {{
+            QFrame#patternWidget {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 6px;
+            }}
+            QFrame#patternWidget QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
         title = QLabel("Pattern Detection")
-        title.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-weight: bold;")
+        title.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-weight: bold; font-size: 13px; border: none;")
         layout.addWidget(title)
 
         self._text = QTextEdit()
@@ -645,7 +647,8 @@ class PatternDetectionWidget(QFrame):
                 background-color: transparent;
                 color: {COLOR_TEXT.name()};
                 border: none;
-                font-size: 11px;
+                font-size: 12px;
+                line-height: 1.4;
             }}
         """)
         layout.addWidget(self._text)
@@ -779,29 +782,58 @@ class ErrorsTab(QWidget):
 
     def _setup_ui(self) -> None:
         """Set up the UI."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        # Main layout with scroll area
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Top splitter: heatmap | pie chart
-        top_splitter = QSplitter(Qt.Orientation.Horizontal)
-        top_splitter.setHandleWidth(4)
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
 
-        # Heatmap
-        heatmap_frame = QFrame()
-        heatmap_frame.setStyleSheet(f"""
-            QFrame {{
+        # Content widget
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(12, 12, 12, 12)
+        content_layout.setSpacing(16)
+
+        # === Top Section: Heatmap and Error Types side by side ===
+        top_frame = QFrame()
+        top_frame.setObjectName("errorsTopFrame")
+        top_frame.setStyleSheet(f"""
+            QFrame#errorsTopFrame {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 6px;
+            }}
+            QFrame#errorsTopFrame QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
-        heatmap_layout = QVBoxLayout(heatmap_frame)
-        heatmap_layout.setContentsMargins(4, 4, 4, 4)
+        top_frame.setMinimumHeight(220)
+        top_layout = QHBoxLayout(top_frame)
+        top_layout.setContentsMargins(16, 12, 16, 12)
+        top_layout.setSpacing(20)
 
-        # Head selector for heatmap
+        # Left side: Heatmap
+        heatmap_container = QVBoxLayout()
+        heatmap_container.setSpacing(8)
+
+        # Head selector row
         head_row = QHBoxLayout()
-        head_row.addWidget(QLabel("Show:"))
+        head_label = QLabel("Show:")
+        head_label.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-size: 12px;")
+        head_row.addWidget(head_label)
+
         self._head_combo = QComboBox()
         self._head_combo.addItems(["Both Heads", "Head 0", "Head 1"])
         self._head_combo.currentIndexChanged.connect(self._on_head_changed)
@@ -810,45 +842,70 @@ class ErrorsTab(QWidget):
                 background-color: #3c3c3c;
                 color: {COLOR_TEXT.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                padding: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                min-width: 120px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
             }}
         """)
         head_row.addWidget(self._head_combo)
         head_row.addStretch()
-        heatmap_layout.addLayout(head_row)
+        heatmap_container.addLayout(head_row)
 
         self._heatmap = ErrorHeatmapWidget()
+        self._heatmap.setMinimumSize(300, 180)
         self._heatmap.cell_clicked.connect(self._on_cell_clicked)
-        heatmap_layout.addWidget(self._heatmap, 1)
+        heatmap_container.addWidget(self._heatmap, 1)
 
-        top_splitter.addWidget(heatmap_frame)
+        top_layout.addLayout(heatmap_container, 2)
 
-        # Pie chart
+        # Right side: Error Types (Pie Chart)
+        pie_container = QVBoxLayout()
+        pie_container.setSpacing(8)
+
+        pie_title = QLabel("Error Types")
+        pie_title.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-size: 13px; font-weight: bold;")
+        pie_container.addWidget(pie_title)
+
         self._pie_chart = ErrorPieChartWidget()
-        top_splitter.addWidget(self._pie_chart)
+        self._pie_chart.setMinimumSize(200, 160)
+        pie_container.addWidget(self._pie_chart, 1)
 
-        top_splitter.setSizes([400, 250])
+        top_layout.addLayout(pie_container, 1)
 
-        # Bottom splitter: log table | pattern detection
-        bottom_splitter = QSplitter(Qt.Orientation.Horizontal)
-        bottom_splitter.setHandleWidth(4)
+        content_layout.addWidget(top_frame)
 
-        # Error log table
-        table_frame = QFrame()
-        table_frame.setStyleSheet(f"""
-            QFrame {{
+        # === Bottom Section: Error Log and Pattern Detection ===
+        bottom_frame = QFrame()
+        bottom_frame.setObjectName("errorsBottomFrame")
+        bottom_frame.setStyleSheet(f"""
+            QFrame#errorsBottomFrame {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                border-radius: 4px;
+                border-radius: 6px;
+            }}
+            QFrame#errorsBottomFrame QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
-        table_layout = QVBoxLayout(table_frame)
-        table_layout.setContentsMargins(4, 4, 4, 4)
-        table_layout.setSpacing(4)
+        bottom_layout = QHBoxLayout(bottom_frame)
+        bottom_layout.setContentsMargins(16, 12, 16, 12)
+        bottom_layout.setSpacing(20)
+
+        # Left side: Error Log Table
+        table_container = QVBoxLayout()
+        table_container.setSpacing(10)
 
         # Table toolbar
         table_toolbar = QHBoxLayout()
-        table_toolbar.addWidget(QLabel("Error Log"))
+        table_toolbar.setSpacing(12)
+
+        table_title = QLabel("Error Log")
+        table_title.setStyleSheet(f"color: {COLOR_TEXT.name()}; font-size: 13px; font-weight: bold;")
+        table_toolbar.addWidget(table_title)
         table_toolbar.addStretch()
 
         # Filter dropdown
@@ -862,7 +919,8 @@ class ErrorsTab(QWidget):
                 background-color: #3c3c3c;
                 color: {COLOR_TEXT.name()};
                 border: 1px solid {COLOR_BORDER.name()};
-                padding: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
                 min-width: 100px;
             }}
         """)
@@ -875,8 +933,9 @@ class ErrorsTab(QWidget):
                 background-color: #3c3c3c;
                 color: #cccccc;
                 border: 1px solid #3a3d41;
-                padding: 4px 8px;
-                border-radius: 3px;
+                padding: 6px 14px;
+                border-radius: 4px;
+                font-size: 12px;
             }
             QPushButton:hover {
                 background-color: #4c4c4c;
@@ -885,28 +944,31 @@ class ErrorsTab(QWidget):
         self._export_btn.clicked.connect(self._on_export_clicked)
         table_toolbar.addWidget(self._export_btn)
 
-        table_layout.addLayout(table_toolbar)
+        table_container.addLayout(table_toolbar)
 
         self._error_table = ErrorLogTable()
+        self._error_table.setMinimumHeight(180)
         self._error_table.row_double_clicked.connect(self._on_row_double_clicked)
-        table_layout.addWidget(self._error_table, 1)
+        table_container.addWidget(self._error_table, 1)
 
-        bottom_splitter.addWidget(table_frame)
+        bottom_layout.addLayout(table_container, 2)
 
-        # Pattern detection
+        # Right side: Pattern Detection
+        pattern_container = QVBoxLayout()
+        pattern_container.setSpacing(8)
+
         self._pattern_widget = PatternDetectionWidget()
-        bottom_splitter.addWidget(self._pattern_widget)
+        self._pattern_widget.setMinimumWidth(200)
+        self._pattern_widget.setMinimumHeight(180)
+        pattern_container.addWidget(self._pattern_widget, 1)
 
-        bottom_splitter.setSizes([450, 200])
+        bottom_layout.addLayout(pattern_container, 1)
 
-        # Main splitter: top | bottom
-        main_splitter = QSplitter(Qt.Orientation.Vertical)
-        main_splitter.setHandleWidth(4)
-        main_splitter.addWidget(top_splitter)
-        main_splitter.addWidget(bottom_splitter)
-        main_splitter.setSizes([200, 200])
+        content_layout.addWidget(bottom_frame, 1)
 
-        layout.addWidget(main_splitter)
+        # Set content to scroll area
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
 
     def update_errors(self, errors: List[SectorError]) -> None:
         """Update with new error list."""

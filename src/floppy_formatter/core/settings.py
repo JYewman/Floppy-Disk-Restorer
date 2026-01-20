@@ -393,6 +393,23 @@ class RecentFile:
         )
 
 
+@dataclass
+class SessionSettings:
+    """
+    Session-related settings for disk format selection.
+
+    Part of the Universal Floppy Disk Session System that allows users
+    to select ANY floppy disk format before performing operations.
+    """
+    show_session_screen_on_startup: bool = True    # Always show session screen at startup
+    recent_sessions: List[str] = field(default_factory=list)  # Recent gw_format strings
+    max_recent_sessions: int = 10                  # Maximum number of recent sessions to keep
+    default_platform: str = "ibm"                  # Default platform selection
+    default_format: str = "ibm.1440"               # Default format (IBM PC 1.44MB HD)
+    remember_last_session: bool = True             # Remember last used session
+    last_session_format: str = ""                  # Last used session gw_format
+
+
 # =============================================================================
 # Settings Manager (Singleton)
 # =============================================================================
@@ -410,6 +427,7 @@ class SettingsSignals(QObject):
     export_settings_changed = pyqtSignal()
     window_settings_changed = pyqtSignal()
     printer_settings_changed = pyqtSignal()
+    session_settings_changed = pyqtSignal()
 
     # Specific setting signals
     theme_changed = pyqtSignal(str)
@@ -459,6 +477,7 @@ class Settings:
         self.export = ExportSettings()
         self.window = WindowSettings()
         self.printer = PrinterSettings()
+        self.session = SessionSettings()
 
         # Recent files list
         self._recent_files: List[RecentFile] = []
@@ -530,6 +549,8 @@ class Settings:
                 self._load_dataclass(self.window, data['window'])
             if 'printer' in data:
                 self._load_dataclass(self.printer, data['printer'])
+            if 'session' in data:
+                self._load_dataclass(self.session, data['session'])
 
             logger.info(f"Settings loaded from {settings_file}")
             return True
@@ -570,6 +591,7 @@ class Settings:
                 'export': asdict(self.export),
                 'window': asdict(self.window),
                 'printer': asdict(self.printer),
+                'session': asdict(self.session),
             }
 
             # Write to temp file first, then rename (atomic)
@@ -788,6 +810,15 @@ class Settings:
                 self.signals.settings_changed.emit(f'printer.{name}', value)
                 self.signals.printer_settings_changed.emit()
 
+    def set_session_setting(self, name: str, value: Any) -> None:
+        """Set a session setting and emit change signal."""
+        if hasattr(self.session, name):
+            setattr(self.session, name, value)
+            self._dirty = True
+            if self.signals:
+                self.signals.settings_changed.emit(f'session.{name}', value)
+                self.signals.session_settings_changed.emit()
+
     # =========================================================================
     # Context Manager
     # =========================================================================
@@ -860,6 +891,11 @@ class Settings:
             if self.signals:
                 self.signals.printer_settings_changed.emit()
 
+        if category is None or category == 'session':
+            self.session = SessionSettings()
+            if self.signals:
+                self.signals.session_settings_changed.emit()
+
         self._dirty = True
         logger.info(f"Settings reset to defaults: {category or 'all'}")
 
@@ -926,6 +962,7 @@ __all__ = [
     'ExportSettings',
     'WindowSettings',
     'PrinterSettings',
+    'SessionSettings',
     'RecentFile',
 
     # Color schemes

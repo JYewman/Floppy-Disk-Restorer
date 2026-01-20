@@ -803,11 +803,16 @@ class DiagnosticsTab(QWidget):
 
         # Alignment visualization
         alignment_frame = QFrame()
+        alignment_frame.setObjectName("alignmentFrame")
         alignment_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#alignmentFrame {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
                 border-radius: 4px;
+            }}
+            QFrame#alignmentFrame QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
         alignment_layout = QVBoxLayout(alignment_frame)
@@ -842,11 +847,16 @@ class DiagnosticsTab(QWidget):
 
         # RPM chart
         rpm_frame = QFrame()
+        rpm_frame.setObjectName("rpmFrame")
         rpm_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#rpmFrame {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
                 border-radius: 4px;
+            }}
+            QFrame#rpmFrame QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
         rpm_layout = QVBoxLayout(rpm_frame)

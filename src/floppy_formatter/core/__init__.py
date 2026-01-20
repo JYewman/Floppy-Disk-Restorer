@@ -111,6 +111,7 @@ from floppy_formatter.core.settings import (
     RecoverySettings,
     ExportSettings,
     WindowSettings,
+    SessionSettings,
     RecentFile,
 
     # Color schemes
@@ -127,6 +128,31 @@ from floppy_formatter.core.settings import (
     get_sector_colors,
     get_settings_dir,
     get_settings_file,
+)
+
+from floppy_formatter.core.session import (
+    DiskSession,
+    BusType,
+    EncodingType,
+    DiskSize,
+    get_default_session,
+)
+
+from floppy_formatter.core.session_manager import (
+    SessionManager,
+    BUILTIN_PRESETS,
+    get_session_manager,
+    get_active_session,
+    set_active_session,
+    get_presets_file,
+)
+
+from floppy_formatter.core.gw_format_registry import (
+    GWFormatRegistry,
+    PlatformInfo,
+    FormatInfo,
+    PLATFORM_METADATA,
+    get_format_registry,
 )
 
 __all__ = [
@@ -221,6 +247,7 @@ __all__ = [
     "RecoverySettings",
     "ExportSettings",
     "WindowSettings",
+    "SessionSettings",
     "RecentFile",
 
     # Settings - Color schemes
@@ -237,4 +264,26 @@ __all__ = [
     "get_sector_colors",
     "get_settings_dir",
     "get_settings_file",
+
+    # Session - Core
+    "DiskSession",
+    "BusType",
+    "EncodingType",
+    "DiskSize",
+    "get_default_session",
+
+    # Session - Manager
+    "SessionManager",
+    "BUILTIN_PRESETS",
+    "get_session_manager",
+    "get_active_session",
+    "set_active_session",
+    "get_presets_file",
+
+    # Session - Format Registry
+    "GWFormatRegistry",
+    "PlatformInfo",
+    "FormatInfo",
+    "PLATFORM_METADATA",
+    "get_format_registry",
 ]

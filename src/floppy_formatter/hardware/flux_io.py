@@ -108,6 +108,7 @@ class FluxData:
     cylinder: int = 0
     head: int = 0
     revolutions: float = 1.0
+    index_cued: bool = True  # Whether flux starts at index pulse
 
     @classmethod
     def from_greaseweazle_flux(
@@ -125,7 +126,7 @@ class FluxData:
             FluxData instance containing the flux data
         """
         # Extract the timing data from Greaseweazle's format
-        # gw_flux.list contains the raw timing values in sample ticks
+        # gw_flux.list is a flat list of flux transition times in sample ticks
         flux_times = list(gw_flux.list)
 
         # Diagnostic logging for flux data interpretation
@@ -156,19 +157,43 @@ class FluxData:
             logger.info("Microsecond stats: min=%.2fµs, max=%.2fµs, mean=%.2fµs",
                         us_min, us_max, us_mean)
 
-            # Categorize by expected MFM pulse widths for HD (1µs bit cell)
-            # HD: 2T=2µs, 3T=3µs, 4T=4µs with 30% tolerance
-            short_count = sum(1 for t in flux_times if 1.4 <= t * us_factor < 2.6)   # ~2µs (2T)
-            medium_count = sum(1 for t in flux_times if 2.6 <= t * us_factor < 3.5)  # ~3µs (3T)
-            long_count = sum(1 for t in flux_times if 3.5 <= t * us_factor < 5.0)    # ~4µs (4T)
-            noise_count = sum(1 for t in flux_times if t * us_factor < 1.4)          # Too short
-            other_count = sum(1 for t in flux_times if t * us_factor >= 5.0)         # Too long
-            logger.info("MFM pulse distribution (HD): 2T(2µs)=%d, 3T(3µs)=%d, "
-                        "4T(4µs)=%d, noise(<1.4µs)=%d, other(>5µs)=%d",
-                        short_count, medium_count, long_count, noise_count, other_count)
+            # Auto-detect bit cell from mean pulse width
+            # HD (1µs bit cell): mean ~2.1-2.5µs, DD (2µs bit cell): mean ~4.2-5.0µs
+            # The mean MFM pulse is weighted average: ~2.3 bit cells typical
+            detected_bit_cell = us_mean / 2.3  # Estimate bit cell from mean
+            if detected_bit_cell < 1.5:
+                # HD format (1.0µs bit cell)
+                bit_cell = 1.0
+                format_name = "HD"
+            else:
+                # DD format (2.0µs bit cell)
+                bit_cell = 2.0
+                format_name = "DD"
+
+            # Calculate pulse ranges with 30% tolerance
+            t2_min, t2_max = bit_cell * 2 * 0.7, bit_cell * 2 * 1.3  # 2T pulse
+            t3_min, t3_max = bit_cell * 3 * 0.7, bit_cell * 3 * 1.3  # 3T pulse
+            t4_min, t4_max = bit_cell * 4 * 0.7, bit_cell * 4 * 1.3  # 4T pulse
+
+            short_count = sum(1 for t in flux_times if t2_min <= t * us_factor < t2_max)
+            medium_count = sum(1 for t in flux_times if t3_min <= t * us_factor < t3_max)
+            long_count = sum(1 for t in flux_times if t4_min <= t * us_factor < t4_max)
+            noise_count = sum(1 for t in flux_times if t * us_factor < t2_min)
+            other_count = sum(1 for t in flux_times if t * us_factor >= t4_max)
+            logger.info("MFM pulse distribution (%s): 2T(%.1fµs)=%d, 3T(%.1fµs)=%d, "
+                        "4T(%.1fµs)=%d, noise(<%.1fµs)=%d, other(>%.1fµs)=%d",
+                        format_name, bit_cell*2, short_count, bit_cell*3, medium_count,
+                        bit_cell*4, long_count, t2_min, noise_count, t4_max, other_count)
 
         # Get index positions
         index_positions = list(gw_flux.index_list) if gw_flux.index_list else []
+
+        # Preserve the index_cued flag - this is CRITICAL!
+        # If index_cued=False, the first entry in index_list is a partial revolution
+        # (time from start of capture to first index pulse)
+        # The decoder needs to know this to properly handle the data
+        index_cued = gw_flux.index_cued
+        logger.debug("Greaseweazle flux index_cued=%s", index_cued)
 
         # Calculate revolutions from index positions
         revolutions = len(index_positions) - 1 if len(index_positions) > 1 else 1.0
@@ -179,15 +204,16 @@ class FluxData:
             index_positions=index_positions,
             cylinder=cylinder,
             head=head,
-            revolutions=revolutions
+            revolutions=revolutions,
+            index_cued=index_cued
         )
 
     def to_greaseweazle_flux(self) -> 'Flux':
         """
-        Convert to Greaseweazle Flux object for writing.
+        Convert to Greaseweazle Flux object for decoding or writing.
 
         Returns:
-            Greaseweazle Flux object suitable for write_track()
+            Greaseweazle Flux object suitable for decode_flux() or write_track()
 
         Raises:
             ImportError: If greaseweazle package is not installed
@@ -200,29 +226,43 @@ class FluxData:
         if not self.flux_times:
             raise ValueError("Cannot create Greaseweazle Flux from empty flux data")
 
-        # For writing, we need proper index positions
-        # If we don't have them (common for encoded data), create them
-        if self.index_positions and len(self.index_positions) >= 2:
-            # Use existing index positions
-            index_list = self.index_positions
-            logger.debug("Using existing index_list with %d positions", len(index_list))
-        else:
-            # Calculate total samples for this track's flux data
-            total_samples = sum(self.flux_times)
-            # Create index list: [0, end_of_revolution]
-            # This tells Greaseweazle this is one revolution of data
-            index_list = [0, total_samples]
+        # Greaseweazle Flux.index_list contains REVOLUTION TIMES (in sample ticks),
+        # NOT positions. Each entry is the time for one complete revolution.
+        # For index-cued flux (which starts at the index pulse):
+        # - index_list[0] = time for first revolution
+        # - index_list[1] = time for second revolution, etc.
+
+        if self.index_positions and len(self.index_positions) >= 1:
+            # Use existing index list (already contains revolution times)
+            # Note: We renamed our field to index_positions but it actually stores
+            # the same data as Greaseweazle's index_list (revolution times)
+            index_list = list(self.index_positions)
             logger.debug(
-                "Created index_list for write: [0, %d] (%d flux transitions)",
-                total_samples, len(self.flux_times)
+                "Using existing index_list with %d entries: %s",
+                len(index_list),
+                [f"{t/self.sample_freq*1000:.1f}ms" for t in index_list[:3]]
+            )
+        else:
+            # No index data - calculate total samples as one revolution
+            # This assumes the flux data represents complete revolutions
+            total_samples = sum(self.flux_times)
+            # For index-cued data, index_list contains revolution times
+            # A single entry means one complete revolution
+            index_list = [total_samples]
+            logger.debug(
+                "Created index_list for %d flux transitions: [%.1fms]",
+                len(self.flux_times), total_samples / self.sample_freq * 1000
             )
 
         # Create Flux object with our data
-        # flux_list is a list of lists - one sublist per revolution
+        # flux_list is a flat list of flux transition times (not nested!)
+        # CRITICAL: Preserve the index_cued flag! If False, the decoder's
+        # cue_at_index() will properly clip the initial partial revolution.
         return Flux(
             index_list=index_list,
-            flux_list=[self.flux_times],
-            sample_freq=self.sample_freq
+            flux_list=self.flux_times,
+            sample_freq=self.sample_freq,
+            index_cued=self.index_cued
         )
 
     @property
@@ -995,12 +1035,13 @@ def merge_flux_captures(captures: List[FluxData]) -> FluxData:
     factor = sample_freq / 1_000_000
     merged_times = [int(t * factor) for t in merged_times_us]
 
-    # Use index positions from first capture
+    # Use index positions and index_cued from first capture
     return FluxData(
         flux_times=merged_times,
         sample_freq=sample_freq,
         index_positions=ref.index_positions.copy() if ref.index_positions else [],
         cylinder=cylinder,
         head=head,
-        revolutions=ref.revolutions
+        revolutions=ref.revolutions,
+        index_cued=ref.index_cued
     )

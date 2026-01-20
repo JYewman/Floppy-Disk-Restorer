@@ -6,8 +6,10 @@ Provides the foundation for all threaded disk operations with:
 - Cancellation with motor-safe shutdown
 - Error handling with device recovery
 - Signal-based communication
+- Session-aware codec support (Phase 3)
 
 Part of Phase 9: Workers & Background Processing
+Updated Phase 3: Session integration
 """
 
 import logging
@@ -18,6 +20,8 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
+    from floppy_formatter.core.session import DiskSession
+    from floppy_formatter.hardware.codec_adapter import CodecAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +180,13 @@ class GreaseweazleWorker(QObject):
     - Error handling with automatic device recovery attempts
     - Standard signal set for UI integration
     - Execute wrapper for setup/cleanup
+    - Session-aware codec adapter for multi-format support (Phase 3)
+
+    Session Integration (Phase 3):
+        When a DiskSession is provided, the worker automatically creates a
+        CodecAdapter for the session's format. This enables proper encoding
+        and decoding for ALL Greaseweazle-supported formats (IBM, Amiga, Mac,
+        C64, Apple II, Atari, etc.).
 
     Signals:
         started: Emitted when operation begins
@@ -188,12 +199,13 @@ class GreaseweazleWorker(QObject):
         class MyScanWorker(GreaseweazleWorker):
             scan_complete = pyqtSignal(object)
 
-            def __init__(self, device, geometry):
-                super().__init__(device)
+            def __init__(self, device, session, geometry):
+                super().__init__(device, session)
                 self._geometry = geometry
 
             def run(self):
-                # Implement scanning logic here
+                # Use self._codec_adapter for format-aware encoding/decoding
+                sectors = self._codec_adapter.decode_track(flux, cyl, head)
                 pass
     """
 
@@ -207,6 +219,7 @@ class GreaseweazleWorker(QObject):
     def __init__(
         self,
         device: Optional['GreaseweazleDevice'] = None,
+        session: Optional['DiskSession'] = None,
         parent: Optional[QObject] = None
     ):
         """
@@ -215,19 +228,56 @@ class GreaseweazleWorker(QObject):
         Args:
             device: Optional GreaseweazleDevice instance. Operations will
                    fail gracefully if device is None.
+            session: Optional DiskSession for session-aware operations.
+                    When provided, a CodecAdapter is created for the session's
+                    format, enabling proper encode/decode for non-IBM formats.
             parent: Optional parent QObject
         """
         super().__init__(parent)
         self._device = device
+        self._session = session
+        self._codec_adapter: Optional['CodecAdapter'] = None
         self._cancelled = False
         self._running = False
         self._motor_was_on = False
 
+        # Create codec adapter if session is provided
+        if session is not None:
+            self._init_codec_adapter(session)
+
         logger.debug(
-            "%s initialized with device=%s",
+            "%s initialized with device=%s, session=%s",
             self.__class__.__name__,
-            "connected" if device else "None"
+            "connected" if device else "None",
+            session.gw_format if session else "None"
         )
+
+    def _init_codec_adapter(self, session: 'DiskSession') -> None:
+        """
+        Initialize the codec adapter for the session's format.
+
+        Args:
+            session: DiskSession to create adapter for
+        """
+        try:
+            from floppy_formatter.hardware.codec_adapter import CodecAdapter
+            self._codec_adapter = CodecAdapter(session)
+            logger.debug(
+                "%s: CodecAdapter created for format %s",
+                self.__class__.__name__, session.gw_format
+            )
+        except ImportError as e:
+            logger.warning(
+                "%s: Greaseweazle codec not available: %s",
+                self.__class__.__name__, e
+            )
+            self._codec_adapter = None
+        except ValueError as e:
+            logger.error(
+                "%s: Invalid session format %s: %s",
+                self.__class__.__name__, session.gw_format, e
+            )
+            self._codec_adapter = None
 
     # =========================================================================
     # Device Management
@@ -261,6 +311,59 @@ class GreaseweazleWorker(QObject):
         if self._device is None:
             return False
         return self._device.is_connected()
+
+    # =========================================================================
+    # Session Management (Phase 3)
+    # =========================================================================
+
+    def get_session(self) -> Optional['DiskSession']:
+        """
+        Get the DiskSession reference.
+
+        Returns:
+            DiskSession instance or None if not provided
+        """
+        return self._session
+
+    def set_session(self, session: Optional['DiskSession']) -> None:
+        """
+        Set the DiskSession reference and reinitialize codec adapter.
+
+        Args:
+            session: DiskSession instance or None
+        """
+        self._session = session
+        if session is not None:
+            self._init_codec_adapter(session)
+        else:
+            self._codec_adapter = None
+
+    def has_session(self) -> bool:
+        """
+        Check if a valid session is available.
+
+        Returns:
+            True if session is set, False otherwise
+        """
+        return self._session is not None
+
+    def get_codec_adapter(self) -> Optional['CodecAdapter']:
+        """
+        Get the CodecAdapter instance.
+
+        Returns:
+            CodecAdapter instance or None if session not provided or codec unavailable
+        """
+        return self._codec_adapter
+
+    def has_codec_adapter(self) -> bool:
+        """
+        Check if codec adapter is available.
+
+        Returns:
+            True if codec adapter was created successfully, False otherwise
+        """
+        return self._codec_adapter is not None
 
     def _ensure_device(self) -> bool:
         """

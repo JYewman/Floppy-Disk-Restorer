@@ -5,6 +5,7 @@ Writes bundled blank disk images (IBM PC, Amiga, Atari ST, etc.) to physical
 floppy disks using the appropriate encoding for each format.
 
 Part of the Write Image feature.
+Updated Phase 3: Session-aware encoding/decoding with codec adapter support
 """
 
 import logging
@@ -24,6 +25,7 @@ from floppy_formatter.imaging import (
 
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
+    from floppy_formatter.core.session import DiskSession
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +127,9 @@ class DiskImageWorker(GreaseweazleWorker):
     """
     Worker for writing blank disk images to physical floppy disks.
 
+    Supports session-aware encoding/decoding via CodecAdapter (Phase 3)
+    for proper handling of ALL Greaseweazle-supported formats.
+
     Signals:
         track_written(int, int, bool): Emitted after each track write
             (cylinder, head, success)
@@ -134,6 +139,10 @@ class DiskImageWorker(GreaseweazleWorker):
         status_update(str): Status message updates
 
     Example:
+        # Session-aware (preferred for Phase 3+)
+        worker = DiskImageWorker(device, format_spec, session=session)
+
+        # Legacy
         worker = DiskImageWorker(device, format_spec)
         worker.track_written.connect(on_track_written)
         worker.write_complete.connect(on_complete)
@@ -151,6 +160,7 @@ class DiskImageWorker(GreaseweazleWorker):
         device: Optional['GreaseweazleDevice'] = None,
         format_spec: Optional[DiskFormatSpec] = None,
         verify: bool = True,
+        session: Optional['DiskSession'] = None,
         parent=None
     ):
         """
@@ -160,13 +170,23 @@ class DiskImageWorker(GreaseweazleWorker):
             device: Greaseweazle device instance
             format_spec: Disk format specification to write
             verify: Whether to verify after writing
+            session: Optional DiskSession for session-aware operations.
+                    When provided, enables proper encoding/decoding of non-IBM formats
+                    via the CodecAdapter.
             parent: Optional parent QObject
         """
-        super().__init__(device, parent)
+        super().__init__(device, session, parent)
         self._format_spec = format_spec
         self._verify = verify
         self._result: Optional[WriteImageResult] = None
         self._image_data: Optional[bytes] = None
+
+        logger.info(
+            "DiskImageWorker initialized: format=%s, verify=%s, session=%s",
+            format_spec.name if format_spec else "None",
+            verify,
+            session.gw_format if session else "None"
+        )
 
     def set_format(self, format_spec: DiskFormatSpec) -> None:
         """Set the disk format to write."""
@@ -294,6 +314,9 @@ class DiskImageWorker(GreaseweazleWorker):
         """
         Write a single track from the image.
 
+        Uses the session's codec adapter for encoding when available (Phase 3),
+        otherwise falls back to format-specific encoding methods.
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -317,8 +340,13 @@ class DiskImageWorker(GreaseweazleWorker):
                     error_message="No sector data extracted"
                 )
 
-            # Encode and write based on format type
-            if spec.encoding == Encoding.MFM:
+            # Try CodecAdapter first if available (Phase 3)
+            if self._codec_adapter is not None:
+                success = self._write_track_with_codec_adapter(
+                    cylinder, head, sectors_data
+                )
+            # Fall back to format-specific encoding
+            elif spec.encoding == Encoding.MFM:
                 success = self._write_mfm_track(cylinder, head, sectors_data)
             elif spec.encoding == Encoding.AMIGA:
                 success = self._write_amiga_track(cylinder, head, sectors_data)
@@ -349,6 +377,67 @@ class DiskImageWorker(GreaseweazleWorker):
                 error_message=str(e),
                 write_time_ms=(time.time() - start_time) * 1000
             )
+
+    def _write_track_with_codec_adapter(
+        self,
+        cylinder: int,
+        head: int,
+        sectors_data: List[bytes]
+    ) -> bool:
+        """
+        Write a track using the CodecAdapter (Phase 3).
+
+        Args:
+            cylinder: Cylinder number
+            head: Head number
+            sectors_data: List of sector data bytes
+
+        Returns:
+            True if write succeeded
+        """
+        try:
+            from floppy_formatter.hardware.flux_io import write_track_flux
+            from floppy_formatter.hardware import SectorData, SectorStatus
+
+            spec = self._format_spec
+
+            # Create SectorData objects for encoding
+            sector_objects = []
+            for i, data in enumerate(sectors_data):
+                sector_id = spec.first_sector_id + i
+                sector = SectorData(
+                    cylinder=cylinder,
+                    head=head,
+                    sector=sector_id,
+                    data=data,
+                    status=SectorStatus.GOOD,
+                    crc_valid=True,
+                    signal_quality=1.0
+                )
+                sector_objects.append(sector)
+
+            # Encode using CodecAdapter
+            flux_data = self._codec_adapter.encode_track(sector_objects, cylinder, head)
+            logger.debug(
+                "Track C%d:H%d: codec adapter encoded %d sectors",
+                cylinder, head, len(sector_objects)
+            )
+
+            # Write to disk
+            write_track_flux(self._device, cylinder, head, flux_data)
+            return True
+
+        except Exception as e:
+            logger.error("CodecAdapter write failed C%d H%d: %s", cylinder, head, e)
+            # Fall back to format-specific encoding
+            spec = self._format_spec
+            if spec.encoding == Encoding.MFM:
+                return self._write_mfm_track(cylinder, head, sectors_data)
+            elif spec.encoding == Encoding.AMIGA:
+                return self._write_amiga_track(cylinder, head, sectors_data)
+            elif spec.encoding == Encoding.FM:
+                return self._write_fm_track(cylinder, head, sectors_data)
+            return False
 
     def _extract_track_sectors(
         self,
@@ -534,7 +623,7 @@ class DiskImageWorker(GreaseweazleWorker):
                 return False
 
             # Decode the flux to sectors
-            all_sectors = self._decode_track(flux_data)
+            all_sectors = self._decode_track(flux_data, cylinder, head)
 
             # Deduplicate sectors by sector ID (flux read may capture >1 revolution)
             # Build a dict keyed by sector ID, keeping first occurrence with valid CRC
@@ -590,9 +679,35 @@ class DiskImageWorker(GreaseweazleWorker):
             logger.error("Verify failed for C%d H%d: %s", cylinder, head, e)
             return False
 
-    def _decode_track(self, flux_data):
-        """Decode flux data to sectors."""
-        # Use same decoder as format worker
+    def _decode_track(self, flux_data, cylinder: int = 0, head: int = 0):
+        """
+        Decode flux data to sectors.
+
+        Uses the session's codec adapter for decoding when available (Phase 3),
+        otherwise falls back to the default decoder chain.
+
+        Args:
+            flux_data: FluxData from track read
+            cylinder: Cylinder number (used for codec adapter)
+            head: Head number (used for codec adapter)
+
+        Returns:
+            List of SectorData objects
+        """
+        # Try CodecAdapter first if available (Phase 3)
+        if self._codec_adapter is not None:
+            try:
+                sectors = self._codec_adapter.decode_track(flux_data, cylinder, head)
+                if sectors:
+                    logger.debug(
+                        "Track C%d:H%d: codec adapter decoded %d sectors",
+                        cylinder, head, len(sectors)
+                    )
+                    return sectors
+            except Exception as e:
+                logger.debug("CodecAdapter decode failed: %s", e)
+
+        # Fall back to GW decoder
         try:
             from floppy_formatter.hardware.gw_mfm_codec import decode_flux_to_sectors_gw
             sectors = decode_flux_to_sectors_gw(flux_data)
@@ -601,14 +716,7 @@ class DiskImageWorker(GreaseweazleWorker):
         except Exception:
             pass
 
-        try:
-            from floppy_formatter.hardware.pll_decoder import decode_flux_with_pll
-            sectors = decode_flux_with_pll(flux_data)
-            if sectors:
-                return sectors
-        except Exception:
-            pass
-
+        # Fall back to simple decoder
         from floppy_formatter.hardware.mfm_codec import decode_flux_to_sectors
         return decode_flux_to_sectors(flux_data)
 

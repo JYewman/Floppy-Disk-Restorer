@@ -527,6 +527,9 @@ __all__ = [
     'measure_bit_timing',
     'check_head_alignment',
     'format_calibration_report',
+    # From codec_adapter.py
+    'CodecAdapter',
+    'TrackTiming',
 ]
 
 # =============================================================================
@@ -556,31 +559,55 @@ from .flux_io import (  # noqa: E402
     analyze_flux_quality, compare_flux_captures, merge_flux_captures,
 )
 
+# Import codec adapter
+from .codec_adapter import CodecAdapter, TrackTiming  # noqa: E402
+
 
 # =============================================================================
 # PLL Decoder Helper
 # =============================================================================
 
-def decode_flux_data(flux_data: 'FluxData') -> List['SectorData']:
+def decode_flux_data(flux_data: 'FluxData', gw_format: str = 'ibm.1440') -> List['SectorData']:
     """
-    Decode flux data to sectors using PLL decoder (preferred) or simple decoder (fallback).
+    Decode flux data to sectors using Greaseweazle's native codec (fast) or PLL decoder (fallback).
 
-    The PLL (Phase-Locked Loop) decoder dynamically adjusts phase and frequency to
-    track timing variations, providing much more robust decoding than the simple
-    division-based method.
+    The Greaseweazle codec is highly optimized and decodes tracks in milliseconds.
+    The PLL decoder is a pure Python fallback that can take 20+ seconds per track.
 
     Args:
         flux_data: FluxData from track read
+        gw_format: Greaseweazle format string (default 'ibm.1440' for 1.44MB HD)
 
     Returns:
         List of SectorData objects
     """
-    # Try PLL decoder first (more robust for real-world flux data)
+    import time
+    start_time = time.time()
+
+    # Try Greaseweazle's native codec first (MUCH faster - milliseconds vs seconds)
+    try:
+        from floppy_formatter.core.session import DiskSession
+        session = DiskSession.from_gw_format(gw_format)
+        adapter = CodecAdapter(session)
+        sectors = adapter.decode_track(flux_data, flux_data.cylinder, flux_data.head)
+        elapsed = (time.time() - start_time) * 1000
+        if sectors:
+            good_count = sum(1 for s in sectors if s.crc_valid)
+            logger.debug(
+                "Greaseweazle codec decoded %d sectors (%d good) in %.1fms",
+                len(sectors), good_count, elapsed
+            )
+            return sectors
+    except Exception as e:
+        logger.debug("Greaseweazle codec failed: %s, trying PLL decoder", e)
+
+    # Try PLL decoder (slower but more flexible)
     try:
         from .pll_decoder import decode_flux_with_pll
         sectors = decode_flux_with_pll(flux_data)
+        elapsed = (time.time() - start_time) * 1000
         if sectors:
-            logger.debug("PLL decoder returned %d sectors", len(sectors))
+            logger.debug("PLL decoder returned %d sectors in %.1fms", len(sectors), elapsed)
             return sectors
     except ImportError:
         logger.debug("PLL decoder not available, using simple decoder")
@@ -589,5 +616,6 @@ def decode_flux_data(flux_data: 'FluxData') -> List['SectorData']:
 
     # Fall back to simple decoder
     sectors = decode_flux_to_sectors(flux_data)
-    logger.debug("Simple decoder returned %d sectors", len(sectors))
+    elapsed = (time.time() - start_time) * 1000
+    logger.debug("Simple decoder returned %d sectors in %.1fms", len(sectors), elapsed)
     return sectors

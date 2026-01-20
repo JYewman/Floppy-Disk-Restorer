@@ -101,6 +101,11 @@ from floppy_formatter.gui.dialogs.disk_prompt_dialog import (
     show_disk_prompt_dialog,
 )
 
+# Session preset dialog (Phase 4)
+from floppy_formatter.gui.dialogs.session_preset_dialog import (
+    SessionPresetDialog,
+)
+
 __all__ = [
     # Confirmation dialogs
     "ConfirmCancelDialog",
@@ -168,4 +173,6 @@ __all__ = [
     "DiskPromptDialog",
     "DiskPromptResult",
     "show_disk_prompt_dialog",
+    # Session preset dialog (Phase 4)
+    "SessionPresetDialog",
 ]

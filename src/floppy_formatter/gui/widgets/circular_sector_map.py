@@ -193,23 +193,30 @@ class SectorDataCache:
     status history, and error details.
     """
 
-    def __init__(self, total_sectors: int = 2880):
+    def __init__(self, total_sectors: int = 2880,
+                 cylinders: int = 80, heads: int = 2, sectors_per_track: int = 18):
         """
         Initialize the sector data cache.
 
         Args:
             total_sectors: Total number of sectors on disk
+            cylinders: Number of cylinders
+            heads: Number of heads/sides
+            sectors_per_track: Sectors per track
         """
         self._total_sectors = total_sectors
+        self._cylinders = cylinders
+        self._heads = heads
+        self._sectors_per_track = sectors_per_track
         self._metadata: Dict[int, SectorMetadata] = {}
         self._initialize_metadata()
 
     def _initialize_metadata(self) -> None:
         """Initialize metadata for all sectors."""
         for sector_num in range(self._total_sectors):
-            cylinder = sector_num // (18 * 2)
-            head = (sector_num // 18) % 2
-            sector_offset = sector_num % 18
+            cylinder = sector_num // (self._sectors_per_track * self._heads)
+            head = (sector_num // self._sectors_per_track) % self._heads
+            sector_offset = sector_num % self._sectors_per_track
 
             self._metadata[sector_num] = SectorMetadata(
                 sector_num=sector_num,
@@ -217,6 +224,24 @@ class SectorDataCache:
                 head=head,
                 sector_offset=sector_offset
             )
+
+    def reinitialize(self, total_sectors: int, cylinders: int, heads: int,
+                     sectors_per_track: int) -> None:
+        """
+        Reinitialize the cache with new geometry.
+
+        Args:
+            total_sectors: New total number of sectors
+            cylinders: Number of cylinders
+            heads: Number of heads/sides
+            sectors_per_track: Sectors per track
+        """
+        self._total_sectors = total_sectors
+        self._cylinders = cylinders
+        self._heads = heads
+        self._sectors_per_track = sectors_per_track
+        self._metadata.clear()
+        self._initialize_metadata()
 
     def get_metadata(self, sector_num: int) -> Optional[SectorMetadata]:
         """Get metadata for a sector."""
@@ -898,7 +923,8 @@ class CircularSectorMap(QGraphicsView):
     OUTER_RADIUS = 350       # Where cylinder 0 (outermost track) starts
     RING_WIDTH = (350 - 55) / 80  # ~3.6875 pixels per cylinder
 
-    def __init__(self, parent=None, head_filter: Optional[int] = None):
+    def __init__(self, parent=None, head_filter: Optional[int] = None,
+                 cylinders: int = 80, heads: int = 2, sectors_per_track: int = 18):
         """
         Initialize circular sector map.
 
@@ -906,11 +932,23 @@ class CircularSectorMap(QGraphicsView):
             parent: Parent widget
             head_filter: If specified (0 or 1), only show sectors for that head.
                         If None, show both heads (legacy mode with 180-degree halves).
+            cylinders: Number of cylinders on the disk (default: 80)
+            heads: Number of heads/sides (default: 2)
+            sectors_per_track: Number of sectors per track (default: 18)
         """
         super().__init__(parent)
 
         # Head filter: None = both heads, 0 = head 0 only, 1 = head 1 only
         self._head_filter = head_filter
+
+        # Geometry configuration (dynamic)
+        self._cylinders = cylinders
+        self._heads = heads
+        self._sectors_per_track = sectors_per_track
+
+        # Calculate derived values
+        self._total_sectors = cylinders * heads * sectors_per_track
+        self._ring_width = (self.OUTER_RADIUS - self.INNER_RADIUS) / cylinders
 
         # Create scene
         self.scene = QGraphicsScene()
@@ -953,8 +991,13 @@ class CircularSectorMap(QGraphicsView):
         self._trail_duration = 2.0  # seconds
         self._trail_timer: Optional[QTimer] = None
 
-        # Data cache - only cache sectors for the filtered head if applicable
-        self._data_cache = SectorDataCache()
+        # Data cache - initialize with dynamic geometry
+        self._data_cache = SectorDataCache(
+            total_sectors=self._total_sectors,
+            cylinders=self._cylinders,
+            heads=self._heads,
+            sectors_per_track=self._sectors_per_track
+        )
 
         # Create the disk visualization
         self._create_disk_base()
@@ -1011,32 +1054,29 @@ class CircularSectorMap(QGraphicsView):
         self.scene.addItem(metal_ring)
 
     def _create_wedges(self) -> None:
-        """Create sector wedge items matching real floppy disk geometry.
+        """Create sector wedge items matching disk geometry.
 
-        Real floppy disk layout:
-        - 80 cylinders (cylinder 0 = outermost track, cylinder 79 = innermost)
-        - 2 heads (sides of the disk)
-        - 18 sectors per track, each spanning 20 degrees (360° / 18)
+        Uses configurable geometry:
+        - _cylinders: Number of cylinders (cylinder 0 = outermost track)
+        - _heads: Number of heads/sides (1 or 2)
+        - _sectors_per_track: Sectors per track (variable per format)
 
         When head_filter is None (both heads mode):
-            - Creates 2,880 wedges (80 cylinders × 2 heads × 18 sectors)
+            - Creates total_sectors wedges (cylinders × heads × sectors_per_track)
             - Each head occupies 180 degrees (head 0: right half, head 1: left half)
 
         When head_filter is 0 or 1 (single head mode):
-            - Creates 1,440 wedges for the specified head only
-            - Uses full 360 degrees, 20 degrees per sector
+            - Creates sectors for the specified head only
+            - Uses full 360 degrees
         """
-        total_sectors = 2880
-        sectors_per_track = 18
-
-        # Each sector spans 20 degrees (full circle / 18 sectors)
+        # Each sector spans (360 / sectors_per_track) degrees
         # This is physically accurate - all tracks have same angular sector spacing
-        sector_span = 360.0 / sectors_per_track  # 20 degrees
+        sector_span = 360.0 / self._sectors_per_track
 
-        for sector_num in range(total_sectors):
-            cylinder = sector_num // (sectors_per_track * 2)
-            head = (sector_num // sectors_per_track) % 2
-            sector_offset = sector_num % sectors_per_track
+        for sector_num in range(self._total_sectors):
+            cylinder = sector_num // (self._sectors_per_track * self._heads)
+            head = (sector_num // self._sectors_per_track) % self._heads
+            sector_offset = sector_num % self._sectors_per_track
 
             # Skip sectors not matching the head filter
             if self._head_filter is not None and head != self._head_filter:
@@ -1044,21 +1084,20 @@ class CircularSectorMap(QGraphicsView):
 
             # Calculate angle - sector position around the disk
             # Start at top (-90 degrees from horizontal, i.e., 12 o'clock) and go clockwise
-            # Each of the 18 sectors spans 20 degrees
             if self._head_filter is not None:
                 # Single head mode: full 360 degrees
                 angle = (sector_offset * sector_span) - 90
             else:
                 # Both heads mode: each head gets 180 degrees
                 # Head 0: right half (-90 to +90), Head 1: left half (+90 to +270)
-                half_span = 180.0 / sectors_per_track  # 10 degrees per sector in this mode
+                half_span = 180.0 / self._sectors_per_track
                 angle = (head * 180) + (sector_offset * half_span) - 90
                 sector_span = half_span  # Use reduced span for both-heads mode
 
-            # Calculate radius - cylinder 0 at OUTER edge, cylinder 79 at INNER edge
+            # Calculate radius - cylinder 0 at OUTER edge, innermost cylinder at INNER edge
             # This matches real floppy disk geometry where track 0 is outermost
-            outer_radius = self.OUTER_RADIUS - (cylinder * self.RING_WIDTH)
-            inner_radius = outer_radius - self.RING_WIDTH
+            outer_radius = self.OUTER_RADIUS - (cylinder * self._ring_width)
+            inner_radius = outer_radius - self._ring_width
 
             wedge = SectorWedgeItem(
                 sector_num=sector_num,
@@ -1082,7 +1121,7 @@ class CircularSectorMap(QGraphicsView):
                 wedge.set_metadata(metadata)
 
             # Reset sector_span for next iteration if we modified it
-            sector_span = 360.0 / sectors_per_track
+            sector_span = 360.0 / self._sectors_per_track
 
     def _start_trail_timer(self) -> None:
         """Start timer for cleaning up activity trail."""
@@ -1200,6 +1239,73 @@ class CircularSectorMap(QGraphicsView):
         self._data_cache.clear()
         self._selected_sectors.clear()
         self.selection_changed.emit([])
+
+    def set_geometry(self, cylinders: int, heads: int, sectors_per_track: int) -> None:
+        """
+        Set new disk geometry and rebuild the sector map.
+
+        This clears all existing wedges and rebuilds them with the new geometry.
+        All sector status is reset to unscanned.
+
+        Args:
+            cylinders: Number of cylinders (typically 40 or 80)
+            heads: Number of heads/sides (1 or 2)
+            sectors_per_track: Number of sectors per track (varies by format)
+        """
+        # Update geometry
+        self._cylinders = cylinders
+        self._heads = heads
+        self._sectors_per_track = sectors_per_track
+        self._total_sectors = cylinders * heads * sectors_per_track
+        self._ring_width = (self.OUTER_RADIUS - self.INNER_RADIUS) / max(cylinders, 1)
+
+        # Clear existing wedges from scene
+        for wedge in self._wedges.values():
+            self.scene.removeItem(wedge)
+        self._wedges.clear()
+
+        # Clear selection
+        self._selected_sectors.clear()
+
+        # Reinitialize data cache with new geometry
+        self._data_cache.reinitialize(
+            total_sectors=self._total_sectors,
+            cylinders=cylinders,
+            heads=heads,
+            sectors_per_track=sectors_per_track
+        )
+
+        # Recreate wedges with new geometry
+        self._create_wedges()
+
+        # Update scene rect
+        margin = 20
+        total_size = (self.OUTER_RADIUS + margin) * 2
+        self.scene.setSceneRect(
+            -self.OUTER_RADIUS - margin,
+            -self.OUTER_RADIUS - margin,
+            total_size,
+            total_size,
+        )
+
+        # Refit view
+        self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+        # Emit selection change (cleared)
+        self.selection_changed.emit([])
+
+    def get_geometry(self) -> Tuple[int, int, int]:
+        """
+        Get the current disk geometry.
+
+        Returns:
+            Tuple of (cylinders, heads, sectors_per_track)
+        """
+        return (self._cylinders, self._heads, self._sectors_per_track)
+
+    def get_total_sectors(self) -> int:
+        """Get the total number of sectors."""
+        return self._total_sectors
 
     def mark_all_good(self) -> None:
         """Mark all sectors as good."""

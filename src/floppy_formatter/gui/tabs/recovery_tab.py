@@ -865,11 +865,16 @@ class RecoveryTab(QWidget):
 
         # Convergence chart
         chart_frame = QFrame()
+        chart_frame.setObjectName("chartFrame")
         chart_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#chartFrame {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
                 border-radius: 4px;
+            }}
+            QFrame#chartFrame QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
         chart_layout = QVBoxLayout(chart_frame)
@@ -892,11 +897,16 @@ class RecoveryTab(QWidget):
 
         # Pass comparison table
         table_frame = QFrame()
+        table_frame.setObjectName("tableFrame")
         table_frame.setStyleSheet(f"""
-            QFrame {{
+            QFrame#tableFrame {{
                 background-color: {COLOR_PANEL_BG.name()};
                 border: 1px solid {COLOR_BORDER.name()};
                 border-radius: 4px;
+            }}
+            QFrame#tableFrame QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
         table_layout = QVBoxLayout(table_frame)

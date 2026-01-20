@@ -39,7 +39,16 @@ from floppy_formatter.gui.tabs.diagnostics_tab import (
     SelfTestResults,
     TestStatus,
 )
-from floppy_formatter.gui.resources import get_icon
+from floppy_formatter.gui.tabs.verification_tab import (
+    VerificationTab,
+    VerificationSummary,
+    TrackVerificationResult,
+)
+from floppy_formatter.gui.tabs.analysis_tab import (
+    AnalysisTab,
+    AnalysisSummary,
+)
+from floppy_formatter.gui.resources import get_colored_icon
 
 if TYPE_CHECKING:
     from floppy_formatter.analysis.flux_analyzer import FluxCapture
@@ -59,6 +68,8 @@ TAB_FLUX = "flux"
 TAB_ERRORS = "errors"
 TAB_RECOVERY = "recovery"
 TAB_DIAGNOSTICS = "diagnostics"
+TAB_VERIFICATION = "verification"
+TAB_ANALYSIS = "analysis"
 
 # Minimum panel height
 MIN_HEIGHT = 250
@@ -145,6 +156,8 @@ class AnalyticsPanel(QWidget):
         self._errors_tab = ErrorsTab()
         self._recovery_tab = RecoveryTab()
         self._diagnostics_tab = DiagnosticsTab()
+        self._verification_tab = VerificationTab()
+        self._analysis_tab = AnalysisTab()
 
         # Add tabs with icons (if available)
         self._tab_widget.addTab(self._overview_tab, "Overview")
@@ -152,6 +165,8 @@ class AnalyticsPanel(QWidget):
         self._tab_widget.addTab(self._errors_tab, "Errors")
         self._tab_widget.addTab(self._recovery_tab, "Recovery")
         self._tab_widget.addTab(self._diagnostics_tab, "Diagnostics")
+        self._tab_widget.addTab(self._verification_tab, "Verification")
+        self._tab_widget.addTab(self._analysis_tab, "Analysis")
 
         # Try to add icons
         self._add_tab_icons()
@@ -163,6 +178,8 @@ class AnalyticsPanel(QWidget):
             2: TAB_ERRORS,
             3: TAB_RECOVERY,
             4: TAB_DIAGNOSTICS,
+            5: TAB_VERIFICATION,
+            6: TAB_ANALYSIS,
         }
 
         self._tab_indices = {v: k for k, v in self._tab_names.items()}
@@ -177,10 +194,13 @@ class AnalyticsPanel(QWidget):
             2: "warning",   # Errors
             3: "refresh",   # Recovery
             4: "settings",  # Diagnostics
+            5: "check",     # Verification
+            6: "chart",     # Analysis
         }
 
         for index, icon_name in icons.items():
-            icon = get_icon(icon_name)
+            # Use white colored icons for visibility on dark background
+            icon = get_colored_icon(icon_name, "#cccccc", 16)
             if icon and not icon.isNull():
                 self._tab_widget.setTabIcon(index, icon)
 
@@ -420,6 +440,79 @@ class AnalyticsPanel(QWidget):
         """Get the diagnostics tab widget."""
         return self._diagnostics_tab
 
+    def get_verification_tab(self) -> VerificationTab:
+        """Get the verification tab widget."""
+        return self._verification_tab
+
+    def get_analysis_tab(self) -> AnalysisTab:
+        """Get the analysis tab widget."""
+        return self._analysis_tab
+
+    # =========================================================================
+    # Public API - Verification Tab
+    # =========================================================================
+
+    def set_verification_result(self, summary: VerificationSummary) -> None:
+        """
+        Display verification results.
+
+        Args:
+            summary: VerificationSummary with all results
+        """
+        self._verification_tab.set_verification_result(summary)
+
+    def update_verification_track(
+        self,
+        cylinder: int,
+        head: int,
+        good: int,
+        bad: int,
+        weak: int,
+        total: int
+    ) -> None:
+        """
+        Update a single track's verification results (live updates).
+
+        Args:
+            cylinder: Cylinder number
+            head: Head number
+            good: Good sector count
+            bad: Bad sector count
+            weak: Weak sector count
+            total: Total sectors on track
+        """
+        self._verification_tab.update_track_progress(cylinder, head, good, bad, weak, total)
+
+    def clear_verification(self) -> None:
+        """Clear verification tab."""
+        self._verification_tab.clear()
+
+    # =========================================================================
+    # Public API - Analysis Tab
+    # =========================================================================
+
+    def update_analysis(self, result) -> None:
+        """
+        Update analysis tab with DiskAnalysisResult.
+
+        Args:
+            result: DiskAnalysisResult from analyze_worker
+        """
+        self._analysis_tab.update_from_result(result)
+
+    def set_analysis_summary(self, summary: AnalysisSummary) -> None:
+        """
+        Update analysis tab with pre-built summary.
+
+        Args:
+            summary: AnalysisSummary with analysis data
+        """
+        self._analysis_tab.update_analysis(summary)
+
+    def clear_analysis(self) -> None:
+        """Clear analysis tab."""
+        self._analysis_tab.clear_analysis()
+
 
 __all__ = [
     'AnalyticsPanel',
@@ -428,4 +521,6 @@ __all__ = [
     'TAB_ERRORS',
     'TAB_RECOVERY',
     'TAB_DIAGNOSTICS',
+    'TAB_VERIFICATION',
+    'TAB_ANALYSIS',
 ]

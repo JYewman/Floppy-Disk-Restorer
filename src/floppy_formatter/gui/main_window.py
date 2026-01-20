@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QMessageBox,
     QSizePolicy,
+    QStackedWidget,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer, QUrl, QThread
 from PyQt6.QtGui import QAction, QKeySequence, QDesktopServices, QShortcut
@@ -43,7 +44,11 @@ from floppy_formatter.gui.widgets import (
     SectorInfoPanel,
     SectorStatus,
     ActivityType,
+    SessionIndicator,
 )
+from floppy_formatter.gui.screens import SessionScreen
+from floppy_formatter.core.session import DiskSession
+from floppy_formatter.core.session_manager import SessionManager
 from floppy_formatter.gui.dialogs import (
     show_about_dialog,
     show_settings_dialog,
@@ -440,6 +445,11 @@ class MainWindow(QMainWindow):
         self._state = WorkbenchState.IDLE
         self._is_fullscreen = False
         self._view_only_mode = False
+        self._session_screen_visible = True  # Start with session screen visible
+
+        # Session manager
+        self._session_manager = SessionManager.instance()
+        self._active_session: Optional[DiskSession] = None
 
         # Device reference (shared between panels)
         self._device: Optional[GreaseweazleDevice] = None
@@ -500,6 +510,26 @@ class MainWindow(QMainWindow):
         # File menu
         file_menu = menu_bar.addMenu("&File")
 
+        # Session menu items
+        self._new_session_action = QAction("&New Session...", self)
+        self._new_session_action.setShortcut(QKeySequence("Ctrl+N"))
+        self._new_session_action.setStatusTip("Select a new disk format session")
+        self._new_session_action.triggered.connect(self._on_new_session)
+        file_menu.addAction(self._new_session_action)
+
+        self._load_preset_action = QAction("&Load Session Preset...", self)
+        self._load_preset_action.setStatusTip("Load a saved session preset")
+        self._load_preset_action.triggered.connect(self._on_load_preset)
+        file_menu.addAction(self._load_preset_action)
+
+        self._save_preset_action = QAction("&Save Session Preset...", self)
+        self._save_preset_action.setStatusTip("Save current session as a preset")
+        self._save_preset_action.triggered.connect(self._on_save_preset)
+        self._save_preset_action.setEnabled(False)
+        file_menu.addAction(self._save_preset_action)
+
+        file_menu.addSeparator()
+
         self._exit_action = QAction("E&xit", self)
         self._exit_action.setShortcut(QKeySequence("Ctrl+Q"))
         self._exit_action.setStatusTip("Exit the application")
@@ -552,20 +582,46 @@ class MainWindow(QMainWindow):
         help_menu.addAction(self._about_action)
 
     def _init_central_widget(self) -> None:
-        """Initialize the central widget with three-panel layout."""
-        # Create central widget
+        """Initialize the central widget with session screen and workbench layout."""
+        # Create central widget with stacked layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # Main vertical layout - compact
+        # Main layout holds the stacked widget
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Stacked widget for session screen and workbench
+        self._main_stack = QStackedWidget()
+        main_layout.addWidget(self._main_stack)
+
+        # Page 0: Session screen
+        self._session_screen = SessionScreen()
+        self._session_screen.session_selected.connect(self._on_session_selected)
+        self._main_stack.addWidget(self._session_screen)
+
+        # Page 1: Workbench content
+        self._workbench_widget = self._create_workbench_widget()
+        self._main_stack.addWidget(self._workbench_widget)
+
+        # Start with session screen visible
+        self._main_stack.setCurrentIndex(0)
+        self._session_screen_visible = True
+
+    def _create_workbench_widget(self) -> QWidget:
+        """Create the main workbench widget with three-panel layout."""
+        workbench = QWidget()
+
+        # Main vertical layout - compact
+        main_layout = QVBoxLayout(workbench)
         main_layout.setContentsMargins(2, 2, 2, 2)
         main_layout.setSpacing(2)
 
-        # Top panel - two rows of controls
+        # Top panel - session indicator + drive controls + operation toolbar
         top_panel = self._create_top_panel()
         top_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        top_panel.setMaximumHeight(100)
+        top_panel.setMaximumHeight(130)
         main_layout.addWidget(top_panel)
 
         # Center and bottom panels with splitter
@@ -602,8 +658,10 @@ class MainWindow(QMainWindow):
         self._status_strip = StatusStrip()
         main_layout.addWidget(self._status_strip)
 
+        return workbench
+
     def _create_top_panel(self) -> QWidget:
-        """Create the top panel with two rows: drive controls and operation toolbar."""
+        """Create the top panel with session indicator, drive controls, and operation toolbar."""
         panel = QFrame()
         panel.setStyleSheet("""
             QFrame {
@@ -613,10 +671,22 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        # Vertical layout for two rows
+        # Vertical layout for three rows
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
+
+        # Row 0: Session indicator
+        self._session_indicator = SessionIndicator()
+        self._session_indicator.change_requested.connect(self._show_session_screen)
+        layout.addWidget(self._session_indicator)
+
+        # Horizontal separator
+        separator0 = QFrame()
+        separator0.setFrameShape(QFrame.Shape.HLine)
+        separator0.setStyleSheet("QFrame { color: #3a3d41; }")
+        separator0.setFixedHeight(1)
+        layout.addWidget(separator0)
 
         # Row 1: Drive control panel
         self._drive_control = DriveControlPanel()
@@ -980,6 +1050,7 @@ class MainWindow(QMainWindow):
             geometry=self._geometry,
             capture_flux=False,
             mode=ScanMode.STANDARD,
+            session=self._active_session,
         )
         self._scan_worker.moveToThread(self._scan_thread)
 
@@ -1231,6 +1302,7 @@ class MainWindow(QMainWindow):
             fill_pattern=0xE5,
             verify=True,
             format_type=FormatType.STANDARD,
+            session=self._active_session,
         )
         self._format_worker.moveToThread(self._format_thread)
 
@@ -1414,6 +1486,7 @@ class MainWindow(QMainWindow):
             device=self._device,
             geometry=self._geometry,
             config=config,
+            session=self._active_session,
         )
         self._restore_worker.moveToThread(self._restore_thread)
 
@@ -1759,6 +1832,7 @@ class MainWindow(QMainWindow):
             device=self._device,
             geometry=self._geometry,
             config=config,
+            session=self._active_session,
         )
         self._analyze_worker.moveToThread(self._analyze_thread)
 
@@ -1917,6 +1991,12 @@ class MainWindow(QMainWindow):
             logger.info("Analysis recommendations:")
             for rec in result.recommendations:
                 logger.info("  - %s", rec)
+
+        # Update analysis tab with full results
+        self._analytics_panel.update_analysis(result)
+
+        # Switch to Analysis tab to show results
+        self._analytics_panel.show_tab("analysis")
 
     def _on_analyze_progress(self, progress: int) -> None:
         """Handle analyze progress update."""
@@ -2792,6 +2872,134 @@ class MainWindow(QMainWindow):
         show_about_dialog(self)
 
     # =========================================================================
+    # Session Handlers
+    # =========================================================================
+
+    def _on_new_session(self) -> None:
+        """Handle File > New Session menu action."""
+        self._show_session_screen()
+
+    def _on_load_preset(self) -> None:
+        """Handle File > Load Session Preset menu action."""
+        from floppy_formatter.gui.dialogs.session_preset_dialog import SessionPresetDialog
+
+        dialog = SessionPresetDialog(mode="manage", parent=self)
+        dialog.exec()
+
+        # If a session was loaded and activated, update the UI
+        if self._session_manager.has_active_session():
+            session = self._session_manager.active_session
+            self._apply_session(session)
+
+    def _on_save_preset(self) -> None:
+        """Handle File > Save Session Preset menu action."""
+        if not self._active_session:
+            QMessageBox.warning(
+                self, "No Session",
+                "No active session to save. Select a disk format first."
+            )
+            return
+
+        from floppy_formatter.gui.dialogs.session_preset_dialog import SessionPresetDialog
+
+        dialog = SessionPresetDialog(mode="save", session=self._active_session, parent=self)
+        dialog.exec()
+
+    def _on_session_selected(self, session: DiskSession) -> None:
+        """Handle session selection from the session screen."""
+        logger.info(f"Session selected: {session.gw_format}")
+        self._apply_session(session)
+        self._hide_session_screen()
+
+    def _apply_session(self, session: DiskSession) -> None:
+        """
+        Apply a session configuration to the workbench.
+
+        Updates geometry, sector maps, and UI to reflect the session.
+        """
+        self._active_session = session
+        self._session_manager.set_active_session(session)
+
+        # Update geometry from session
+        self._geometry = session.to_geometry()
+        logger.info(f"Geometry set: {self._geometry.cylinders}C/{self._geometry.heads}H/"
+                    f"{self._geometry.sectors_per_track}S")
+
+        # Update session indicator
+        self._session_indicator.update_session(session)
+
+        # Update sector maps with new geometry
+        self._update_sector_maps_geometry(session)
+
+        # Enable save preset action
+        self._save_preset_action.setEnabled(True)
+
+        # Update status strip
+        self._status_strip.set_success(f"Session: {session.name}")
+
+        # Update drive status with disk type from session
+        disk_type = f"{session.disk_size} {session.encoding.upper()}"
+        if hasattr(self, '_status_strip'):
+            self._status_strip.set_drive_status(disk_type, None, True)
+
+    def _update_sector_maps_geometry(self, session: DiskSession) -> None:
+        """
+        Update sector maps to reflect session geometry.
+
+        Args:
+            session: The session with geometry information
+        """
+        if hasattr(self, '_sector_map_panel'):
+            # Update both sector maps with new geometry
+            h0_map = self._sector_map_panel.get_sector_map_h0()
+            h1_map = self._sector_map_panel.get_sector_map_h1()
+
+            if hasattr(h0_map, 'set_geometry'):
+                h0_map.set_geometry(
+                    cylinders=session.cylinders,
+                    heads=session.heads,
+                    sectors_per_track=session.sectors_per_track
+                )
+            if hasattr(h1_map, 'set_geometry'):
+                h1_map.set_geometry(
+                    cylinders=session.cylinders,
+                    heads=session.heads,
+                    sectors_per_track=session.sectors_per_track
+                )
+
+            # Reset all sectors to pending/unscanned state
+            self._sector_map_panel.reset_all_sectors()
+
+    def _show_session_screen(self) -> None:
+        """Show the session selection screen."""
+        if self._state != WorkbenchState.IDLE:
+            QMessageBox.warning(
+                self, "Operation in Progress",
+                "Cannot change session while an operation is running."
+            )
+            return
+
+        self._main_stack.setCurrentIndex(0)
+        self._session_screen_visible = True
+
+        # If there's an active session, show it in the session screen
+        if self._active_session:
+            self._session_screen.set_session(self._active_session)
+
+    def _hide_session_screen(self) -> None:
+        """Hide the session screen and show the workbench."""
+        self._main_stack.setCurrentIndex(1)
+        self._session_screen_visible = False
+
+    def is_session_screen_visible(self) -> bool:
+        """Check if the session screen is currently visible."""
+        return self._session_screen_visible
+
+    def get_active_session(self) -> Optional[DiskSession]:
+        """Get the currently active session."""
+        return self._active_session
+
+    # =========================================================================
     # Public API
     # =========================================================================
 
@@ -3651,7 +3859,13 @@ class MainWindow(QMainWindow):
             raise ValueError("No sector data available for export")
 
         # Build sector data from sector map
-        geometry = self._geometry or DiskGeometry.standard_144()
+        # Get geometry from session if available, otherwise fall back to stored geometry
+        if self._active_session is not None:
+            geometry = self._active_session.to_geometry()
+        elif self._geometry is not None:
+            geometry = self._geometry
+        else:
+            geometry = DiskGeometry.standard_144()
         sector_data: dict[tuple[int, int, int], bytes] = {}
 
         # Collect sector data
@@ -3812,8 +4026,9 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.start_operation()
         self._drive_control.pause_rpm_polling()
 
-        # Reset sector map
+        # Reset sector map and verification tab
         self._sector_map_panel.reset_all_sectors()
+        self._analytics_panel.clear_verification()
 
         # Update status
         disk_num = self._current_batch_index + 1
@@ -3827,6 +4042,7 @@ class MainWindow(QMainWindow):
             geometry=self._geometry,
             disk_info=disk_info,
             analysis_depth=self._batch_config.analysis_depth,
+            session=self._active_session,
         )
         self._batch_verify_thread = QThread()
         self._batch_verify_worker.moveToThread(self._batch_verify_thread)
@@ -3836,7 +4052,7 @@ class MainWindow(QMainWindow):
         self._batch_verify_worker.disk_verified.connect(self._on_disk_verified)
         self._batch_verify_worker.verification_failed.connect(self._on_disk_verification_failed)
         self._batch_verify_worker.progress.connect(self._on_batch_progress)
-        self._batch_verify_worker.track_analyzed.connect(self._on_batch_track_analyzed)
+        self._batch_verify_worker.track_verified.connect(self._on_batch_track_verified)
         self._batch_verify_worker.finished.connect(self._on_single_verification_finished)
 
         self._batch_verify_thread.start()
@@ -3851,6 +4067,9 @@ class MainWindow(QMainWindow):
             result.overall_score
         )
 
+        # Update verification tab with results
+        self._update_verification_tab(result)
+
     def _on_disk_verification_failed(self, error: str) -> None:
         """Handle disk verification failure."""
         logger.error("Disk %d verification failed: %s", self._current_batch_index + 1, error)
@@ -3860,30 +4079,48 @@ class MainWindow(QMainWindow):
         """Handle progress update during batch verification."""
         self._operation_toolbar.set_progress(progress)
 
-    def _on_batch_track_analyzed(self, cyl: int, head: int, quality) -> None:
-        """Handle track analysis result for sector map update."""
-        # Update sector map based on track quality
+    def _on_batch_track_verified(self, cyl: int, head: int, track_result) -> None:
+        """Handle track verification result for sector map and verification tab update."""
+        from floppy_formatter.gui.workers.batch_verify_worker import TrackVerifyResult
+
         sectors_per_track = self._geometry.sectors_per_track if self._geometry else 18
         base_sector = (cyl * 2 + head) * sectors_per_track
 
-        # Determine status based on quality grade
-        if hasattr(quality, 'grade'):
-            grade = quality.grade
-            grade_name = grade.name if hasattr(grade, 'name') else str(grade)
-            if grade_name in ('A', 'B'):
-                status = SectorStatus.GOOD
-            elif grade_name == 'C':
-                status = SectorStatus.WEAK
-            else:
-                status = SectorStatus.BAD
-        else:
-            status = SectorStatus.GOOD
+        # Update sector map based on actual sector results
+        if isinstance(track_result, TrackVerifyResult):
+            # Update verification tab with live progress
+            self._analytics_panel.update_verification_track(
+                cyl, head,
+                track_result.good_sectors,
+                track_result.bad_sectors,
+                track_result.weak_sectors,
+                track_result.total_expected
+            )
 
-        # Update sectors for this track
-        for s in range(sectors_per_track):
-            sector_num = base_sector + s
-            if sector_num < 2880:
+            # Update sector map - use sector_errors to determine per-sector status
+            for s in range(1, sectors_per_track + 1):
+                sector_num = base_sector + (s - 1)
+                if sector_num >= 2880:
+                    continue
+
+                if s in track_result.sector_errors:
+                    # This sector has an error
+                    error = track_result.sector_errors[s]
+                    if "Missing" in error:
+                        status = SectorStatus.MISSING
+                    else:
+                        status = SectorStatus.CRC_ERROR
+                else:
+                    # No error = good sector
+                    status = SectorStatus.GOOD
+
                 self._sector_map_panel.set_sector_status(sector_num, status)
+        else:
+            # Fallback for legacy format
+            for s in range(sectors_per_track):
+                sector_num = base_sector + s
+                if sector_num < 2880:
+                    self._sector_map_panel.set_sector_status(sector_num, SectorStatus.GOOD)
 
     def _on_single_verification_finished(self) -> None:
         """Handle single disk verification thread cleanup."""
@@ -3894,6 +4131,50 @@ class MainWindow(QMainWindow):
 
         # Continue to next disk
         QTimer.singleShot(100, self._verify_next_disk)
+
+    def _update_verification_tab(self, result: SingleDiskResult) -> None:
+        """
+        Update the verification tab with disk verification results.
+
+        Converts SingleDiskResult to VerificationSummary format for display.
+        """
+        from floppy_formatter.gui.tabs.verification_tab import (
+            VerificationSummary, TrackVerificationResult
+        )
+
+        # Convert track results to the format expected by VerificationTab
+        track_results = []
+        for tr in result.track_results:
+            track_results.append(TrackVerificationResult(
+                cylinder=tr.cylinder,
+                head=tr.head,
+                good_sectors=tr.good_sectors,
+                bad_sectors=tr.bad_sectors + tr.missing_sectors,  # Combine bad + missing
+                weak_sectors=tr.weak_sectors,
+                total_sectors=tr.total_expected,
+                errors=list(tr.sector_errors.values()) if tr.sector_errors else []
+            ))
+
+        # Create verification summary
+        summary = VerificationSummary(
+            timestamp=result.timestamp,
+            total_sectors=result.total_sectors,
+            good_sectors=result.good_sectors,
+            bad_sectors=result.bad_sectors + result.missing_sectors,
+            weak_sectors=result.weak_sectors,
+            grade=result.grade.value,
+            score=result.overall_score,
+            duration_ms=result.analysis_duration_ms,
+            disk_type=result.disk_type,
+            encoding=result.encoding_type,
+            track_results=track_results,
+        )
+
+        # Update the verification tab
+        self._analytics_panel.set_verification_result(summary)
+
+        # Switch to verification tab to show results
+        self._analytics_panel.show_tab("verification")
 
     def _complete_batch_verification(self) -> None:
         """Finalize batch verification and generate report."""
@@ -3972,39 +4253,70 @@ class MainWindow(QMainWindow):
         )
 
     def _generate_batch_report(self, result: BatchVerificationResult) -> None:
-        """Generate and save the batch report."""
+        """
+        Generate and save the batch verification report as PDF.
+
+        Automatically prompts user to save the report when batch verification
+        completes. Includes all batch configuration info and per-disk results.
+        """
         from PyQt6.QtWidgets import QFileDialog
-        from floppy_formatter.core.settings import get_settings
+        from floppy_formatter.reports import (
+            ReportGenerator, ReportType, ReportData, ReportMetadata
+        )
 
         try:
-            settings = get_settings()
-            report_format = settings.get("export", {}).get("default_report_format", "html")
+            # Build batch config dict from BatchVerifyConfig
+            batch_config = {}
+            if self._batch_config:
+                batch_config = {
+                    'batch_name': self._batch_config.batch_name,
+                    'operator': self._batch_config.operator,
+                    'total_disks': self._batch_config.disk_count,
+                    'analysis_depth': self._batch_config.analysis_depth,
+                    'notes': self._batch_config.notes or '',
+                    'brand': self._batch_config.brand.value if self._batch_config.brand else 'Unknown',
+                }
 
-            # Build report content
-            html_content = self._build_batch_report_html(result)
+            # Create report data
+            metadata = ReportMetadata(
+                title="Batch Disk Verification Report",
+                report_type=ReportType.BATCH_VERIFY,
+                timestamp=datetime.now(),
+            )
 
-            # Get save location
-            default_name = f"batch_report_{result.start_time.strftime('%Y%m%d_%H%M%S')}"
-            if report_format == "pdf":
-                file_filter = "PDF Files (*.pdf)"
-                default_ext = ".pdf"
-            else:
-                file_filter = "HTML Files (*.html)"
-                default_ext = ".html"
+            report_data = ReportData(
+                metadata=metadata,
+                raw_data={
+                    'batch_result': result,
+                    'batch_config': batch_config,
+                },
+            )
 
-            file_path, _ = QFileDialog.getSaveFileName(
+            # Generate HTML using the template
+            generator = ReportGenerator(ReportType.BATCH_VERIFY, report_data)
+            html_content = generator.generate_html()
+
+            # Default to PDF - prompt user to save
+            default_name = f"batch_report_{result.start_time.strftime('%Y%m%d_%H%M%S')}.pdf"
+
+            file_path, selected_filter = QFileDialog.getSaveFileName(
                 self,
-                "Save Batch Report",
-                default_name + default_ext,
-                file_filter
+                "Save Batch Verification Report",
+                default_name,
+                "PDF Files (*.pdf);;HTML Files (*.html)"
             )
 
             if not file_path:
+                logger.info("User cancelled batch report save")
                 return
 
-            if report_format == "pdf":
+            # Determine format from file extension or filter
+            if file_path.lower().endswith('.pdf') or 'PDF' in selected_filter:
                 self._save_batch_report_pdf(html_content, file_path)
             else:
+                # Save as HTML
+                if not file_path.lower().endswith('.html'):
+                    file_path += '.html'
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(html_content)
 

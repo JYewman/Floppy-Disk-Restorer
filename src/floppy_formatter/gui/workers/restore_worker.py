@@ -6,6 +6,7 @@ PLL tuning, and bit-slip recovery. Supports multiple recovery modes
 from standard to forensic-level recovery.
 
 Part of Phase 9: Workers & Background Processing
+Updated Phase 3: Session-aware recovery with codec adapter support
 """
 
 import logging
@@ -22,6 +23,7 @@ from floppy_formatter.hardware import SectorData, SectorStatus
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
     from floppy_formatter.core.geometry import DiskGeometry
+    from floppy_formatter.core.session import DiskSession
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +231,13 @@ class RestoreWorker(GreaseweazleWorker):
     - Optional PLL parameter search for marginal sectors
     - Optional bit-slip recovery for sync errors
     - Detailed per-sector and per-pass progress reporting
+    - Session-aware encoding/decoding for non-IBM formats (Phase 3)
+
+    Session Integration (Phase 3):
+        When a DiskSession is provided, the worker uses the session's
+        CodecAdapter for encoding and decoding, enabling proper recovery
+        of ALL Greaseweazle-supported formats (IBM, Amiga, Mac, C64, etc.).
+        Geometry is derived from the session if not explicitly provided.
 
     Signals:
         pass_started(int, int): Pass starting (pass_num, total_passes)
@@ -240,15 +249,12 @@ class RestoreWorker(GreaseweazleWorker):
         restore_complete(RecoveryStats): Final statistics
 
     Example:
-        config = RestoreConfig(
-            convergence_mode=True,
-            passes=50,
-            multiread_mode=True,
-            recovery_level=RecoveryLevel.AGGRESSIVE
-        )
-        worker = RestoreWorker(device, geometry, config)
-        worker.pass_complete.connect(on_pass_complete)
-        worker.restore_complete.connect(on_restore_complete)
+        # Session-aware recovery (preferred for Phase 3+)
+        config = RestoreConfig(multiread_mode=True, recovery_level=RecoveryLevel.AGGRESSIVE)
+        worker = RestoreWorker(device, session=session, config=config)
+
+        # Legacy: explicit geometry
+        worker = RestoreWorker(device, geometry=geometry, config=config)
     """
 
     # Signals specific to restoration
@@ -271,20 +277,33 @@ class RestoreWorker(GreaseweazleWorker):
     def __init__(
         self,
         device: 'GreaseweazleDevice',
-        geometry: 'DiskGeometry',
-        config: RestoreConfig,
+        geometry: Optional['DiskGeometry'] = None,
+        config: Optional[RestoreConfig] = None,
+        session: Optional['DiskSession'] = None,
     ):
         """
         Initialize restore worker.
 
         Args:
             device: Connected GreaseweazleDevice instance
-            geometry: Disk geometry information
-            config: RestoreConfig with recovery settings
+            geometry: Disk geometry information. If None and session is provided,
+                     geometry is derived from session.to_geometry()
+            config: RestoreConfig with recovery settings. Defaults to standard settings.
+            session: Optional DiskSession for session-aware operations.
+                    When provided, enables proper encoding/decoding of non-IBM formats.
         """
-        super().__init__(device)
-        self._geometry = geometry
-        self._config = config
+        super().__init__(device, session)
+
+        # Get geometry from session if not explicitly provided
+        if geometry is not None:
+            self._geometry = geometry
+        elif session is not None:
+            self._geometry = session.to_geometry()
+        else:
+            raise ValueError("Either geometry or session must be provided")
+
+        # Default config if not provided
+        self._config = config if config is not None else RestoreConfig()
 
         # Recovery state
         self._bad_sectors: List[int] = []
@@ -292,10 +311,11 @@ class RestoreWorker(GreaseweazleWorker):
         self._pass_history: List[PassStats] = []
 
         logger.info(
-            "RestoreWorker initialized: level=%s, mode=%s, passes=%d",
-            config.recovery_level.name,
-            "convergence" if config.convergence_mode else "fixed",
-            config.passes
+            "RestoreWorker initialized: level=%s, mode=%s, passes=%d, session=%s",
+            self._config.recovery_level.name,
+            "convergence" if self._config.convergence_mode else "fixed",
+            self._config.passes,
+            session.gw_format if session else "None"
         )
 
     def run(self) -> None:
@@ -485,7 +505,8 @@ class RestoreWorker(GreaseweazleWorker):
         """
         Perform a final full verification scan to confirm recovered sectors.
 
-        Uses the same decoder as the regular scan to ensure consistency.
+        Uses the session's codec adapter for decoding when available (Phase 3),
+        otherwise falls back to the default decoder chain.
 
         Args:
             originally_bad_sectors: List of sectors that were originally bad
@@ -501,7 +522,6 @@ class RestoreWorker(GreaseweazleWorker):
         )
 
         still_bad = []
-        sectors_per_track = self._geometry.sectors_per_track
 
         # Group originally bad sectors by track for efficient verification
         track_sectors = self._group_by_track(originally_bad_sectors)
@@ -510,10 +530,21 @@ class RestoreWorker(GreaseweazleWorker):
             if self._cancelled:
                 return still_bad
 
+            # Get sectors per track - use codec adapter for variable formats (Phase 3)
+            if self._codec_adapter is not None:
+                sectors_per_track = self._codec_adapter.get_sectors_for_track(cylinder, head)
+            else:
+                sectors_per_track = self._geometry.sectors_per_track
+
             # Seek and read track
             self._device.seek(cylinder, head)
             flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
-            sectors = decode_flux_data(flux)
+
+            # Decode sectors - use session codec adapter if available (Phase 3)
+            if self._codec_adapter is not None:
+                sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+            else:
+                sectors = decode_flux_data(flux)
 
             # Build map of what we found
             found_good = set()
@@ -545,23 +576,36 @@ class RestoreWorker(GreaseweazleWorker):
         """
         Perform initial scan to identify bad sectors.
 
+        Uses the session's codec adapter for decoding when available (Phase 3),
+        otherwise falls back to the default decoder chain.
+
         Returns:
             List of bad sector numbers
         """
         from floppy_formatter.hardware import read_track_flux
 
         bad_sectors = []
-        sectors_per_track = self._geometry.sectors_per_track
 
         for cylinder in range(self._geometry.cylinders):
             for head in range(self._geometry.heads):
                 if self._cancelled:
                     return bad_sectors
 
+                # Get sectors per track - use codec adapter for variable formats (Phase 3)
+                if self._codec_adapter is not None:
+                    sectors_per_track = self._codec_adapter.get_sectors_for_track(cylinder, head)
+                else:
+                    sectors_per_track = self._geometry.sectors_per_track
+
                 # Seek and read track
                 self._device.seek(cylinder, head)
                 flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
-                sectors = decode_flux_data(flux)
+
+                # Decode sectors - use session codec adapter if available (Phase 3)
+                if self._codec_adapter is not None:
+                    sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+                else:
+                    sectors = decode_flux_data(flux)
 
                 base_sector = (cylinder * self._geometry.heads + head) * sectors_per_track
 
@@ -764,6 +808,9 @@ class RestoreWorker(GreaseweazleWorker):
         """
         Try format refresh (DC erase + pattern writes).
 
+        Uses the session's codec adapter for encoding when available (Phase 3),
+        otherwise falls back to the GW-compatible encoder.
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -781,7 +828,15 @@ class RestoreWorker(GreaseweazleWorker):
             # DC erase
             erase_track_flux(self._device, cylinder, head)
 
-            # Write with pattern rotation - use GW-compatible encoder
+            # Get format-specific parameters (Phase 3)
+            if self._codec_adapter is not None:
+                sectors_per_track = self._codec_adapter.get_sectors_for_track(cylinder, head)
+                bytes_per_sector = self._session.bytes_per_sector if self._session else 512
+            else:
+                sectors_per_track = self._geometry.sectors_per_track
+                bytes_per_sector = 512
+
+            # Write with pattern rotation
             patterns = [0x00, 0xFF, 0xAA, 0x55]
             for pattern in patterns:
                 if self._cancelled:
@@ -793,16 +848,20 @@ class RestoreWorker(GreaseweazleWorker):
                         cylinder=cylinder,
                         head=head,
                         sector=i + 1,  # 1-based sector numbers
-                        data=bytes([pattern] * 512),
+                        data=bytes([pattern] * bytes_per_sector),
                         status=SectorStatus.GOOD,
                         crc_valid=True,
                         signal_quality=1.0
                     )
-                    for i in range(self._geometry.sectors_per_track)
+                    for i in range(sectors_per_track)
                 ]
 
-                # Encode using GW-compatible encoder and write
-                flux = encode_sectors_to_flux_gw(cylinder, head, sector_data)
+                # Encode using session codec adapter if available (Phase 3)
+                if self._codec_adapter is not None:
+                    flux = self._codec_adapter.encode_track(sector_data, cylinder, head)
+                else:
+                    # Fall back to GW-compatible encoder
+                    flux = encode_sectors_to_flux_gw(cylinder, head, sector_data)
                 write_track_flux(self._device, cylinder, head, flux)
 
             return True
@@ -821,6 +880,7 @@ class RestoreWorker(GreaseweazleWorker):
         Try multi-capture statistical recovery.
 
         Captures multiple revolutions and uses bit voting to recover data.
+        Uses the session's codec adapter for decoding when available (Phase 3).
 
         Args:
             cylinder: Cylinder number
@@ -840,8 +900,11 @@ class RestoreWorker(GreaseweazleWorker):
             revolutions = self._config.multiread_attempts
             flux = read_track_flux(self._device, cylinder, head, revolutions=revolutions)
 
-            # Decode with PLL decoder (preferred) or fallback
-            sectors = decode_flux_data(flux)
+            # Decode using session codec adapter if available (Phase 3)
+            if self._codec_adapter is not None:
+                sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+            else:
+                sectors = decode_flux_data(flux)
 
             # Check if our target sector decoded
             for s in sectors:
@@ -938,6 +1001,8 @@ class RestoreWorker(GreaseweazleWorker):
         """
         Try maximum effort recovery combining all techniques.
 
+        Uses the session's codec adapter for decoding when available (Phase 3).
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -958,7 +1023,11 @@ class RestoreWorker(GreaseweazleWorker):
             # Maximum revolutions
             flux = read_track_flux(self._device, cylinder, head, revolutions=20)
 
-            sectors = decode_flux_data(flux)
+            # Decode using session codec adapter if available (Phase 3)
+            if self._codec_adapter is not None:
+                sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+            else:
+                sectors = decode_flux_data(flux)
 
             for s in sectors:
                 if s.sector == sector and s.data is not None and s.crc_valid:
@@ -974,6 +1043,8 @@ class RestoreWorker(GreaseweazleWorker):
         """
         Verify a sector is now readable.
 
+        Uses the session's codec adapter for decoding when available (Phase 3).
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -986,7 +1057,12 @@ class RestoreWorker(GreaseweazleWorker):
 
         try:
             flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
-            sectors = decode_flux_data(flux)
+
+            # Decode using session codec adapter if available (Phase 3)
+            if self._codec_adapter is not None:
+                sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+            else:
+                sectors = decode_flux_data(flux)
 
             for s in sectors:
                 if s.sector == sector:

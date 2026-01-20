@@ -14,10 +14,12 @@ from floppy_formatter.gui.screens.scan_screen import ScanWidget
 from floppy_formatter.gui.screens.format_screen import FormatWidget
 from floppy_formatter.gui.screens.restore_screen import RestoreWidget
 from floppy_formatter.gui.screens.report_screen import ReportWidget
+from floppy_formatter.gui.screens.session_screen import SessionScreen
 
 __all__ = [
     "ScanWidget",
     "FormatWidget",
     "RestoreWidget",
     "ReportWidget",
+    "SessionScreen",
 ]

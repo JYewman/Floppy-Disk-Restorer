@@ -275,7 +275,7 @@ class DecodedDAM:
     data: bytes
 
 
-def decode_mfm_track(flux_data: FluxData) -> List[SectorData]:
+def decode_mfm_track(flux_data: FluxData, bit_cell_us: float = 1.0) -> List[SectorData]:
     """
     Decode MFM flux data to sectors using PLL.
 
@@ -284,15 +284,17 @@ def decode_mfm_track(flux_data: FluxData) -> List[SectorData]:
 
     Args:
         flux_data: Raw flux capture from a track
+        bit_cell_us: Expected bit cell width in microseconds (1.0 for HD, 2.0 for DD)
 
     Returns:
         List of decoded SectorData
     """
-    logger.info("Decoding MFM track C%d H%d (%d flux transitions)",
-                flux_data.cylinder, flux_data.head, len(flux_data.flux_times))
+    logger.info("Decoding MFM track C%d H%d (%d flux transitions, %.1fµs bit cell)",
+                flux_data.cylinder, flux_data.head, len(flux_data.flux_times), bit_cell_us)
 
-    # Convert flux to bits using PLL
-    bits = flux_to_bits_pll(flux_data)
+    # Convert flux to bits using PLL with correct clock
+    clock = bit_cell_us / 1_000_000  # Convert µs to seconds
+    bits = flux_to_bits_pll(flux_data, clock=clock)
 
     if len(bits) < 1000:
         logger.warning("Too few bits decoded: %d", len(bits))
@@ -481,13 +483,20 @@ def encode_sectors_to_flux_gw(
     return encode_mfm_track(cylinder, head, sectors, sample_freq=sample_freq)
 
 
-def decode_flux_to_sectors_gw(flux_data: FluxData) -> List[SectorData]:
+def decode_flux_to_sectors_gw(flux_data: FluxData, bit_cell_us: float = 1.0) -> List[SectorData]:
     """
     Decode flux to sectors using Greaseweazle-compatible algorithm.
 
     This is the recommended function for decoding flux after reading.
+
+    Args:
+        flux_data: Raw flux capture from a track
+        bit_cell_us: Expected bit cell width in microseconds (1.0 for HD, 2.0 for DD)
+
+    Returns:
+        List of decoded SectorData
     """
-    return decode_mfm_track(flux_data)
+    return decode_mfm_track(flux_data, bit_cell_us=bit_cell_us)
 
 
 __all__ = [

@@ -80,6 +80,35 @@ from floppy_formatter.gui.tabs.diagnostics_tab import (
     AlignmentResults,
 )
 
+# Verification tab and data classes
+from floppy_formatter.gui.tabs.verification_tab import (
+    # Main widget
+    VerificationTab,
+    # Component widgets
+    GradeWidget,
+    StatCard,
+    # Data classes
+    VerificationSummary,
+    TrackVerificationResult,
+)
+
+# Analysis tab and data classes
+from floppy_formatter.gui.tabs.analysis_tab import (
+    # Main widget
+    AnalysisTab,
+    # Component widgets
+    GradeDisplayWidget,
+    GradeDistributionWidget,
+    HeadQualityCard,
+    SignalQualityCard,
+    EncodingInfoCard,
+    CopyProtectionCard,
+    AnalysisRecommendationsCard,
+    # Data classes
+    AnalysisSummary,
+    HeadQuality,
+)
+
 
 __all__ = [
     # Overview tab
@@ -124,4 +153,21 @@ __all__ = [
     "SelfTestResults",
     "TestStatus",
     "AlignmentResults",
+    # Verification tab
+    "VerificationTab",
+    "GradeWidget",
+    "StatCard",
+    "VerificationSummary",
+    "TrackVerificationResult",
+    # Analysis tab
+    "AnalysisTab",
+    "GradeDisplayWidget",
+    "GradeDistributionWidget",
+    "HeadQualityCard",
+    "SignalQualityCard",
+    "EncodingInfoCard",
+    "CopyProtectionCard",
+    "AnalysisRecommendationsCard",
+    "AnalysisSummary",
+    "HeadQuality",
 ]

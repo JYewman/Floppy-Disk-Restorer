@@ -5,6 +5,7 @@ Provides comprehensive disk analysis with flux timing analysis,
 signal quality metrics, encoding detection, and overall quality grading.
 
 Part of Phase 9: Workers & Background Processing
+Updated Phase 3: Session-aware analysis with timing parameters
 """
 
 import logging
@@ -21,6 +22,7 @@ from floppy_formatter.gui.workers.base_worker import GreaseweazleWorker
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
     from floppy_formatter.core.geometry import DiskGeometry
+    from floppy_formatter.core.session import DiskSession
     from floppy_formatter.analysis.flux_analyzer import TimingStatistics
     from floppy_formatter.analysis.signal_quality import TrackQuality
     # FluxCapture imported at runtime in run() method
@@ -209,6 +211,13 @@ class AnalyzeWorker(GreaseweazleWorker):
     - Encoding type detection (MFM, FM, GCR)
     - Quality grading (A/B/C/D/F) per track and overall
     - Configurable analysis depth and components
+    - Session-aware timing parameters for accurate analysis (Phase 3)
+
+    Session Integration (Phase 3):
+        When a DiskSession is provided, the worker uses the session's
+        timing parameters (bit_cell_us, data_rate_kbps, rpm) for accurate
+        flux analysis. This enables proper analysis of ALL Greaseweazle-
+        supported formats with format-specific timing expectations.
 
     Signals:
         track_analyzed(int, int, object): Per track (cyl, head, TrackAnalysisResult)
@@ -216,13 +225,12 @@ class AnalyzeWorker(GreaseweazleWorker):
         analysis_complete(object): Final complete analysis result
 
     Example:
-        config = AnalysisConfig(
-            depth=AnalysisDepth.COMPREHENSIVE,
-            components=[AnalysisComponent.FLUX_TIMING, AnalysisComponent.SIGNAL_QUALITY],
-        )
-        worker = AnalyzeWorker(device, geometry, config)
-        worker.track_analyzed.connect(on_track_analyzed)
-        worker.analysis_complete.connect(on_analysis_complete)
+        # Session-aware analysis (preferred for Phase 3+)
+        config = AnalysisConfig(depth=AnalysisDepth.COMPREHENSIVE)
+        worker = AnalyzeWorker(device, session=session, config=config)
+
+        # Legacy: explicit geometry
+        worker = AnalyzeWorker(device, geometry=geometry, config=config)
     """
 
     # Signals specific to analysis
@@ -233,27 +241,51 @@ class AnalyzeWorker(GreaseweazleWorker):
     def __init__(
         self,
         device: 'GreaseweazleDevice',
-        geometry: 'DiskGeometry',
-        config: AnalysisConfig,
+        geometry: Optional['DiskGeometry'] = None,
+        config: Optional[AnalysisConfig] = None,
+        session: Optional['DiskSession'] = None,
     ):
         """
         Initialize analyze worker.
 
         Args:
             device: Connected GreaseweazleDevice instance
-            geometry: Disk geometry information
-            config: AnalysisConfig with analysis settings
+            geometry: Disk geometry information. If None and session is provided,
+                     geometry is derived from session.to_geometry()
+            config: AnalysisConfig with analysis settings. Defaults to standard config.
+            session: Optional DiskSession for session-aware operations.
+                    When provided, uses session timing parameters for accurate analysis.
         """
-        super().__init__(device)
-        self._geometry = geometry
-        self._config = config
+        super().__init__(device, session)
+
+        # Get geometry from session if not explicitly provided
+        if geometry is not None:
+            self._geometry = geometry
+        elif session is not None:
+            self._geometry = session.to_geometry()
+        else:
+            raise ValueError("Either geometry or session must be provided")
+
+        # Default config if not provided
+        self._config = config if config is not None else AnalysisConfig()
 
         # Store flux captures for comprehensive analysis
         self._flux_cache: Dict[tuple, Any] = {}
 
+        # Cache session timing parameters for analysis (Phase 3)
+        self._expected_bit_cell_us: Optional[float] = None
+        self._expected_data_rate_kbps: Optional[int] = None
+        self._expected_rpm: Optional[int] = None
+
+        if session is not None:
+            self._expected_bit_cell_us = session.bit_cell_us
+            self._expected_data_rate_kbps = session.data_rate_kbps
+            self._expected_rpm = session.rpm
+
         logger.info(
-            "AnalyzeWorker initialized: depth=%s, components=%d",
-            config.depth.name, len(config.components)
+            "AnalyzeWorker initialized: depth=%s, components=%d, session=%s",
+            self._config.depth.name, len(self._config.components),
+            session.gw_format if session else "None"
         )
 
     def run(self) -> None:
@@ -308,6 +340,10 @@ class AnalyzeWorker(GreaseweazleWorker):
                 break
 
             track_start = time.time()
+
+            # Ensure drive is still selected (safety measure for long analysis)
+            # motor_on() re-selects drive at hardware level and returns quickly if already on
+            self._device.motor_on()
 
             # Seek and capture flux
             self._device.seek(cylinder, head)
@@ -424,11 +460,19 @@ class AnalyzeWorker(GreaseweazleWorker):
         if encoding_counts:
             result.encoding_type = max(encoding_counts, key=encoding_counts.get)
 
-        # Determine disk type from bit cell
-        bit_cells = [tr.bit_cell_us for tr in result.track_results if tr.bit_cell_us > 0]
-        if bit_cells:
-            avg_bit_cell = sum(bit_cells) / len(bit_cells)
-            result.disk_type = "HD" if avg_bit_cell < 3.0 else "DD"
+        # Determine disk type from bit cell or session (Phase 3)
+        if self._session is not None:
+            # Use session's encoding info to determine disk type
+            if self._expected_bit_cell_us is not None:
+                result.disk_type = "HD" if self._expected_bit_cell_us < 3.0 else "DD"
+            else:
+                result.disk_type = "HD" if self._session.data_rate_kbps >= 500 else "DD"
+        else:
+            # Fall back to measured bit cell
+            bit_cells = [tr.bit_cell_us for tr in result.track_results if tr.bit_cell_us > 0]
+            if bit_cells:
+                avg_bit_cell = sum(bit_cells) / len(bit_cells)
+                result.disk_type = "HD" if avg_bit_cell < 3.0 else "DD"
 
         # Count weak and bad tracks
         for tr in result.track_results:
@@ -603,6 +647,55 @@ class AnalyzeWorker(GreaseweazleWorker):
     def get_flux_cache(self) -> Dict[tuple, Any]:
         """Get cached flux data if save_flux was enabled."""
         return dict(self._flux_cache)
+
+    # =========================================================================
+    # Session Timing Parameters (Phase 3)
+    # =========================================================================
+
+    def get_expected_bit_cell_us(self) -> Optional[float]:
+        """
+        Get expected bit cell time from session.
+
+        Returns:
+            Expected bit cell time in microseconds, or None if no session
+        """
+        return self._expected_bit_cell_us
+
+    def get_expected_data_rate_kbps(self) -> Optional[int]:
+        """
+        Get expected data rate from session.
+
+        Returns:
+            Expected data rate in kbps, or None if no session
+        """
+        return self._expected_data_rate_kbps
+
+    def get_expected_rpm(self) -> Optional[int]:
+        """
+        Get expected RPM from session.
+
+        Returns:
+            Expected disk RPM, or None if no session
+        """
+        return self._expected_rpm
+
+    def get_session_timing_info(self) -> Optional[Dict[str, Any]]:
+        """
+        Get all session timing parameters as a dictionary.
+
+        Returns:
+            Dictionary with timing parameters, or None if no session
+        """
+        if self._session is None:
+            return None
+
+        return {
+            'bit_cell_us': self._expected_bit_cell_us,
+            'data_rate_kbps': self._expected_data_rate_kbps,
+            'rpm': self._expected_rpm,
+            'encoding': self._session.encoding,
+            'gw_format': self._session.gw_format,
+        }
 
 
 # =============================================================================

@@ -278,15 +278,18 @@ class FluxTab(QWidget):
 
         # Info bar
         info_bar = QFrame()
+        info_bar.setObjectName("fluxInfoBar")
         info_bar.setStyleSheet(f"""
-            QFrame {{
+            QFrame#fluxInfoBar {{
                 background-color: {COLOR_PANEL_BG};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
             }}
-            QLabel {{
+            QFrame#fluxInfoBar QLabel {{
                 color: {COLOR_TEXT_DIM};
                 font-size: 11px;
+                border: none;
+                background: transparent;
             }}
         """)
         info_layout = QHBoxLayout(info_bar)

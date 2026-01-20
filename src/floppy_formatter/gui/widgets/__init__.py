@@ -96,6 +96,12 @@ from floppy_formatter.gui.widgets.animated_button import (
     ToggleButton,
 )
 
+# Session indicator widget (Phase 4)
+from floppy_formatter.gui.widgets.session_indicator import (
+    SessionIndicator,
+    SessionIndicatorCompact,
+)
+
 
 __all__ = [
     # Circular sector map
@@ -154,4 +160,7 @@ __all__ = [
     "IconButton",
     "OperationButton",
     "ToggleButton",
+    # Session indicator widget (Phase 4)
+    "SessionIndicator",
+    "SessionIndicatorCompact",
 ]

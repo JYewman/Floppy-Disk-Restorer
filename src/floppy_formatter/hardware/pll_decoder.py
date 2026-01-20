@@ -173,8 +173,11 @@ class PLLDecoder:
                 index_times.append(idx_samples / freq)
             index_iter = iter(index_times + [float('inf')])
         else:
-            # No index info, use estimated revolution time
-            index_iter = iter([0.2, float('inf')])  # ~200ms per rev at 300 RPM
+            # No index info, calculate revolution time from RPM
+            # 300 RPM = 200ms/rev, 360 RPM = 166.7ms/rev
+            rpm = getattr(self, 'rpm', 300)  # Default 300 RPM
+            rev_time = 60.0 / rpm
+            index_iter = iter([rev_time, float('inf')])
 
         # Optional lowpass filtering for noise
         flux_times = flux_data.flux_times
@@ -446,17 +449,20 @@ class PLLMFMDecoder:
     """
 
     def __init__(self, bit_cell_us: float = 1.0,
-                 pll_config: Optional[PLLConfig] = None):
+                 pll_config: Optional[PLLConfig] = None,
+                 rpm: int = 300):
         """
         Initialize decoder.
 
         Args:
             bit_cell_us: Expected bit cell width in microseconds (1.0 for HD, 2.0 for DD)
             pll_config: Optional PLL configuration
+            rpm: Expected disk rotation speed (300 for 3.5", 360 for 5.25" HD)
         """
         self.bit_cell_us = bit_cell_us
         self.clock = bit_cell_us / 1_000_000  # Convert to seconds
         self.pll_config = pll_config
+        self.rpm = rpm
 
     def decode_track(self, flux_data: FluxData) -> List[SectorData]:
         """
@@ -526,16 +532,18 @@ class PLLMFMDecoder:
 
 
 def decode_flux_with_pll(flux_data: FluxData,
-                         bit_cell_us: float = 1.0) -> List[SectorData]:
+                         bit_cell_us: float = 1.0,
+                         rpm: int = 300) -> List[SectorData]:
     """
     High-level function to decode flux data using PLL decoder.
 
     Args:
         flux_data: Raw flux capture from a track
         bit_cell_us: Expected bit cell width (default 1.0µs for HD, use 2.0 for DD)
+        rpm: Expected disk rotation speed (default 300 RPM)
 
     Returns:
         List of SectorData for each decoded sector
     """
-    decoder = PLLMFMDecoder(bit_cell_us)
+    decoder = PLLMFMDecoder(bit_cell_us, rpm=rpm)
     return decoder.decode_track(flux_data)

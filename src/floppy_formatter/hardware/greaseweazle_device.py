@@ -101,13 +101,20 @@ class GreaseweazleDevice(IFloppyDevice):
         current_head: Current head position (head)
     """
 
-    def __init__(self, usb_path: Optional[str] = None):
+    # Bus type constants for convenience
+    BUS_TYPE_IBMPC = 1
+    BUS_TYPE_SHUGART = 2
+
+    def __init__(self, usb_path: Optional[str] = None, bus_type: int = 1):
         """
         Initialize the Greaseweazle device.
 
         Args:
             usb_path: Optional specific USB device path. If None, the
                      first available Greaseweazle device is used.
+            bus_type: Bus type for floppy interface. 1=IBMPC (default),
+                     2=Shugart. Use IBMPC for most PC drives, Shugart for
+                     Amiga, Atari ST, Macintosh, and other non-PC systems.
         """
         if not GREASEWEAZLE_AVAILABLE:
             raise ImportError(
@@ -116,6 +123,7 @@ class GreaseweazleDevice(IFloppyDevice):
             )
 
         self._usb_path = usb_path
+        self._bus_type = bus_type
         self._unit: Optional[gw_usb.Unit] = None
         self._selected_drive: Optional[int] = None
         self._motor_running: bool = False
@@ -124,7 +132,8 @@ class GreaseweazleDevice(IFloppyDevice):
         self._drive_info: Optional[DriveInfo] = None
         self._device_info: Optional[str] = None
 
-        logger.debug("GreaseweazleDevice initialized (usb_path=%s)", usb_path)
+        logger.debug("GreaseweazleDevice initialized (usb_path=%s, bus_type=%d)",
+                    usb_path, bus_type)
 
     @property
     def unit(self) -> Optional[gw_usb.Unit]:
@@ -150,6 +159,64 @@ class GreaseweazleDevice(IFloppyDevice):
     def current_head(self) -> int:
         """Get current head side (0 or 1)."""
         return self._current_head
+
+    @property
+    def bus_type(self) -> int:
+        """
+        Get the current bus type setting.
+
+        Returns:
+            Bus type: 1=IBMPC, 2=Shugart
+        """
+        return self._bus_type
+
+    def set_bus_type(self, bus_type: int) -> None:
+        """
+        Set the bus type for the floppy interface.
+
+        This changes how the Greaseweazle communicates with the floppy drive.
+        Use IBMPC (1) for standard PC drives, Shugart (2) for Amiga, Atari ST,
+        Macintosh, and other non-PC systems.
+
+        Args:
+            bus_type: Bus type to set. 1=IBMPC, 2=Shugart
+
+        Raises:
+            ValueError: If bus_type is not 1 or 2
+            GreaseweazleError: If setting bus type fails while connected
+        """
+        if bus_type not in (1, 2):
+            raise ValueError(f"Bus type must be 1 (IBMPC) or 2 (Shugart), got {bus_type}")
+
+        old_bus_type = self._bus_type
+        self._bus_type = bus_type
+
+        # If connected, apply the change immediately
+        if self._unit is not None:
+            try:
+                self._unit.set_bus_type(bus_type)
+                bus_name = "IBMPC" if bus_type == 1 else "Shugart"
+                logger.info("Bus type changed to %s (%d)", bus_name, bus_type)
+            except Exception as e:
+                # Revert on failure
+                self._bus_type = old_bus_type
+                logger.error("Failed to set bus type: %s", e)
+                raise GreaseweazleError(
+                    f"Failed to set bus type to {bus_type}: {e}",
+                    device_info=self._device_info
+                ) from e
+        else:
+            bus_name = "IBMPC" if bus_type == 1 else "Shugart"
+            logger.debug("Bus type set to %s (%d), will apply on connect", bus_name, bus_type)
+
+    def get_bus_type_name(self) -> str:
+        """
+        Get the name of the current bus type.
+
+        Returns:
+            'IBMPC' or 'Shugart'
+        """
+        return "IBMPC" if self._bus_type == 1 else "Shugart"
 
     # =========================================================================
     # Connection Management
@@ -198,11 +265,12 @@ class GreaseweazleDevice(IFloppyDevice):
             self._usb_path = device_path
             logger.debug("Connected to device: %s", device_path)
 
-            # Set bus type to IBM PC (standard PC floppy interface)
+            # Set bus type (configured during __init__ or via set_bus_type)
             # This must be done before any drive operations
             # Note: set_bus_type expects an integer, not the enum directly
-            self._unit.set_bus_type(BusType.IBMPC.value)
-            logger.debug("Bus type set to IBM PC")
+            self._unit.set_bus_type(self._bus_type)
+            bus_name = self.get_bus_type_name()
+            logger.debug("Bus type set to %s (%d)", bus_name, self._bus_type)
 
             # Get device information for logging
             self._device_info = self._get_device_info_string()
@@ -479,6 +547,13 @@ class GreaseweazleDevice(IFloppyDevice):
         logger.info("Turning motor on for drive %d", self._selected_drive)
 
         try:
+            # CRITICAL: Always re-select drive at hardware level before motor on.
+            # The Greaseweazle may have deselected the drive if idle for too long
+            # or after certain operations. Our _selected_drive variable can get
+            # out of sync with actual hardware state.
+            self._unit.drive_select(self._selected_drive)
+            logger.debug("Re-selected drive %d at hardware level", self._selected_drive)
+
             self._unit.drive_motor(self._selected_drive, True)
             self._motor_running = True
 
@@ -631,15 +706,31 @@ class GreaseweazleDevice(IFloppyDevice):
         if head not in (0, 1):
             raise ValueError(f"Head must be 0 or 1, got {head}")
 
+        # Track if head is changing - need extra settle time for head changes
+        head_changing = (self._current_head != head)
+
         # Check if already at position
         if self._current_cylinder == cylinder and self._current_head == head:
             logger.debug("Already at C%d H%d", cylinder, head)
             return
 
-        logger.debug("Seeking to cylinder %d, head %d", cylinder, head)
+        logger.debug("Seeking to cylinder %d, head %d (head_change=%s)",
+                     cylinder, head, head_changing)
 
         try:
+            # CRITICAL: Always re-select drive at hardware level before seeking.
+            # The Greaseweazle may have auto-deselected the drive if idle for too long
+            # during CPU-intensive operations (like PLL decoding or analysis).
+            # Our internal _selected_drive variable can get out of sync with hardware.
+            self._unit.drive_select(self._selected_drive)
+
+            # Small delay to let drive stabilize after re-selection
+            # This prevents "No Index" errors that can occur when the drive
+            # is re-selected after long idle periods.
+            time.sleep(0.010)  # 10ms stabilization
+
             # Greaseweazle's seek takes cylinder and head parameters
+            # This sends both Cmd.Seek for cylinder and Cmd.Head for head selection
             self._unit.seek(cylinder, head)
 
             # Update position tracking
@@ -647,7 +738,13 @@ class GreaseweazleDevice(IFloppyDevice):
             self._current_head = head
 
             # Allow time for head to settle
-            time.sleep(SEEK_SETTLE_TIME)
+            # Add extra time when head changes to ensure reliable head selection
+            if head_changing:
+                # Head selection needs more time to settle - 30ms for head switch
+                time.sleep(SEEK_SETTLE_TIME + 0.015)
+                logger.debug("Head changed - added extra settle time")
+            else:
+                time.sleep(SEEK_SETTLE_TIME)
 
             logger.debug("Seek complete, now at C%d H%d", cylinder, head)
         except Exception as e:
@@ -720,6 +817,20 @@ class GreaseweazleDevice(IFloppyDevice):
         # Seek to the target track
         self.seek(cylinder, head)
 
+        # Force head selection before reading. The seek() above already re-selects
+        # the drive at hardware level, so we only need to ensure head selection here.
+        # Note: Don't call drive_select again - doing so twice in quick succession
+        # can cause "No Index" errors on some drives.
+        try:
+            import struct
+            # Send Head command directly (Cmd.Head = 3)
+            self._unit._send_cmd(struct.pack("3B", 3, 3, head))
+            logger.debug("Forced head %d before read", head)
+            # Small delay after head selection
+            time.sleep(0.005)  # 5ms settle time for head selection
+        except Exception as e:
+            logger.warning("Could not force head selection: %s", e)
+
         # Convert float revolutions to int for API (round up to ensure full coverage)
         revs_int = max(1, int(revolutions + 0.5))
 
@@ -730,7 +841,6 @@ class GreaseweazleDevice(IFloppyDevice):
 
         try:
             # Read the track using Greaseweazle
-            # The head selection is done via seek before this call
             flux = self._unit.read_track(revs=revs_int)
 
             # Convert to our FluxData format
@@ -752,6 +862,139 @@ class GreaseweazleDevice(IFloppyDevice):
                 operation="read",
                 device_info=self._device_info
             ) from e
+
+    def debug_read_track_raw(self, cylinder: int, head: int,
+                              revolutions: int = 2) -> dict:
+        """
+        Debug function to read and decode a track using raw Greaseweazle.
+
+        Bypasses our FluxData conversion to test if the issue is in
+        our conversion or in the Greaseweazle decode itself.
+
+        Args:
+            cylinder: Cylinder number to read
+            head: Head number to read
+            revolutions: Number of revolutions to capture
+
+        Returns:
+            Dict with debug info including raw sector CRCs
+        """
+        from greaseweazle.codec.codec import get_diskdef
+        from greaseweazle.track import PLLTrack
+
+        self._ensure_connected()
+        self._ensure_drive_selected()
+
+        if not self._motor_running:
+            self.motor_on()
+            time.sleep(0.5)
+
+        # Seek to track
+        self.seek(cylinder, head)
+
+        # Force head selection
+        try:
+            import struct
+            self._unit._send_cmd(struct.pack("3B", 3, 3, head))
+            time.sleep(0.005)
+        except:
+            pass
+
+        result = {'cylinder': cylinder, 'head': head}
+
+        try:
+            # Read raw flux from Greaseweazle
+            gw_flux = self._unit.read_track(revs=revolutions)
+
+            result['flux'] = {
+                'sample_freq': gw_flux.sample_freq,
+                'num_transitions': len(gw_flux.list),
+                'index_list': list(gw_flux.index_list) if gw_flux.index_list else [],
+                'index_cued': gw_flux.index_cued,
+            }
+
+            # Calculate time_per_rev from index_list
+            if gw_flux.index_list and len(gw_flux.index_list) > 0:
+                ticks = sum(gw_flux.index_list) / len(gw_flux.index_list)
+                time_per_rev = ticks / gw_flux.sample_freq
+                result['flux']['time_per_rev_ms'] = time_per_rev * 1000
+
+            # Get diskdef for IBM 1.44MB
+            diskdef = get_diskdef('ibm.1440')
+
+            # Create track
+            track = diskdef.mk_track(cylinder, head)
+            result['track'] = {
+                'clock_us': track.clock * 1e6 if hasattr(track, 'clock') else None,
+                'time_per_rev_ms': track.time_per_rev * 1000 if hasattr(track, 'time_per_rev') else None,
+            }
+
+            # Cue flux at index
+            gw_flux.cue_at_index()
+
+            # Create PLL track for debugging
+            if hasattr(track, 'clock') and hasattr(track, 'time_per_rev'):
+                pll_track = PLLTrack(
+                    time_per_rev=track.time_per_rev,
+                    clock=track.clock,
+                    data=gw_flux,
+                    pll=None
+                )
+                result['pll'] = {
+                    'num_bits': len(pll_track.bitarray),
+                    'num_revolutions': len(pll_track.revolutions),
+                    'bits_per_rev': [r.nr_bits for r in pll_track.revolutions],
+                }
+
+            # Decode the track
+            track.decode_flux(gw_flux)
+
+            # Get raw sectors (IBMTrack_Fixed has .raw attribute)
+            result['raw_sectors'] = []
+            if hasattr(track, 'raw') and track.raw is not None:
+                for s in track.raw.sectors:
+                    result['raw_sectors'].append({
+                        'r': s.idam.r if s.idam else None,
+                        'crc': s.crc,
+                        'idam_crc': s.idam.crc if s.idam else None,
+                        'dam_crc': s.dam.crc if s.dam else None,
+                    })
+
+            # Get final sectors
+            result['final_sectors'] = []
+            good_count = 0
+            for s in track.sectors:
+                sector_info = {
+                    'r': s.idam.r if s.idam else None,
+                    'crc': s.crc,
+                    'idam_crc': s.idam.crc if s.idam else None,
+                    'dam_crc': s.dam.crc if s.dam else None,
+                }
+                result['final_sectors'].append(sector_info)
+                if s.crc == 0:
+                    good_count += 1
+
+            result['summary'] = {
+                'raw_count': len(result['raw_sectors']),
+                'final_count': len(result['final_sectors']),
+                'good_count': good_count,
+                'raw_good': sum(1 for s in result['raw_sectors'] if s['crc'] == 0),
+            }
+
+            logger.info(
+                "DEBUG C%d:H%d: raw=%d sectors (%d good), final=%d sectors (%d good)",
+                cylinder, head,
+                result['summary']['raw_count'], result['summary']['raw_good'],
+                result['summary']['final_count'], good_count
+            )
+
+        except Exception as e:
+            result['error'] = str(e)
+            import traceback
+            result['traceback'] = traceback.format_exc()
+            logger.error("DEBUG read failed: %s", e)
+
+        return result
 
     def write_track(self, cylinder: int, head: int, flux_data: FluxData) -> None:
         """
@@ -782,6 +1025,19 @@ class GreaseweazleDevice(IFloppyDevice):
 
         # Seek to the target track
         self.seek(cylinder, head)
+
+        # Force head selection before writing. The seek() above already re-selects
+        # the drive at hardware level, so we only need to ensure head selection here.
+        # Note: Don't call drive_select again - doing so twice in quick succession
+        # can cause "No Index" errors on some drives.
+        try:
+            import struct
+            # Send Head command directly (Cmd.Head = 3)
+            self._unit._send_cmd(struct.pack("3B", 3, 3, head))
+            logger.debug("Forced head %d before write", head)
+            time.sleep(0.005)  # 5ms settle time for head selection
+        except Exception as e:
+            logger.warning("Could not force head selection: %s", e)
 
         logger.info("Writing track C%d H%d (%d flux transitions)",
                     cylinder, head, len(flux_data.flux_times))
@@ -843,6 +1099,16 @@ class GreaseweazleDevice(IFloppyDevice):
         # Seek to the target track
         self.seek(cylinder, head)
 
+        # CRITICAL: Always force head selection before erasing
+        try:
+            import struct
+            # Send Head command directly (Cmd.Head = 3)
+            self._unit._send_cmd(struct.pack("3B", 3, 3, head))
+            logger.debug("Forced head selection to head %d before erase", head)
+            time.sleep(0.005)  # 5ms settle time for head selection
+        except Exception as e:
+            logger.warning("Could not force head selection: %s", e)
+
         logger.info("Erasing track C%d H%d", cylinder, head)
 
         try:
@@ -901,8 +1167,9 @@ class GreaseweazleDevice(IFloppyDevice):
             # Instead, just ensure proper configuration without resetting.
 
             # Set bus type (safe to call even if already set)
-            self._unit.set_bus_type(BusType.IBMPC.value)
-            logger.debug("Bus type set to IBM PC")
+            self._unit.set_bus_type(self._bus_type)
+            bus_name = self.get_bus_type_name()
+            logger.debug("Bus type set to %s (%d)", bus_name, self._bus_type)
 
             # Select drive (asserts DRIVE SELECT line)
             self._unit.drive_select(drive_unit)

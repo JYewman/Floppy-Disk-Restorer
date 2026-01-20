@@ -36,11 +36,31 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-# MFM timing constants for HD (2.0µs bit cell)
-BIT_CELL_US = 2.0
-SHORT_PULSE_US = 4.0    # 2 bit cells (10 or 01 pattern)
-MEDIUM_PULSE_US = 6.0   # 3 bit cells (100 or 001 pattern)
-LONG_PULSE_US = 8.0     # 4 bit cells (1000 or 0001 pattern)
+# MFM timing constants
+# HD (High Density): 500 kbps data rate = 1.0µs bit cell
+# DD (Double Density): 250 kbps data rate = 2.0µs bit cell
+HD_BIT_CELL_US = 1.0
+DD_BIT_CELL_US = 2.0
+
+# Default to HD (most common 1.44MB 3.5" format)
+BIT_CELL_US = HD_BIT_CELL_US
+
+# Pulse widths are multiples of bit cell
+# 2T = 2 bit cells (shortest MFM pulse)
+# 3T = 3 bit cells (medium MFM pulse)
+# 4T = 4 bit cells (longest valid MFM pulse)
+def get_pulse_widths(bit_cell_us: float = HD_BIT_CELL_US):
+    """Calculate pulse widths for given bit cell time."""
+    return {
+        'short': bit_cell_us * 2,   # 2T pulse
+        'medium': bit_cell_us * 3,  # 3T pulse
+        'long': bit_cell_us * 4,    # 4T pulse
+    }
+
+# Default HD pulse widths (1.0µs bit cell)
+SHORT_PULSE_US = 2.0    # 2 bit cells (10 or 01 pattern)
+MEDIUM_PULSE_US = 3.0   # 3 bit cells (100 or 001 pattern)
+LONG_PULSE_US = 4.0     # 4 bit cells (1000 or 0001 pattern)
 
 # Timing tolerance (fraction of bit cell)
 TIMING_TOLERANCE = 0.30
@@ -891,7 +911,7 @@ def decode_flux_to_sectors(flux_data: FluxData,
 
     Args:
         flux_data: Raw flux capture from a track
-        bit_cell_us: Expected bit cell width (default 2.0µs for HD)
+        bit_cell_us: Expected bit cell width (default 1.0µs for HD, use 2.0µs for DD)
 
     Returns:
         List of SectorData for each decoded sector
@@ -920,7 +940,7 @@ def encode_sectors_to_flux(cylinder: int, head: int,
         head: Head number for the track
         sectors: List of SectorData to encode
         sample_freq: Sample frequency for output
-        bit_cell_us: Bit cell width (default 2.0µs for HD)
+        bit_cell_us: Bit cell width (default 1.0µs for HD, use 2.0µs for DD)
 
     Returns:
         FluxData ready for writing to disk

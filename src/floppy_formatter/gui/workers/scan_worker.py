@@ -6,6 +6,7 @@ comprehensive surface analysis. Supports multiple scan modes for
 different use cases from quick sampling to thorough multi-pass analysis.
 
 Part of Phase 9: Workers & Background Processing
+Updated Phase 3: Session-aware scanning with codec adapter support
 """
 
 import logging
@@ -23,6 +24,7 @@ from floppy_formatter.gui.workers.base_worker import GreaseweazleWorker
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice
     from floppy_formatter.core.geometry import DiskGeometry
+    from floppy_formatter.core.session import DiskSession
     # FluxCapture imported at runtime in methods that need it
 
 logger = logging.getLogger(__name__)
@@ -223,6 +225,13 @@ class ScanWorker(GreaseweazleWorker):
     - Multiple scan modes (quick/standard/thorough)
     - Real-time progress and sector status reporting
     - Flux quality metrics per sector
+    - Session-aware decoding for non-IBM formats (Phase 3)
+
+    Session Integration (Phase 3):
+        When a DiskSession is provided, the worker uses the session's
+        CodecAdapter for decoding, enabling proper scanning of ALL
+        Greaseweazle-supported formats (IBM, Amiga, Mac, C64, etc.).
+        Geometry is derived from the session if not explicitly provided.
 
     Signals:
         track_scanned(int, int, TrackResult): Emitted per track (cyl, head, result)
@@ -231,9 +240,11 @@ class ScanWorker(GreaseweazleWorker):
         flux_captured(int, int, object): Flux data captured (cyl, head, FluxCapture)
 
     Example:
-        worker = ScanWorker(device, geometry, capture_flux=True, mode=ScanMode.THOROUGH)
-        worker.track_scanned.connect(on_track_scanned)
-        worker.scan_complete.connect(on_scan_complete)
+        # Session-aware scanning (preferred for Phase 3+)
+        worker = ScanWorker(device, session=session, capture_flux=True)
+
+        # Legacy: explicit geometry
+        worker = ScanWorker(device, geometry=geometry, mode=ScanMode.THOROUGH)
     """
 
     # Signals specific to scanning
@@ -245,21 +256,33 @@ class ScanWorker(GreaseweazleWorker):
     def __init__(
         self,
         device: 'GreaseweazleDevice',
-        geometry: 'DiskGeometry',
+        geometry: Optional['DiskGeometry'] = None,
         capture_flux: bool = False,
         mode: ScanMode = ScanMode.STANDARD,
+        session: Optional['DiskSession'] = None,
     ):
         """
         Initialize scan worker.
 
         Args:
             device: Connected GreaseweazleDevice instance
-            geometry: Disk geometry information
+            geometry: Disk geometry information. If None and session is provided,
+                     geometry is derived from session.to_geometry()
             capture_flux: Whether to save raw flux data
             mode: Scan mode (QUICK, STANDARD, THOROUGH)
+            session: Optional DiskSession for session-aware operations.
+                    When provided, enables proper decoding of non-IBM formats.
         """
-        super().__init__(device)
-        self._geometry = geometry
+        super().__init__(device, session)
+
+        # Get geometry from session if not explicitly provided
+        if geometry is not None:
+            self._geometry = geometry
+        elif session is not None:
+            self._geometry = session.to_geometry()
+        else:
+            raise ValueError("Either geometry or session must be provided")
+
         self._capture_flux = capture_flux
         self._mode = mode
 
@@ -267,8 +290,9 @@ class ScanWorker(GreaseweazleWorker):
         self._flux_cache: Dict[Tuple[int, int], Any] = {}
 
         logger.info(
-            "ScanWorker initialized: mode=%s, capture_flux=%s",
-            mode.name, capture_flux
+            "ScanWorker initialized: mode=%s, capture_flux=%s, session=%s",
+            mode.name, capture_flux,
+            session.gw_format if session else "None"
         )
 
     def run(self) -> None:
@@ -402,6 +426,9 @@ class ScanWorker(GreaseweazleWorker):
         """
         Scan a single track.
 
+        Uses the session's codec adapter for decoding when available (Phase 3),
+        otherwise falls back to the default decoder chain.
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -437,9 +464,17 @@ class ScanWorker(GreaseweazleWorker):
             self.flux_captured.emit(cylinder, head, capture)
             self._flux_cache[(cylinder, head)] = capture
 
-        # Decode sectors using same decoder priority as restore_worker
-        # This ensures consistency between restore verification and scanning
-        sectors = decode_flux_data(flux)
+        # Decode sectors - use session codec adapter if available (Phase 3)
+        if self._codec_adapter is not None:
+            # Session-aware decoding for any Greaseweazle format
+            sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+            logger.debug(
+                "Track C%d:H%d: codec adapter decoded %d sectors",
+                cylinder, head, len(sectors)
+            )
+        else:
+            # Fall back to default decoder chain (IBM MFM only)
+            sectors = decode_flux_data(flux)
 
         # Log decode results for debugging
         flux_len = len(flux.flux_times) if hasattr(flux, 'flux_times') else 0
@@ -463,7 +498,11 @@ class ScanWorker(GreaseweazleWorker):
             average_quality=avg_quality,
         )
 
-        sectors_per_track = self._geometry.sectors_per_track
+        # Get sectors per track - use codec adapter for variable formats (Phase 3)
+        if self._codec_adapter is not None:
+            sectors_per_track = self._codec_adapter.get_sectors_for_track(cylinder, head)
+        else:
+            sectors_per_track = self._geometry.sectors_per_track
         base_sector = (cylinder * self._geometry.heads + head) * sectors_per_track
 
         # Deduplicate sectors - keep best result for each sector number

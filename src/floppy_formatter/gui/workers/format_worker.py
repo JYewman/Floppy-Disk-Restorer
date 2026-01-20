@@ -5,6 +5,7 @@ Provides track-at-a-time formatting with bulk erase, pattern writes,
 and verification. Supports multiple format types for different use cases.
 
 Part of Phase 9: Workers & Background Processing
+Updated Phase 3: Session-aware formatting with codec adapter support
 """
 
 import logging
@@ -21,6 +22,7 @@ from floppy_formatter.gui.workers.base_worker import GreaseweazleWorker
 if TYPE_CHECKING:
     from floppy_formatter.hardware import GreaseweazleDevice, SectorData
     from floppy_formatter.core.geometry import DiskGeometry
+    from floppy_formatter.core.session import DiskSession
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +202,13 @@ class FormatWorker(GreaseweazleWorker):
     - Optional read-back verification
     - Multiple format types (standard, refresh, secure)
     - Real-time progress reporting
+    - Session-aware encoding for non-IBM formats (Phase 3)
+
+    Session Integration (Phase 3):
+        When a DiskSession is provided, the worker uses the session's
+        CodecAdapter for encoding, enabling proper formatting of ALL
+        Greaseweazle-supported formats (IBM, Amiga, Mac, C64, etc.).
+        Geometry is derived from the session if not explicitly provided.
 
     Signals:
         track_formatted(int, int, bool): Per track (cyl, head, success)
@@ -207,14 +216,11 @@ class FormatWorker(GreaseweazleWorker):
         format_complete(FormatResult): Final complete format result
 
     Example:
-        worker = FormatWorker(
-            device, geometry,
-            fill_pattern=0xE5,
-            verify=True,
-            format_type=FormatType.STANDARD
-        )
-        worker.track_formatted.connect(on_track_formatted)
-        worker.format_complete.connect(on_format_complete)
+        # Session-aware formatting (preferred for Phase 3+)
+        worker = FormatWorker(device, session=session, fill_pattern=0xE5)
+
+        # Legacy: explicit geometry
+        worker = FormatWorker(device, geometry=geometry, verify=True)
     """
 
     # Signals specific to formatting
@@ -225,30 +231,43 @@ class FormatWorker(GreaseweazleWorker):
     def __init__(
         self,
         device: 'GreaseweazleDevice',
-        geometry: 'DiskGeometry',
+        geometry: Optional['DiskGeometry'] = None,
         fill_pattern: int = PATTERN_E5,
         verify: bool = True,
         format_type: FormatType = FormatType.STANDARD,
+        session: Optional['DiskSession'] = None,
     ):
         """
         Initialize format worker.
 
         Args:
             device: Connected GreaseweazleDevice instance
-            geometry: Disk geometry information
+            geometry: Disk geometry information. If None and session is provided,
+                     geometry is derived from session.to_geometry()
             fill_pattern: Byte value to fill sectors with (default 0xE5)
             verify: Whether to verify after formatting
             format_type: Type of format operation
+            session: Optional DiskSession for session-aware operations.
+                    When provided, enables proper encoding of non-IBM formats.
         """
-        super().__init__(device)
-        self._geometry = geometry
+        super().__init__(device, session)
+
+        # Get geometry from session if not explicitly provided
+        if geometry is not None:
+            self._geometry = geometry
+        elif session is not None:
+            self._geometry = session.to_geometry()
+        else:
+            raise ValueError("Either geometry or session must be provided")
+
         self._fill_pattern = fill_pattern
         self._verify = verify
         self._format_type = format_type
 
         logger.info(
-            "FormatWorker initialized: type=%s, pattern=0x%02X, verify=%s",
-            format_type.name, fill_pattern, verify
+            "FormatWorker initialized: type=%s, pattern=0x%02X, verify=%s, session=%s",
+            format_type.name, fill_pattern, verify,
+            session.gw_format if session else "None"
         )
 
     def run(self) -> None:
@@ -379,6 +398,9 @@ class FormatWorker(GreaseweazleWorker):
         """
         Format a single track with the specified patterns.
 
+        Uses the session's codec adapter for encoding when available (Phase 3),
+        otherwise falls back to the default MFM encoder.
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -414,9 +436,18 @@ class FormatWorker(GreaseweazleWorker):
                     cylinder, head, pattern
                 )
 
-                # Encode to MFM flux
-                # NOTE: Argument order is (cylinder, head, sectors) - NOT (sectors, cylinder, head)
-                flux = encode_sectors_to_flux(cylinder, head, sector_data)
+                # Encode to flux - use session codec adapter if available (Phase 3)
+                if self._codec_adapter is not None:
+                    # Session-aware encoding for any Greaseweazle format
+                    flux = self._codec_adapter.encode_track(sector_data, cylinder, head)
+                    logger.debug(
+                        "Track C%d:H%d: codec adapter encoded %d sectors",
+                        cylinder, head, len(sector_data)
+                    )
+                else:
+                    # Fall back to default MFM encoder (IBM formats only)
+                    # NOTE: Argument order is (cylinder, head, sectors)
+                    flux = encode_sectors_to_flux(cylinder, head, sector_data)
 
                 # Write to disk
                 write_track_flux(self._device, cylinder, head, flux)
@@ -442,6 +473,9 @@ class FormatWorker(GreaseweazleWorker):
         """
         Verify a track by reading back and checking data.
 
+        Uses the session's codec adapter for decoding when available (Phase 3),
+        otherwise falls back to the default decoder chain.
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -456,12 +490,20 @@ class FormatWorker(GreaseweazleWorker):
             self._device.seek(cylinder, head)
             flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
 
-            # Decode sectors with PLL decoder
-            sectors = decode_flux_data(flux)
+            # Decode sectors - use session codec adapter if available (Phase 3)
+            if self._codec_adapter is not None:
+                sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+            else:
+                sectors = decode_flux_data(flux)
+
+            # Get sectors per track - use codec adapter for variable formats (Phase 3)
+            if self._codec_adapter is not None:
+                sectors_per_track = self._codec_adapter.get_sectors_for_track(cylinder, head)
+            else:
+                sectors_per_track = self._geometry.sectors_per_track
 
             # Deduplicate by sector number, keep best result
             best_sectors = {}
-            sectors_per_track = self._geometry.sectors_per_track
             for s in sectors:
                 sector_num = s.sector
                 if sector_num < 1 or sector_num > sectors_per_track:
@@ -477,7 +519,7 @@ class FormatWorker(GreaseweazleWorker):
                 if s.data is not None and s.crc_valid
             )
 
-            expected_sectors = self._geometry.sectors_per_track
+            expected_sectors = sectors_per_track
             success_rate = good_count / expected_sectors if expected_sectors > 0 else 0.0
 
             # Allow small margin of error (1 retry might help)
@@ -496,6 +538,9 @@ class FormatWorker(GreaseweazleWorker):
         """
         Create sector data for a track filled with pattern.
 
+        Uses session parameters when available (Phase 3) to correctly
+        handle variable sector counts and non-standard sector sizes.
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -507,11 +552,18 @@ class FormatWorker(GreaseweazleWorker):
         from floppy_formatter.hardware import SectorData, SectorStatus
 
         sector_data = []
-        bytes_per_sector = 512  # Standard sector size
 
-        for sector_num in range(1, self._geometry.sectors_per_track + 1):
+        # Get format-specific parameters (Phase 3)
+        if self._codec_adapter is not None:
+            sectors_per_track = self._codec_adapter.get_sectors_for_track(cylinder, head)
+            bytes_per_sector = self._session.bytes_per_sector if self._session else 512
+        else:
+            sectors_per_track = self._geometry.sectors_per_track
+            bytes_per_sector = 512  # Standard sector size
+
+        for sector_num in range(1, sectors_per_track + 1):
             data = bytes([pattern] * bytes_per_sector)
-            # Create proper SectorData object as expected by encode_sectors_to_flux
+            # Create proper SectorData object as expected by codec adapter
             sector = SectorData(
                 cylinder=cylinder,
                 head=head,
@@ -533,6 +585,9 @@ class FormatWorker(GreaseweazleWorker):
         """
         Get list of bad sector numbers for a track that failed verification.
 
+        Uses the session's codec adapter for decoding when available (Phase 3),
+        otherwise falls back to the default decoder chain.
+
         Args:
             cylinder: Cylinder number
             head: Head number
@@ -543,12 +598,22 @@ class FormatWorker(GreaseweazleWorker):
         from floppy_formatter.hardware import read_track_flux
 
         bad_sectors = []
-        sectors_per_track = self._geometry.sectors_per_track
+
+        # Get sectors per track - use codec adapter for variable formats (Phase 3)
+        if self._codec_adapter is not None:
+            sectors_per_track = self._codec_adapter.get_sectors_for_track(cylinder, head)
+        else:
+            sectors_per_track = self._geometry.sectors_per_track
         base_sector = (cylinder * self._geometry.heads + head) * sectors_per_track
 
         try:
             flux = read_track_flux(self._device, cylinder, head, revolutions=1.2)
-            sectors = decode_flux_data(flux)
+
+            # Decode sectors - use session codec adapter if available (Phase 3)
+            if self._codec_adapter is not None:
+                sectors = self._codec_adapter.decode_track(flux, cylinder, head)
+            else:
+                sectors = decode_flux_data(flux)
 
             # Deduplicate by sector number, keep best result
             best_sectors = {}
@@ -574,7 +639,7 @@ class FormatWorker(GreaseweazleWorker):
 
         except Exception:
             # If we can't read at all, mark all sectors as bad
-            for i in range(self._geometry.sectors_per_track):
+            for i in range(sectors_per_track):
                 bad_sectors.append(base_sector + i)
 
         return bad_sectors
