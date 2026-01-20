@@ -1060,7 +1060,8 @@ class MainWindow(QMainWindow):
         self._drive_control.pause_rpm_polling()
 
         # Start progress tracking in the Progress tab
-        total_tracks = self._geometry.cylinders * self._geometry.heads
+        # Use cylinders as total_tracks since head is displayed separately
+        total_tracks = self._geometry.cylinders
         total_sectors = self._geometry.total_sectors
 
         # Update status strip and start operation
@@ -1332,19 +1333,20 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.set_progress(progress)
 
         # Update Progress tab with live progress
-        total_tracks = self._geometry.cylinders * self._geometry.heads
-        current_track = int((progress / 100) * total_tracks)
-        current_head = current_track % 2
-        current_cylinder = current_track // 2
+        # Calculate current position from progress percentage
+        total_physical_tracks = self._geometry.cylinders * self._geometry.heads
+        current_physical_track = int((progress / 100) * total_physical_tracks)
+        current_head = current_physical_track % 2
+        current_cylinder = current_physical_track // 2
 
         self._analytics_panel.update_progress(progress)
         self._analytics_panel.update_progress_track(current_cylinder, current_head)
         self._analytics_panel.update_progress_message(
-            f"Scanning track {current_track} of {total_tracks} (Cylinder {current_cylinder}, Head {current_head})"
+            f"Scanning cylinder {current_cylinder} of {self._geometry.cylinders} (Head {current_head})"
         )
 
-        # Update status strip with progress
-        self._status_strip.set_scanning(current_track, total_tracks)
+        # Update status strip with progress (show cylinder count)
+        self._status_strip.set_scanning(current_cylinder, self._geometry.cylinders)
 
     def _on_scan_error(self, error_message: str) -> None:
         """Handle scan error."""
@@ -1509,19 +1511,20 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.set_progress(progress)
 
         # Update Progress tab with live progress
-        total_tracks = self._geometry.cylinders * self._geometry.heads
-        current_track = int((progress / 100) * total_tracks)
-        current_head = current_track % 2
-        current_cylinder = current_track // 2
+        # Calculate current position from progress percentage
+        total_physical_tracks = self._geometry.cylinders * self._geometry.heads
+        current_physical_track = int((progress / 100) * total_physical_tracks)
+        current_head = current_physical_track % 2
+        current_cylinder = current_physical_track // 2
 
         self._analytics_panel.update_progress(progress)
         self._analytics_panel.update_progress_track(current_cylinder, current_head)
         self._analytics_panel.update_progress_message(
-            f"Formatting track {current_track} of {total_tracks} (Cylinder {current_cylinder}, Head {current_head})"
+            f"Formatting cylinder {current_cylinder} of {self._geometry.cylinders} (Head {current_head})"
         )
 
-        # Update status strip
-        self._status_strip.set_formatting(current_track, total_tracks)
+        # Update status strip (show cylinder count)
+        self._status_strip.set_formatting(current_cylinder, self._geometry.cylinders)
 
     def _on_format_error(self, error_message: str) -> None:
         """Handle format error."""
@@ -1913,10 +1916,12 @@ class MainWindow(QMainWindow):
 
         if dialog_config:
             # Map dialog depth to worker depth
+            # Dialog uses: QUICK, FULL, COMPREHENSIVE
+            # Worker uses: QUICK, STANDARD, COMPREHENSIVE
             depth_map = {
                 AnalyzeDialogDepth.QUICK: AnalysisDepth.QUICK,
-                AnalyzeDialogDepth.STANDARD: AnalysisDepth.STANDARD,
-                AnalyzeDialogDepth.FULL: AnalysisDepth.COMPREHENSIVE,
+                AnalyzeDialogDepth.FULL: AnalysisDepth.STANDARD,
+                AnalyzeDialogDepth.COMPREHENSIVE: AnalysisDepth.COMPREHENSIVE,
             }
             depth = depth_map.get(dialog_config.depth, AnalysisDepth.STANDARD)
             revolutions = dialog_config.revolutions_per_track
@@ -2138,19 +2143,20 @@ class MainWindow(QMainWindow):
         self._operation_toolbar.set_progress(progress)
 
         # Update Progress tab with live progress
-        total_tracks = self._geometry.cylinders * self._geometry.heads
-        current_track = int((progress / 100) * total_tracks)
-        current_head = current_track % 2
-        current_cylinder = current_track // 2
+        # Calculate current position from progress percentage
+        total_physical_tracks = self._geometry.cylinders * self._geometry.heads
+        current_physical_track = int((progress / 100) * total_physical_tracks)
+        current_head = current_physical_track % 2
+        current_cylinder = current_physical_track // 2
 
         self._analytics_panel.update_progress(progress)
         self._analytics_panel.update_progress_track(current_cylinder, current_head)
         self._analytics_panel.update_progress_message(
-            f"Analyzing track {current_track} of {total_tracks} (Cylinder {current_cylinder}, Head {current_head})"
+            f"Analyzing cylinder {current_cylinder} of {self._geometry.cylinders} (Head {current_head})"
         )
 
-        # Update status strip
-        self._status_strip.set_analyzing(f"track {current_track}/{total_tracks}")
+        # Update status strip (show cylinder count)
+        self._status_strip.set_analyzing(f"cylinder {current_cylinder}/{self._geometry.cylinders}")
 
     def _on_analyze_error(self, error_message: str) -> None:
         """Handle analyze error."""

@@ -363,8 +363,8 @@ class ProgressTab(QWidget):
         position_layout.setContentsMargins(10, 14, 10, 8)
         position_layout.setSpacing(8)
 
-        # Track (top-left)
-        self._track_card = ProgressStatCard("Track", "-- / --", COLOR_TEXT)
+        # Cylinder (top-left)
+        self._track_card = ProgressStatCard("Cylinder", "-- / --", COLOR_TEXT)
         position_layout.addWidget(self._track_card, 0, 0)
 
         # Head (top-right)
@@ -564,18 +564,18 @@ class ProgressTab(QWidget):
                 self._progress_data.eta_seconds = eta
                 self._eta_label.setText(f"ETA: {self._format_time(eta)}")
 
-    def set_track(self, track: int, head: int = 0) -> None:
+    def set_track(self, cylinder: int, head: int = 0) -> None:
         """
-        Update current track and head position.
+        Update current cylinder and head position.
 
         Args:
-            track: Current track number
+            cylinder: Current cylinder number (0-79 for HD floppies)
             head: Current head (0 or 1)
         """
-        self._progress_data.current_track = track
+        self._progress_data.current_track = cylinder
         self._progress_data.current_head = head
 
-        self._track_card.set_value(f"{track} / {self._progress_data.total_tracks}")
+        self._track_card.set_value(f"{cylinder} / {self._progress_data.total_tracks}")
         self._head_card.set_value(str(head))
 
     def set_sector(self, sector: int) -> None:
