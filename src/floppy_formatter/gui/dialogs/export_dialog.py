@@ -1,9 +1,11 @@
 """
 Export dialog for Greaseweazle operations.
 
-Provides configuration for exporting disk data in various formats
-including sector images (IMG/IMA), flux images (SCP/HFE), and
-analysis reports (PDF/HTML).
+Provides configuration for exporting disk data to image formats
+including sector images (IMG/IMA) and flux images (SCP/HFE).
+
+Note: Report generation (PDF/HTML) is handled separately by the
+Report button and report_generator module.
 
 Part of Phase 10: Operation Dialogs & Configurations
 """
@@ -39,12 +41,10 @@ from PyQt6.QtGui import QFont
 # =============================================================================
 
 class ExportType(Enum):
-    """Export format types."""
+    """Export format types for disk images."""
     IMG = auto()   # Sector image (IMG/IMA)
     SCP = auto()   # SuperCard Pro flux image
     HFE = auto()   # HxC Floppy Emulator flux image
-    PDF = auto()   # PDF analysis report
-    HTML = auto()  # HTML analysis report
 
 
 # File extensions for each export type
@@ -52,8 +52,6 @@ EXPORT_EXTENSIONS = {
     ExportType.IMG: ".img",
     ExportType.SCP: ".scp",
     ExportType.HFE: ".hfe",
-    ExportType.PDF: ".pdf",
-    ExportType.HTML: ".html",
 }
 
 # File filter strings for save dialogs
@@ -61,41 +59,29 @@ EXPORT_FILTERS = {
     ExportType.IMG: "Disk Image (*.img *.ima);;All Files (*)",
     ExportType.SCP: "SuperCard Pro Image (*.scp);;All Files (*)",
     ExportType.HFE: "HxC Floppy Emulator Image (*.hfe);;All Files (*)",
-    ExportType.PDF: "PDF Document (*.pdf);;All Files (*)",
-    ExportType.HTML: "HTML Document (*.html *.htm);;All Files (*)",
 }
 
 
 @dataclass
 class ExportConfig:
     """
-    Configuration for an export operation.
+    Configuration for a disk image export operation.
 
     Attributes:
-        export_type: Type of export (IMG, SCP, HFE, PDF, HTML)
-        start_cylinder: Starting cylinder for partial export
-        end_cylinder: Ending cylinder for partial export
-        export_all_tracks: Whether to export all tracks
+        export_type: Type of export (IMG, SCP, HFE)
         include_bad_sectors: Fill bad sectors with zeros in image
         pad_to_standard: Pad image to standard 1.44MB size
         revolutions: Flux revolutions to capture for flux images
         normalize_flux: Normalize timing in flux images
-        include_charts: Include flux charts in reports
-        include_sector_map: Include sector map in reports
         compress: Whether to compress output
         compression_type: Type of compression (none, zip, gzip)
         output_path: Full path for output file
     """
     export_type: ExportType = ExportType.IMG
-    start_cylinder: int = 0
-    end_cylinder: int = 79
-    export_all_tracks: bool = True
     include_bad_sectors: bool = True
     pad_to_standard: bool = True
     revolutions: int = 2
     normalize_flux: bool = True
-    include_charts: bool = True
-    include_sector_map: bool = True
     compress: bool = False
     compression_type: str = 'none'
     output_path: str = ''
@@ -107,14 +93,17 @@ class ExportConfig:
 
 class ExportDialog(QDialog):
     """
-    Dialog for configuring disk export operations.
+    Dialog for configuring disk image export operations.
 
     Provides options for:
-    - Export type selection (IMG, SCP, HFE, PDF, HTML)
-    - Track range for image exports
-    - Format-specific options
+    - Export type selection (IMG, SCP, HFE)
+    - Track range for partial exports
+    - Format-specific options (sector vs flux)
     - Compression settings
     - Output file selection
+
+    Note: For report generation (PDF/HTML), use the Report button
+    which handles report export separately.
 
     Example:
         dialog = ExportDialog(parent)
@@ -147,7 +136,7 @@ class ExportDialog(QDialog):
         self.setWindowTitle("Export Disk Image")
         self.setModal(True)
         self.setMinimumWidth(520)
-        self.setMinimumHeight(580)
+        self.setMinimumHeight(480)
 
         # Apply dark theme styling
         self._apply_dialog_style()
@@ -208,73 +197,7 @@ class ExportDialog(QDialog):
         hfe_desc.setWordWrap(True)
         type_layout.addWidget(hfe_desc)
 
-        # PDF Report
-        self._pdf_radio = QRadioButton("Analysis Report (PDF)")
-        self._pdf_radio.setToolTip("Export analysis as PDF document")
-        self._type_group.addButton(self._pdf_radio, 3)
-        type_layout.addWidget(self._pdf_radio)
-
-        pdf_desc = QLabel("Detailed report with charts and analysis in PDF format.")
-        pdf_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
-        pdf_desc.setWordWrap(True)
-        type_layout.addWidget(pdf_desc)
-
-        # HTML Report
-        self._html_radio = QRadioButton("Analysis Report (HTML)")
-        self._html_radio.setToolTip("Export analysis as web page")
-        self._type_group.addButton(self._html_radio, 4)
-        type_layout.addWidget(self._html_radio)
-
-        html_desc = QLabel("Detailed report as interactive HTML web page.")
-        html_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
-        html_desc.setWordWrap(True)
-        type_layout.addWidget(html_desc)
-
         layout.addWidget(type_group)
-
-        # Track Range group (for image exports only)
-        self._range_group = QGroupBox("Track Range")
-        range_layout = QVBoxLayout(self._range_group)
-        range_layout.setSpacing(8)
-
-        self._export_all_check = QCheckBox("Export all tracks")
-        self._export_all_check.setChecked(True)
-        self._export_all_check.setToolTip("Export all 80 cylinders (160 tracks)")
-        range_layout.addWidget(self._export_all_check)
-
-        range_row = QHBoxLayout()
-        range_row.setSpacing(12)
-
-        start_label = QLabel("Start cylinder:")
-        start_label.setMinimumWidth(90)
-        range_row.addWidget(start_label)
-
-        self._start_spin = QSpinBox()
-        self._start_spin.setRange(0, 79)
-        self._start_spin.setValue(0)
-        self._start_spin.setEnabled(False)
-        self._start_spin.setToolTip("First cylinder to export (0-79)")
-        self._start_spin.setMinimumWidth(70)
-        range_row.addWidget(self._start_spin)
-
-        range_row.addSpacing(20)
-
-        end_label = QLabel("End cylinder:")
-        end_label.setMinimumWidth(80)
-        range_row.addWidget(end_label)
-
-        self._end_spin = QSpinBox()
-        self._end_spin.setRange(0, 79)
-        self._end_spin.setValue(79)
-        self._end_spin.setEnabled(False)
-        self._end_spin.setToolTip("Last cylinder to export (0-79)")
-        self._end_spin.setMinimumWidth(70)
-        range_row.addWidget(self._end_spin)
-
-        range_row.addStretch()
-        range_layout.addLayout(range_row)
-
-        layout.addWidget(self._range_group)
 
         # Options group (content changes based on export type)
         self._options_group = QGroupBox("Options")
@@ -333,25 +256,6 @@ class ExportDialog(QDialog):
 
         flux_layout.addStretch()
         self._options_stack.addWidget(flux_options)
-
-        # Page 2: Report options
-        report_options = QWidget()
-        report_layout = QVBoxLayout(report_options)
-        report_layout.setContentsMargins(0, 0, 0, 0)
-        report_layout.setSpacing(8)
-
-        self._charts_check = QCheckBox("Include flux charts")
-        self._charts_check.setChecked(True)
-        self._charts_check.setToolTip("Include flux histogram and waveform charts")
-        report_layout.addWidget(self._charts_check)
-
-        self._sector_map_check = QCheckBox("Include sector map image")
-        self._sector_map_check.setChecked(True)
-        self._sector_map_check.setToolTip("Include visual sector map in report")
-        report_layout.addWidget(self._sector_map_check)
-
-        report_layout.addStretch()
-        self._options_stack.addWidget(report_options)
 
         options_layout.addWidget(self._options_stack)
         layout.addWidget(self._options_group)
@@ -622,12 +526,9 @@ class ExportDialog(QDialog):
     def _connect_signals(self) -> None:
         """Connect widget signals."""
         self._type_group.buttonClicked.connect(self._on_type_changed)
-        self._export_all_check.toggled.connect(self._on_export_all_toggled)
         self._compress_check.toggled.connect(self._on_compress_toggled)
         self._browse_button.clicked.connect(self._on_browse_clicked)
         self._path_edit.textChanged.connect(self._validate_path)
-        self._start_spin.valueChanged.connect(self._validate_range)
-        self._end_spin.valueChanged.connect(self._validate_range)
 
     def _on_type_changed(self) -> None:
         """Handle export type change."""
@@ -637,23 +538,14 @@ class ExportDialog(QDialog):
     def _update_options_visibility(self) -> None:
         """Update visible options based on export type."""
         export_type = self._get_selected_type()
-        is_report = export_type in (ExportType.PDF, ExportType.HTML)
         is_flux = export_type in (ExportType.SCP, ExportType.HFE)
         is_sector = export_type == ExportType.IMG
-
-        # Track range only for images
-        self._range_group.setEnabled(not is_report)
-
-        # Compression only for images
-        self._compress_group.setEnabled(not is_report)
 
         # Select appropriate options page
         if is_sector:
             self._options_stack.setCurrentIndex(0)
         elif is_flux:
             self._options_stack.setCurrentIndex(1)
-        else:
-            self._options_stack.setCurrentIndex(2)
 
     def _update_filename(self) -> None:
         """Update suggested filename based on export type."""
@@ -679,17 +571,8 @@ class ExportDialog(QDialog):
             return ExportType.SCP
         elif self._hfe_radio.isChecked():
             return ExportType.HFE
-        elif self._pdf_radio.isChecked():
-            return ExportType.PDF
-        elif self._html_radio.isChecked():
-            return ExportType.HTML
         else:
             return ExportType.IMG
-
-    def _on_export_all_toggled(self, checked: bool) -> None:
-        """Handle export all tracks checkbox toggle."""
-        self._start_spin.setEnabled(not checked)
-        self._end_spin.setEnabled(not checked)
 
     def _on_compress_toggled(self, checked: bool) -> None:
         """Handle compress checkbox toggle."""
@@ -743,17 +626,6 @@ class ExportDialog(QDialog):
         self._path_error.setText("")
         self._export_button.setEnabled(True)
 
-    def _validate_range(self) -> None:
-        """Validate cylinder range."""
-        start = self._start_spin.value()
-        end = self._end_spin.value()
-
-        if start > end:
-            if self.sender() == self._start_spin:
-                self._end_spin.setValue(start)
-            else:
-                self._start_spin.setValue(end)
-
     def _on_export_clicked(self) -> None:
         """Handle Export button click."""
         # Final path validation
@@ -774,15 +646,10 @@ class ExportDialog(QDialog):
 
         return ExportConfig(
             export_type=export_type,
-            start_cylinder=self._start_spin.value(),
-            end_cylinder=self._end_spin.value(),
-            export_all_tracks=self._export_all_check.isChecked(),
             include_bad_sectors=self._bad_sectors_check.isChecked(),
             pad_to_standard=self._pad_check.isChecked(),
             revolutions=self._revolutions_spin.value(),
             normalize_flux=self._normalize_check.isChecked(),
-            include_charts=self._charts_check.isChecked(),
-            include_sector_map=self._sector_map_check.isChecked(),
             compress=self._compress_check.isChecked(),
             compression_type=self._compress_combo.currentData() or 'none',
             output_path=self._path_edit.text().strip(),
@@ -800,19 +667,10 @@ class ExportDialog(QDialog):
             self._scp_radio.setChecked(True)
         elif config.export_type == ExportType.HFE:
             self._hfe_radio.setChecked(True)
-        elif config.export_type == ExportType.PDF:
-            self._pdf_radio.setChecked(True)
-        elif config.export_type == ExportType.HTML:
-            self._html_radio.setChecked(True)
         else:
             self._img_radio.setChecked(True)
 
         self._update_options_visibility()
-
-        # Set track range
-        self._export_all_check.setChecked(config.export_all_tracks)
-        self._start_spin.setValue(config.start_cylinder)
-        self._end_spin.setValue(config.end_cylinder)
 
         # Set sector options
         self._bad_sectors_check.setChecked(config.include_bad_sectors)
@@ -821,10 +679,6 @@ class ExportDialog(QDialog):
         # Set flux options
         self._revolutions_spin.setValue(config.revolutions)
         self._normalize_check.setChecked(config.normalize_flux)
-
-        # Set report options
-        self._charts_check.setChecked(config.include_charts)
-        self._sector_map_check.setChecked(config.include_sector_map)
 
         # Set compression
         self._compress_check.setChecked(config.compress)

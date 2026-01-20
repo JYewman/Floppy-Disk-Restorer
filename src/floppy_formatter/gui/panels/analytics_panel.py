@@ -2,24 +2,33 @@
 Analytics dashboard panel for Floppy Workbench.
 
 Provides a tabbed interface containing:
-- Overview tab: Health score, statistics, recommendations
+- Summary tab: Health score, statistics, recommendations
+- Analysis tab: Signal quality, encoding detection
 - Flux tab: Waveform and histogram visualization
 - Errors tab: Error heatmap, pie chart, log
 - Recovery tab: Convergence graph, pass history
 - Diagnostics tab: Alignment, RPM, self-test
+- Verification tab: Track-by-track results
 
 Part of Phase 7: Analytics Dashboard
 """
 
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, Dict, TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QTabWidget,
+    QTabBar,
     QSizePolicy,
+    QLabel,
+    QStylePainter,
+    QStyleOptionTab,
+    QStyle,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, Qt, QRect, QSize
+from PyQt6.QtGui import QPainter, QColor, QPen, QBrush
 
 from floppy_formatter.gui.tabs.overview_tab import (
     OverviewTab,
@@ -62,8 +71,9 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
-# Tab names for external reference
-TAB_OVERVIEW = "overview"
+# Tab names for external reference (renamed Overview to Summary)
+TAB_SUMMARY = "summary"
+TAB_OVERVIEW = "summary"  # Alias for backward compatibility
 TAB_FLUX = "flux"
 TAB_ERRORS = "errors"
 TAB_RECOVERY = "recovery"
@@ -74,6 +84,102 @@ TAB_ANALYSIS = "analysis"
 # Minimum panel height
 MIN_HEIGHT = 250
 DEFAULT_HEIGHT = 300
+
+
+class BadgeTabBar(QTabBar):
+    """
+    Custom tab bar that can display notification badges on tabs.
+
+    Badges appear as small colored dots next to tab text to indicate
+    data availability or issues.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._badges: Dict[int, str] = {}  # tab_index -> badge_color
+        self._badge_counts: Dict[int, int] = {}  # tab_index -> count (optional)
+
+    def set_tab_badge(self, index: int, color: Optional[str] = None, count: int = 0) -> None:
+        """
+        Set a badge on a tab.
+
+        Args:
+            index: Tab index
+            color: Badge color (CSS color string) or None to remove
+            count: Optional count to display (0 = just show dot)
+        """
+        if color is None:
+            self._badges.pop(index, None)
+            self._badge_counts.pop(index, None)
+        else:
+            self._badges[index] = color
+            self._badge_counts[index] = count
+        self.update()
+
+    def clear_badge(self, index: int) -> None:
+        """Remove badge from a tab."""
+        self._badges.pop(index, None)
+        self._badge_counts.pop(index, None)
+        self.update()
+
+    def clear_all_badges(self) -> None:
+        """Remove all badges."""
+        self._badges.clear()
+        self._badge_counts.clear()
+        self.update()
+
+    def tabSizeHint(self, index: int) -> QSize:
+        """Return tab size with space for badge."""
+        size = super().tabSizeHint(index)
+        if index in self._badges:
+            # Add extra width for badge
+            size.setWidth(size.width() + 18)
+        return size
+
+    def paintEvent(self, event) -> None:
+        """Paint tabs with badges."""
+        # Let parent draw the tabs first
+        super().paintEvent(event)
+
+        # Draw badges on top
+        if not self._badges:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        for index, color in self._badges.items():
+            if index >= self.count():
+                continue
+
+            tab_rect = self.tabRect(index)
+
+            # Position badge at right side of tab
+            badge_size = 10
+            badge_x = tab_rect.right() - badge_size - 8
+            badge_y = tab_rect.center().y() - badge_size // 2
+
+            # Draw badge circle
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(color)))
+            painter.drawEllipse(badge_x, badge_y, badge_size, badge_size)
+
+            # Draw count if > 0
+            count = self._badge_counts.get(index, 0)
+            if count > 0 and count < 100:
+                painter.setPen(QPen(QColor("#ffffff")))
+                font = painter.font()
+                font.setPointSize(7)
+                font.setBold(True)
+                painter.setFont(font)
+                text = str(count) if count < 10 else "9+"
+                painter.drawText(
+                    QRect(badge_x, badge_y, badge_size, badge_size),
+                    Qt.AlignmentFlag.AlignCenter,
+                    text
+                )
+
+        painter.end()
 
 
 # =============================================================================
@@ -126,8 +232,10 @@ class AnalyticsPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Tab widget
+        # Tab widget with custom badge-enabled tab bar
         self._tab_widget = QTabWidget()
+        self._tab_bar = BadgeTabBar()
+        self._tab_widget.setTabBar(self._tab_bar)
         self._tab_widget.setStyleSheet("""
             QTabWidget::pane {
                 border: 1px solid #3a3d41;
@@ -136,7 +244,7 @@ class AnalyticsPanel(QWidget):
             QTabBar::tab {
                 background-color: #2d2d30;
                 color: #cccccc;
-                padding: 8px 16px;
+                padding: 8px 20px;
                 border: 1px solid #3a3d41;
                 border-bottom: none;
                 margin-right: 2px;
@@ -147,6 +255,9 @@ class AnalyticsPanel(QWidget):
             }
             QTabBar::tab:hover:!selected {
                 background-color: #3a3d41;
+            }
+            QTabBar::tab:disabled {
+                color: #666666;
             }
         """)
 
@@ -159,50 +270,128 @@ class AnalyticsPanel(QWidget):
         self._verification_tab = VerificationTab()
         self._analysis_tab = AnalysisTab()
 
-        # Add tabs with icons (if available)
-        self._tab_widget.addTab(self._overview_tab, "Overview")
+        # Add tabs in logical order:
+        # 1. Summary (formerly Overview) - main health summary
+        # 2. Analysis - signal quality, encoding detection
+        # 3. Flux - raw flux visualization
+        # 4. Errors - error analysis (Issues group)
+        # 5. Recovery - recovery progress (Issues group)
+        # 6. Verification - track-by-track results (Hardware group)
+        # 7. Diagnostics - drive health (Hardware group)
+        self._tab_widget.addTab(self._overview_tab, "Summary")
+        self._tab_widget.addTab(self._analysis_tab, "Analysis")
         self._tab_widget.addTab(self._flux_tab, "Flux")
         self._tab_widget.addTab(self._errors_tab, "Errors")
         self._tab_widget.addTab(self._recovery_tab, "Recovery")
-        self._tab_widget.addTab(self._diagnostics_tab, "Diagnostics")
         self._tab_widget.addTab(self._verification_tab, "Verification")
-        self._tab_widget.addTab(self._analysis_tab, "Analysis")
+        self._tab_widget.addTab(self._diagnostics_tab, "Diagnostics")
 
         # Try to add icons
         self._add_tab_icons()
 
-        # Store tab name mapping
+        # Store tab name mapping (updated order)
         self._tab_names = {
-            0: TAB_OVERVIEW,
-            1: TAB_FLUX,
-            2: TAB_ERRORS,
-            3: TAB_RECOVERY,
-            4: TAB_DIAGNOSTICS,
+            0: TAB_SUMMARY,
+            1: TAB_ANALYSIS,
+            2: TAB_FLUX,
+            3: TAB_ERRORS,
+            4: TAB_RECOVERY,
             5: TAB_VERIFICATION,
-            6: TAB_ANALYSIS,
+            6: TAB_DIAGNOSTICS,
         }
 
         self._tab_indices = {v: k for k, v in self._tab_names.items()}
+        # Add backward-compatible alias
+        self._tab_indices[TAB_OVERVIEW] = 0
 
         layout.addWidget(self._tab_widget)
 
     def _add_tab_icons(self) -> None:
-        """Add icons to tabs."""
+        """Add icons to tabs (updated for new tab order)."""
         icons = {
-            0: "info",      # Overview
-            1: "chart",     # Flux
-            2: "warning",   # Errors
-            3: "refresh",   # Recovery
-            4: "settings",  # Diagnostics
+            0: "info",      # Summary
+            1: "activity",  # Analysis
+            2: "chart",     # Flux
+            3: "warning",   # Errors
+            4: "refresh",   # Recovery
             5: "check",     # Verification
-            6: "chart",     # Analysis
+            6: "settings",  # Diagnostics
         }
 
         for index, icon_name in icons.items():
             # Use white colored icons for visibility on dark background
-            icon = get_colored_icon(icon_name, "#cccccc", 16)
+            icon = get_colored_icon(icon_name, "#cccccc", 20)
             if icon and not icon.isNull():
                 self._tab_widget.setTabIcon(index, icon)
+
+    # =========================================================================
+    # Public API - Tab Badges
+    # =========================================================================
+
+    def set_tab_badge(self, tab_name: str, color: Optional[str] = None, count: int = 0) -> None:
+        """
+        Set a badge on a tab to indicate data availability.
+
+        Args:
+            tab_name: Tab name (summary, analysis, flux, errors, recovery, etc.)
+            color: Badge color (CSS color string) or None to remove badge
+            count: Optional count to display in badge
+        """
+        index = self._tab_indices.get(tab_name.lower())
+        if index is not None:
+            self._tab_bar.set_tab_badge(index, color, count)
+
+    def set_errors_badge(self, error_count: int) -> None:
+        """
+        Set badge on Errors tab based on error count.
+
+        Args:
+            error_count: Number of errors (0 = remove badge)
+        """
+        if error_count > 0:
+            self._tab_bar.set_tab_badge(3, "#e81123", error_count)  # Red badge
+        else:
+            self._tab_bar.clear_badge(3)
+
+    def set_recovery_badge(self, has_recoverable: bool) -> None:
+        """
+        Set badge on Recovery tab if recoverable sectors exist.
+
+        Args:
+            has_recoverable: True if recoverable sectors exist
+        """
+        if has_recoverable:
+            self._tab_bar.set_tab_badge(4, "#f7b731", 0)  # Yellow badge
+        else:
+            self._tab_bar.clear_badge(4)
+
+    def set_analysis_badge(self, has_data: bool) -> None:
+        """
+        Set badge on Analysis tab if analysis data is available.
+
+        Args:
+            has_data: True if analysis data is available
+        """
+        if has_data:
+            self._tab_bar.set_tab_badge(1, "#33cc33", 0)  # Green badge
+        else:
+            self._tab_bar.clear_badge(1)
+
+    def set_verification_badge(self, has_issues: bool) -> None:
+        """
+        Set badge on Verification tab if issues were found.
+
+        Args:
+            has_issues: True if verification found issues
+        """
+        if has_issues:
+            self._tab_bar.set_tab_badge(5, "#f7b731", 0)  # Yellow badge
+        else:
+            self._tab_bar.clear_badge(5)
+
+    def clear_all_badges(self) -> None:
+        """Clear all tab badges."""
+        self._tab_bar.clear_all_badges()
 
     def _connect_signals(self) -> None:
         """Connect tab signals."""
@@ -516,7 +705,9 @@ class AnalyticsPanel(QWidget):
 
 __all__ = [
     'AnalyticsPanel',
-    'TAB_OVERVIEW',
+    'BadgeTabBar',
+    'TAB_SUMMARY',
+    'TAB_OVERVIEW',  # Backward-compatible alias for TAB_SUMMARY
     'TAB_FLUX',
     'TAB_ERRORS',
     'TAB_RECOVERY',

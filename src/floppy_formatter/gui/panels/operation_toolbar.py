@@ -58,16 +58,22 @@ class OperationState(Enum):
 
 class LargeOperationButton(QToolButton):
     """
-    Large button for main operations with icon above text.
+    Large button for main operations with icon and text.
 
-    Displays a large icon (48x48) with operation name below.
+    Displays an icon with operation name, styled for primary operations.
     """
+
+    # Button style variants
+    STYLE_PRIMARY = "primary"      # Main operation buttons (Scan, Format, etc.)
+    STYLE_SECONDARY = "secondary"  # Utility buttons (Export, Batch Verify)
 
     def __init__(
         self,
         text: str,
         icon_name: str,
         tooltip: str,
+        style: str = "primary",
+        show_dropdown: bool = False,
         parent: Optional[QWidget] = None
     ):
         """
@@ -77,13 +83,20 @@ class LargeOperationButton(QToolButton):
             text: Button text
             icon_name: Name of icon from resources
             tooltip: Tooltip text
+            style: Button style ("primary" or "secondary")
+            show_dropdown: If True, add dropdown arrow indicator
             parent: Parent widget
         """
         super().__init__(parent)
 
-        self.setText(text)
+        self._style_variant = style
+        self._show_dropdown = show_dropdown
+
+        # Add dropdown arrow to text if needed
+        display_text = f"{text} ▾" if show_dropdown else text
+        self.setText(display_text)
         self.setToolTip(tooltip)
-        # Use text beside icon for horizontal layout (not under)
+        # Use text beside icon for horizontal layout
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setIconSize(QSize(16, 16))
 
@@ -93,33 +106,66 @@ class LargeOperationButton(QToolButton):
             self.setIcon(icon)
 
         # Fixed minimum width to ensure text fits
-        self.setMinimumWidth(70)
+        min_width = 85 if show_dropdown else 70
+        self.setMinimumWidth(min_width)
 
-        # Apply custom styling - compact for smaller UI
-        self.setStyleSheet("""
-            QToolButton {
-                background-color: #2d2d30;
-                color: #cccccc;
-                border: 1px solid #3a3d41;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QToolButton:hover {
-                background-color: #3a3d41;
-                border-color: #007acc;
-            }
-            QToolButton:pressed {
-                background-color: #094771;
-            }
-            QToolButton:disabled {
-                color: #6c6c6c;
-                background-color: #252526;
-            }
-            QToolButton:checked {
-                background-color: #094771;
-                border-color: #007acc;
-            }
-        """)
+        # Apply style based on variant
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        """Apply CSS styling based on style variant."""
+        if self._style_variant == self.STYLE_PRIMARY:
+            # Primary style - more prominent with accent border
+            self.setStyleSheet("""
+                QToolButton {
+                    background-color: #2d2d30;
+                    color: #e0e0e0;
+                    border: 1px solid #4a4d51;
+                    border-radius: 4px;
+                    padding: 4px 6px;
+                    font-weight: 500;
+                }
+                QToolButton:hover {
+                    background-color: #3e4146;
+                    border-color: #007acc;
+                }
+                QToolButton:pressed {
+                    background-color: #094771;
+                }
+                QToolButton:disabled {
+                    color: #6c6c6c;
+                    background-color: #252526;
+                    border-color: #3a3d41;
+                }
+                QToolButton:checked {
+                    background-color: #094771;
+                    border-color: #007acc;
+                    color: #ffffff;
+                }
+            """)
+        else:
+            # Secondary style - more subdued
+            self.setStyleSheet("""
+                QToolButton {
+                    background-color: #252526;
+                    color: #b0b0b0;
+                    border: 1px solid #3a3d41;
+                    border-radius: 3px;
+                    padding: 4px 6px;
+                }
+                QToolButton:hover {
+                    background-color: #2d2d30;
+                    border-color: #5a5d61;
+                    color: #cccccc;
+                }
+                QToolButton:pressed {
+                    background-color: #3a3d41;
+                }
+                QToolButton:disabled {
+                    color: #5c5c5c;
+                    background-color: #1e1e1e;
+                }
+            """)
 
 
 class OperationToolbar(QWidget):
@@ -174,21 +220,30 @@ class OperationToolbar(QWidget):
         self._update_control_states()
 
     def _setup_ui(self) -> None:
-        """Set up the user interface - single horizontal row."""
+        """Set up the user interface - single horizontal row with grouped sections."""
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(8, 4, 8, 4)
         main_layout.setSpacing(6)
 
-        # Operation buttons - compact
+        # =================================================================
+        # SECTION 1: Operation Selection (Primary buttons with dropdown arrows)
+        # =================================================================
+        ops_label = QLabel("Operations:")
+        ops_label.setStyleSheet("color: #858585; font-size: 11px;")
+        main_layout.addWidget(ops_label)
+
+        # Operation buttons - primary style
         self._scan_button = LargeOperationButton(
-            "Scan", "search", "Scan disk for errors"
+            "Scan", "search", "Scan disk for errors",
+            style=LargeOperationButton.STYLE_PRIMARY
         )
         self._scan_button.setCheckable(True)
         self._scan_button.clicked.connect(lambda: self._on_operation_clicked(OperationType.SCAN))
         main_layout.addWidget(self._scan_button)
 
         self._format_button = LargeOperationButton(
-            "Format", "hard-drive", "Format disk"
+            "Format", "hard-drive", "Format disk",
+            style=LargeOperationButton.STYLE_PRIMARY
         )
         self._format_button.setCheckable(True)
         self._format_button.clicked.connect(
@@ -197,7 +252,8 @@ class OperationToolbar(QWidget):
         main_layout.addWidget(self._format_button)
 
         self._restore_button = LargeOperationButton(
-            "Restore", "refresh-cw", "Restore/recover disk"
+            "Restore", "refresh-cw", "Restore/recover disk",
+            style=LargeOperationButton.STYLE_PRIMARY
         )
         self._restore_button.setCheckable(True)
         self._restore_button.clicked.connect(
@@ -206,7 +262,8 @@ class OperationToolbar(QWidget):
         main_layout.addWidget(self._restore_button)
 
         self._analyze_button = LargeOperationButton(
-            "Analyze", "activity", "Analyze flux data"
+            "Analyze", "activity", "Analyze flux data",
+            style=LargeOperationButton.STYLE_PRIMARY
         )
         self._analyze_button.setCheckable(True)
         self._analyze_button.clicked.connect(
@@ -215,29 +272,14 @@ class OperationToolbar(QWidget):
         main_layout.addWidget(self._analyze_button)
 
         self._write_image_button = LargeOperationButton(
-            "Write Image", "disc", "Write blank formatted disk image"
+            "Write", "disc", "Write disk image to disk",
+            style=LargeOperationButton.STYLE_PRIMARY
         )
         self._write_image_button.setCheckable(True)
         self._write_image_button.clicked.connect(
             lambda: self._on_operation_clicked(OperationType.WRITE_IMAGE)
         )
         main_layout.addWidget(self._write_image_button)
-
-        # Batch Verify button - opens dialog directly, not checkable
-        self._batch_verify_button = LargeOperationButton(
-            "Batch Verify", "layers", "Verify multiple disks in batch"
-        )
-        self._batch_verify_button.setCheckable(False)
-        self._batch_verify_button.clicked.connect(self._on_batch_verify_clicked)
-        main_layout.addWidget(self._batch_verify_button)
-
-        # Export Image button - opens export dialog directly, not checkable
-        self._export_image_button = LargeOperationButton(
-            "Export", "download", "Export disk to image file (IMG, SCP, HFE)"
-        )
-        self._export_image_button.setCheckable(False)
-        self._export_image_button.clicked.connect(self._on_export_image_clicked)
-        main_layout.addWidget(self._export_image_button)
 
         self._operation_buttons = [
             self._scan_button,
@@ -250,45 +292,117 @@ class OperationToolbar(QWidget):
         # Separator
         main_layout.addWidget(self._create_separator())
 
-        # Mode selector - horizontal
+        # =================================================================
+        # SECTION 2: Execution Controls (Mode + Start/Pause/Stop)
+        # =================================================================
+
+        # Mode selector - moved to be right before control buttons
         mode_label = QLabel("Mode:")
         mode_label.setStyleSheet("color: #cccccc;")
+        mode_label.setToolTip("Select operation intensity level")
         main_layout.addWidget(mode_label)
 
         self._mode_combo = QComboBox()
         self._mode_combo.addItems([m.value for m in OperationMode])
         self._mode_combo.setCurrentText(OperationMode.STANDARD.value)
         self._mode_combo.setFixedWidth(100)
+        self._mode_combo.setToolTip(
+            "Quick: Fast surface check\n"
+            "Standard: Normal operation\n"
+            "Thorough: Multiple passes\n"
+            "Forensic: Maximum recovery attempts"
+        )
         self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
         main_layout.addWidget(self._mode_combo)
 
-        # Separator
-        main_layout.addWidget(self._create_separator())
-
-        # Control buttons - horizontal
-        self._start_button = QPushButton("Start")
+        # Control buttons - styled distinctly as action buttons
+        self._start_button = QPushButton("▶ Start")
+        self._start_button.setToolTip("Start the selected operation")
         self._start_button.setProperty("variant", "success")
-        self._start_button.setFixedWidth(70)
+        self._start_button.setFixedWidth(80)
+        self._start_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2d5a27;
+                color: #ffffff;
+                border: 1px solid #3d7a37;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3d7a37;
+            }
+            QPushButton:pressed {
+                background-color: #1d4a17;
+            }
+            QPushButton:disabled {
+                background-color: #252526;
+                color: #6c6c6c;
+                border-color: #3a3d41;
+            }
+        """)
         self._start_button.clicked.connect(self._on_start_clicked)
         main_layout.addWidget(self._start_button)
 
-        self._pause_button = QPushButton("Pause")
-        self._pause_button.setToolTip("Pause operation")
-        self._pause_button.setFixedWidth(70)
+        self._pause_button = QPushButton("⏸ Pause")
+        self._pause_button.setToolTip("Pause the current operation")
+        self._pause_button.setFixedWidth(80)
+        self._pause_button.setStyleSheet("""
+            QPushButton {
+                background-color: #5a4d27;
+                color: #ffffff;
+                border: 1px solid #7a6d37;
+                border-radius: 4px;
+                padding: 5px 10px;
+            }
+            QPushButton:hover {
+                background-color: #7a6d37;
+            }
+            QPushButton:pressed {
+                background-color: #4a3d17;
+            }
+            QPushButton:disabled {
+                background-color: #252526;
+                color: #6c6c6c;
+                border-color: #3a3d41;
+            }
+        """)
         self._pause_button.clicked.connect(self._on_pause_clicked)
         main_layout.addWidget(self._pause_button)
 
-        self._stop_button = QPushButton("Stop")
-        self._stop_button.setToolTip("Stop operation")
+        self._stop_button = QPushButton("⏹ Stop")
+        self._stop_button.setToolTip("Stop the current operation")
         self._stop_button.setProperty("variant", "error")
-        self._stop_button.setFixedWidth(65)
+        self._stop_button.setFixedWidth(75)
+        self._stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #5a2727;
+                color: #ffffff;
+                border: 1px solid #7a3737;
+                border-radius: 4px;
+                padding: 5px 10px;
+            }
+            QPushButton:hover {
+                background-color: #7a3737;
+            }
+            QPushButton:pressed {
+                background-color: #4a1717;
+            }
+            QPushButton:disabled {
+                background-color: #252526;
+                color: #6c6c6c;
+                border-color: #3a3d41;
+            }
+        """)
         self._stop_button.clicked.connect(self._on_stop_clicked)
         main_layout.addWidget(self._stop_button)
 
         # Separator
         main_layout.addWidget(self._create_separator())
 
-        # Progress section - horizontal
+        # =================================================================
+        # SECTION 3: Progress Display
+        # =================================================================
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
@@ -304,24 +418,44 @@ class OperationToolbar(QWidget):
         # Separator
         main_layout.addWidget(self._create_separator())
 
-        # Export Report button
-        self._report_button = QPushButton("Export Report")
-        self._report_button.setToolTip("Export report for the last completed operation")
-        report_icon = get_colored_icon("file-text", color="#cccccc", size=16)
-        if not report_icon.isNull():
-            self._report_button.setIcon(report_icon)
-        self._report_button.setFixedWidth(130)
+        # =================================================================
+        # SECTION 4: Utility Buttons (Secondary style)
+        # =================================================================
+
+        # Batch Verify button - secondary style, opens dialog directly
+        self._batch_verify_button = LargeOperationButton(
+            "Batch Verify", "layers", "Verify multiple disks in batch",
+            style=LargeOperationButton.STYLE_SECONDARY
+        )
+        self._batch_verify_button.setCheckable(False)
+        self._batch_verify_button.clicked.connect(self._on_batch_verify_clicked)
+        main_layout.addWidget(self._batch_verify_button)
+
+        # Export Image button - secondary style
+        self._export_image_button = LargeOperationButton(
+            "Export", "download", "Export disk to image file (IMG, SCP, HFE)",
+            style=LargeOperationButton.STYLE_SECONDARY
+        )
+        self._export_image_button.setCheckable(False)
+        self._export_image_button.clicked.connect(self._on_export_image_clicked)
+        main_layout.addWidget(self._export_image_button)
+
+        # Export Report button - secondary style
+        self._report_button = LargeOperationButton(
+            "Report", "file-text", "Export report for the last completed operation",
+            style=LargeOperationButton.STYLE_SECONDARY
+        )
+        self._report_button.setCheckable(False)
         self._report_button.setEnabled(False)  # Disabled until operation completes
         self._report_button.clicked.connect(self._on_report_clicked)
         main_layout.addWidget(self._report_button)
 
-        # Print Report button (thermal printer)
-        self._print_button = QPushButton("Print Report")
-        self._print_button.setToolTip("Print report to thermal printer (TSP100)")
-        print_icon = get_colored_icon("printer", color="#cccccc", size=16)
-        if not print_icon.isNull():
-            self._print_button.setIcon(print_icon)
-        self._print_button.setFixedWidth(120)
+        # Print Report button (thermal printer) - secondary style
+        self._print_button = LargeOperationButton(
+            "Print", "printer", "Print report to thermal printer (TSP100)",
+            style=LargeOperationButton.STYLE_SECONDARY
+        )
+        self._print_button.setCheckable(False)
         self._print_button.setEnabled(False)  # Disabled until operation completes
         self._print_button.setVisible(False)  # Hidden until enabled in settings
         self._print_button.clicked.connect(self._on_print_clicked)
@@ -436,9 +570,9 @@ class OperationToolbar(QWidget):
         self._start_button.setEnabled(start_enabled)
 
         if is_paused:
-            self._start_button.setText("Resume")
+            self._start_button.setText("▶ Resume")
         else:
-            self._start_button.setText("Start")
+            self._start_button.setText("▶ Start")
 
         # Pause button - only enabled when running
         self._pause_button.setEnabled(is_running)

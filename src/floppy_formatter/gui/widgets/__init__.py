@@ -20,6 +20,8 @@ from floppy_formatter.gui.widgets.circular_sector_map import (
     # Main widget
     CircularSectorMap,
     SectorWedgeItem,
+    # Legend
+    SectorMapLegend,
     # Enums
     SectorStatus,
     ViewMode,
@@ -107,6 +109,8 @@ __all__ = [
     # Circular sector map
     "CircularSectorMap",
     "SectorWedgeItem",
+    # Legend
+    "SectorMapLegend",
     # Enums
     "SectorStatus",
     "ViewMode",

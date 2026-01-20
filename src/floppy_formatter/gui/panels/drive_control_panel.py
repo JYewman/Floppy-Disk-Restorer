@@ -55,18 +55,19 @@ class LEDIndicator(QWidget):
     to represent different states.
     """
 
-    def __init__(self, size: int = 16, parent: Optional[QWidget] = None):
+    def __init__(self, size: int = 20, parent: Optional[QWidget] = None):
         """
         Initialize LED indicator.
 
         Args:
-            size: Diameter of the LED in pixels
+            size: Diameter of the LED in pixels (default increased to 20 for visibility)
             parent: Parent widget
         """
         super().__init__(parent)
 
         self._size = size
         self._color = "#666666"  # Default gray (off)
+        self._glow_color = "#333333"  # Subtle glow
 
         self.setFixedSize(size, size)
         self._update_style()
@@ -79,6 +80,7 @@ class LEDIndicator(QWidget):
             color: CSS color string (e.g., "#00ff00", "green")
         """
         self._color = color
+        # Create a darker version for the glow effect
         self._update_style()
 
     def set_state(self, state: ConnectionState) -> None:
@@ -97,12 +99,12 @@ class LEDIndicator(QWidget):
         self.set_color(colors.get(state, "#666666"))
 
     def _update_style(self) -> None:
-        """Update the widget stylesheet."""
+        """Update the widget stylesheet with glow effect."""
         self.setStyleSheet(f"""
             LEDIndicator {{
                 background-color: {self._color};
                 border-radius: {self._size // 2}px;
-                border: 1px solid #1e1e1e;
+                border: 2px solid #1e1e1e;
             }}
         """)
 
@@ -167,13 +169,14 @@ class DriveControlPanel(QWidget):
         main_layout.setContentsMargins(8, 4, 8, 4)
         main_layout.setSpacing(6)
 
-        # Connection: LED + Connect button + Drive combo
-        self._connection_led = LEDIndicator(12)
+        # Connection: LED (larger for visibility) + Connect button + Drive combo
+        self._connection_led = LEDIndicator(20)  # Increased from 12 for better visibility
         self._connection_led.set_state(ConnectionState.DISCONNECTED)
+        self._connection_led.setToolTip("Connection status indicator")
         main_layout.addWidget(self._connection_led)
 
         self._connect_button = QPushButton("Connect")
-        self._connect_button.setFixedWidth(80)
+        self._connect_button.setFixedWidth(90)  # Wide enough for "Disconnect"
         self._connect_button.clicked.connect(self._on_connect_clicked)
         main_layout.addWidget(self._connect_button)
 
@@ -191,20 +194,23 @@ class DriveControlPanel(QWidget):
         # Separator
         main_layout.addWidget(self._create_separator())
 
-        # Motor: Button + RPM display
+        # Motor: Button + RPM display (with better labeling)
         self._motor_button = QPushButton("Motor OFF")
         self._motor_button.setCheckable(True)
         self._motor_button.setFixedWidth(95)
+        self._motor_button.setToolTip("Toggle drive motor on/off")
         self._motor_button.clicked.connect(self._on_motor_clicked)
         main_layout.addWidget(self._motor_button)
 
         rpm_label = QLabel("RPM:")
         rpm_label.setStyleSheet("color: #cccccc;")
+        rpm_label.setToolTip("Disk rotation speed (nominal: 300 RPM)")
         main_layout.addWidget(rpm_label)
 
         self._rpm_value_label = QLabel("---")
-        self._rpm_value_label.setStyleSheet("color: #33cc33; font-weight: bold;")
-        self._rpm_value_label.setFixedWidth(40)
+        self._rpm_value_label.setStyleSheet("color: #33cc33; font-weight: bold; font-size: 13px;")
+        self._rpm_value_label.setFixedWidth(45)
+        self._rpm_value_label.setToolTip("Current RPM (green: 290-310, yellow: 280-320, red: out of range)")
         main_layout.addWidget(self._rpm_value_label)
 
         # Separator
@@ -238,30 +244,32 @@ class DriveControlPanel(QWidget):
         self._head_combo.setFixedWidth(55)
         main_layout.addWidget(self._head_combo)
 
-        self._track0_button = QPushButton("T0")
-        self._track0_button.setToolTip("Seek to Track 0")
-        self._track0_button.setFixedWidth(40)
+        self._track0_button = QPushButton("Track 0")
+        self._track0_button.setToolTip("Seek to Track 0 (outermost track)")
+        self._track0_button.setFixedWidth(70)  # Wide enough for text
         self._track0_button.clicked.connect(self._on_track0_clicked)
         main_layout.addWidget(self._track0_button)
 
-        self._seek_button = QPushButton("Go")
-        self._seek_button.setToolTip("Seek to selected position")
-        self._seek_button.setFixedWidth(40)
+        self._seek_button = QPushButton("Seek")
+        self._seek_button.setToolTip("Seek to selected cylinder and head position")
+        self._seek_button.setFixedWidth(50)
         self._seek_button.clicked.connect(self._on_seek_clicked)
         main_layout.addWidget(self._seek_button)
 
         # Separator
         main_layout.addWidget(self._create_separator())
 
-        # Calibrate button + status
+        # Calibrate button + status (Drive Health section)
         self._calibrate_button = QPushButton("Calibrate")
-        self._calibrate_button.setToolTip("Measure RPM and seek to track 0")
+        self._calibrate_button.setToolTip("Measure RPM and seek to track 0 to verify drive operation")
         self._calibrate_button.setFixedWidth(85)
         self._calibrate_button.clicked.connect(self._on_calibrate_clicked)
         main_layout.addWidget(self._calibrate_button)
 
         self._calibration_status = QLabel("Not calibrated")
-        self._calibration_status.setStyleSheet("color: #858585;")
+        self._calibration_status.setStyleSheet("color: #858585; font-size: 12px;")
+        self._calibration_status.setToolTip("Drive calibration status - shows RPM and seek test results")
+        self._calibration_status.setMinimumWidth(100)
         main_layout.addWidget(self._calibration_status)
 
         # Position display (at end)

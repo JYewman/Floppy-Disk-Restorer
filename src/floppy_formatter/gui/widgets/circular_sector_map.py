@@ -30,6 +30,11 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QToolTip,
     QApplication,
+    QWidget,
+    QHBoxLayout,
+    QLabel,
+    QFrame,
+    QSizePolicy,
 )
 from PyQt6.QtCore import (
     Qt,
@@ -299,6 +304,166 @@ class SectorDataCache:
             num for num, meta in self._metadata.items()
             if meta.status == status
         ]
+
+
+# =============================================================================
+# Sector Map Legend
+# =============================================================================
+
+
+class SectorMapLegend(QWidget):
+    """
+    Compact legend strip showing sector status colors.
+
+    Displays only the states that are currently present on the map,
+    making it context-aware and space-efficient.
+    """
+
+    # Status display names and colors
+    STATUS_INFO = {
+        SectorStatus.UNSCANNED: ("Unscanned", QColor(80, 80, 80)),
+        SectorStatus.PENDING: ("Pending", QColor(80, 80, 80)),
+        SectorStatus.GOOD: ("Good", QColor(0, 200, 0)),
+        SectorStatus.BAD: ("Bad", QColor(200, 50, 50)),
+        SectorStatus.WEAK: ("Weak", QColor(255, 200, 50)),
+        SectorStatus.RECOVERED: ("Recovered", QColor(100, 220, 100)),
+        SectorStatus.RECOVERING: ("Recovering", QColor(255, 180, 0)),
+        SectorStatus.READING: ("Reading", QColor(50, 120, 220)),
+        SectorStatus.WRITING: ("Writing", QColor(150, 50, 200)),
+        SectorStatus.VERIFYING: ("Verifying", QColor(255, 140, 50)),
+        SectorStatus.UNKNOWN: ("Unknown", QColor(100, 100, 100)),
+    }
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+        self._active_states: Set[SectorStatus] = set()
+        self._show_all = False  # If True, show all states; if False, only active ones
+
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        """Set up the legend UI."""
+        self.setStyleSheet("""
+            SectorMapLegend {
+                background-color: #252526;
+                border: 1px solid #3a3d41;
+                border-radius: 4px;
+            }
+        """)
+
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(8, 4, 8, 4)
+        self._layout.setSpacing(12)
+
+        # Will be populated by _update_legend
+        self._legend_items: Dict[SectorStatus, QWidget] = {}
+
+        # Add stretch at end
+        self._layout.addStretch()
+
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(28)
+
+    def _create_legend_item(self, status: SectorStatus) -> QWidget:
+        """Create a single legend item (color dot + label)."""
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        name, color = self.STATUS_INFO.get(status, ("Unknown", QColor(100, 100, 100)))
+
+        # Color indicator (small circle)
+        color_label = QLabel()
+        color_label.setFixedSize(12, 12)
+        color_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {color.name()};
+                border-radius: 6px;
+                border: 1px solid #1e1e1e;
+            }}
+        """)
+        layout.addWidget(color_label)
+
+        # Status name
+        text_label = QLabel(name)
+        text_label.setStyleSheet("color: #cccccc; font-size: 11px; background: transparent;")
+        layout.addWidget(text_label)
+
+        return container
+
+    def _update_legend(self) -> None:
+        """Update the legend to show current active states."""
+        # Clear existing items
+        for widget in self._legend_items.values():
+            self._layout.removeWidget(widget)
+            widget.deleteLater()
+        self._legend_items.clear()
+
+        # Determine which states to show
+        if self._show_all:
+            states_to_show = [
+                SectorStatus.GOOD, SectorStatus.BAD, SectorStatus.WEAK,
+                SectorStatus.RECOVERED, SectorStatus.RECOVERING,
+                SectorStatus.READING, SectorStatus.WRITING,
+                SectorStatus.VERIFYING, SectorStatus.UNSCANNED
+            ]
+        else:
+            # Show only active states, in a logical order
+            order = [
+                SectorStatus.GOOD, SectorStatus.BAD, SectorStatus.WEAK,
+                SectorStatus.RECOVERED, SectorStatus.RECOVERING,
+                SectorStatus.READING, SectorStatus.WRITING,
+                SectorStatus.VERIFYING, SectorStatus.UNSCANNED
+            ]
+            states_to_show = [s for s in order if s in self._active_states]
+
+        # Add legend items (insert before the stretch)
+        for i, status in enumerate(states_to_show):
+            item = self._create_legend_item(status)
+            self._layout.insertWidget(i, item)
+            self._legend_items[status] = item
+
+    def set_active_states(self, states: Set[SectorStatus]) -> None:
+        """
+        Set which states are currently active on the map.
+
+        Args:
+            states: Set of active SectorStatus values
+        """
+        if states != self._active_states:
+            self._active_states = states.copy()
+            self._update_legend()
+
+    def add_active_state(self, status: SectorStatus) -> None:
+        """Add a state to the active set."""
+        if status not in self._active_states:
+            self._active_states.add(status)
+            self._update_legend()
+
+    def remove_active_state(self, status: SectorStatus) -> None:
+        """Remove a state from the active set."""
+        if status in self._active_states:
+            self._active_states.discard(status)
+            self._update_legend()
+
+    def set_show_all(self, show_all: bool) -> None:
+        """
+        Set whether to show all states or only active ones.
+
+        Args:
+            show_all: True to show all states, False for only active
+        """
+        if show_all != self._show_all:
+            self._show_all = show_all
+            self._update_legend()
+
+    def clear(self) -> None:
+        """Clear all active states."""
+        self._active_states.clear()
+        self._update_legend()
 
 
 # =============================================================================
@@ -1762,3 +1927,55 @@ class CircularSectorMap(QGraphicsView):
         super().resizeEvent(event)
         if self._zoom_level == 1.0:
             self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    # =========================================================================
+    # Legend Integration
+    # =========================================================================
+
+    def create_legend(self) -> "SectorMapLegend":
+        """
+        Create a new SectorMapLegend widget linked to this sector map.
+
+        The legend will show the states currently present on the map.
+        Call update_legend() after changing sector states to refresh it.
+
+        Returns:
+            A SectorMapLegend widget instance
+        """
+        legend = SectorMapLegend()
+        legend.set_active_states(self.get_active_states())
+        return legend
+
+    def get_active_states(self) -> Set[SectorStatus]:
+        """
+        Get the set of sector states currently present on the map.
+
+        Returns:
+            Set of SectorStatus values that have at least one sector
+        """
+        active_states: Set[SectorStatus] = set()
+        for wedge in self._wedges.values():
+            active_states.add(wedge._status)
+        return active_states
+
+    def update_legend(self, legend: "SectorMapLegend") -> None:
+        """
+        Update a legend widget with the current active states.
+
+        Args:
+            legend: The SectorMapLegend widget to update
+        """
+        legend.set_active_states(self.get_active_states())
+
+    def get_status_counts(self) -> Dict[SectorStatus, int]:
+        """
+        Get a count of sectors for each status.
+
+        Returns:
+            Dictionary mapping SectorStatus to count of sectors with that status
+        """
+        counts: Dict[SectorStatus, int] = {}
+        for wedge in self._wedges.values():
+            status = wedge._status
+            counts[status] = counts.get(status, 0) + 1
+        return counts
