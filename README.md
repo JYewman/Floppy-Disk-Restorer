@@ -358,10 +358,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Feather Icons** - Icon set by Cole Bemis
 - **Floppy Disk Preservation Community** - For keeping magnetic media alive
 
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for version history and changes.
-
 ---
 
 **Made with love for the floppy disk preservation community**
