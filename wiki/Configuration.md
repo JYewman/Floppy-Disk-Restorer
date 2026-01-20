@@ -1,6 +1,6 @@
 # Configuration
 
-This guide covers all configuration options in Floppy Workbench.
+This guide covers all configuration options in Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ This guide covers all configuration options in Floppy Workbench.
 
 ## Settings Overview
 
-Floppy Workbench stores settings in a JSON configuration file that persists between sessions.
+Floppy Disk Workbench stores settings in a JSON configuration file that persists between sessions.
 
 ### Settings Categories
 
@@ -39,27 +39,10 @@ Floppy Workbench stores settings in a JSON configuration file that persists betw
 
 ### Settings Dialog
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         SETTINGS                                 │
-├───────────┬─────────────────────────────────────────────────────┤
-│           │                                                      │
-│  Device   │  DEVICE SETTINGS                                    │
-│           │  ────────────────                                    │
-│  Display  │                                                      │
-│           │  Default Drive Unit:  [0 ▼]                         │
-│  Operations│                                                      │
-│           │  Motor Timeout (sec): [30    ]                      │
-│  Sounds   │                                                      │
-│           │  Auto-connect on start: [✓]                         │
-│  Advanced │                                                      │
-│           │  Seek Speed:           [Standard ▼]                 │
-│           │                                                      │
-│           │                                                      │
-├───────────┴─────────────────────────────────────────────────────┤
-│                    [Restore Defaults]  [Cancel]  [Save]         │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Settings Dialog](../screenshots/settings_dialog.png)
+*Screenshot: Settings dialog showing configuration categories*
+
+The Settings dialog is organized into tabbed categories on the left, with options displayed on the right.
 
 ---
 
@@ -196,7 +179,7 @@ Master toggle for all audio feedback.
 
 ### Sound Source
 
-Floppy Workbench uses native system sounds:
+Floppy Disk Workbench uses native system sounds:
 
 | Platform | Sound System |
 |----------|--------------|
@@ -327,7 +310,7 @@ Settings are stored in:
 
 You can edit the configuration file directly:
 
-1. Close Floppy Workbench
+1. Close Floppy Disk Workbench
 2. Open the settings file in a text editor
 3. Make changes (maintain valid JSON)
 4. Save and restart application

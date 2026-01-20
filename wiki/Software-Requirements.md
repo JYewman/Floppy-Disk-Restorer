@@ -1,6 +1,6 @@
 # Software Requirements
 
-This page details all software requirements and dependencies for Floppy Workbench.
+This page details all software requirements and dependencies for Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -85,7 +85,7 @@ brew install python
 
 ## Core Dependencies
 
-These packages are installed automatically with Floppy Workbench:
+These packages are installed automatically with Floppy Disk Workbench:
 
 ### GUI Framework
 
@@ -154,7 +154,7 @@ pip install matplotlib
 
 ## Development Dependencies
 
-For contributing to Floppy Workbench:
+For contributing to Floppy Disk Workbench:
 
 ### Testing
 
@@ -263,11 +263,11 @@ pip install --upgrade greaseweazle
 
 ## Version Compatibility Matrix
 
-| Floppy Workbench | Python | PyQt6 | Greaseweazle |
+| Floppy Disk Workbench | Python | PyQt6 | Greaseweazle |
 |------------------|--------|-------|--------------|
 | 2.0.x | 3.10-3.12 | 6.6+ | Latest |
 | 1.x | 3.9-3.11 | 6.4+ | 1.x |
 
 ---
 
-**Next:** [[Getting Started]] - Your first steps with Floppy Workbench
+**Next:** [[Getting Started]] - Your first steps with Floppy Disk Workbench

@@ -1,6 +1,6 @@
 # Diagnostics
 
-This guide covers drive diagnostics and testing features in Floppy Workbench.
+This guide covers drive diagnostics and testing features in Floppy Disk Workbench.
 
 ## Table of Contents
 

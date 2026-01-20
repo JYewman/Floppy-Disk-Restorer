@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through your first disk scan with Floppy Workbench.
+This guide walks you through your first disk scan with Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This guide walks you through your first disk scan with Floppy Workbench.
 
 Before starting, ensure you have:
 
-- [ ] Floppy Workbench installed ([[Installation]])
+- [ ] Floppy Disk Workbench installed ([[Installation]])
 - [ ] Greaseweazle connected via USB
 - [ ] Floppy drive connected to Greaseweazle
 - [ ] Power connected to drive (if needed)
@@ -43,6 +43,7 @@ Before starting, ensure you have:
 ### Step 3: Power the Drive
 
 If your drive needs external power:
+
 1. Connect the 4-pin Berg power connector
 2. Ensure +5V (red) and +12V (yellow) if required
 3. Some drives only need +5V
@@ -50,6 +51,7 @@ If your drive needs external power:
 ### Step 4: Verify Connections
 
 Before continuing:
+
 - Greaseweazle LED is on
 - All cables are secure
 - Power supply is on (if using external)
@@ -72,28 +74,15 @@ python -m floppy_formatter
 
 ### What You'll See
 
-When Floppy Workbench starts, you'll see the main workbench interface:
+When Floppy Disk Workbench starts, you'll see the workbench session screen:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Drive Control Panel                                     │
-│  [Connect] [Drive: 0 ▼] [Motor: Off] RPM: ---           │
-├─────────────────────────────────────────────────────────┤
-│  Operation Toolbar                                       │
-│  [Scan] [Analyze] [Format] [Restore] [Write Image]      │
-├────────────────────────────────┬────────────────────────┤
-│                                │                        │
-│     Circular Sector Map        │    Sector Info Panel   │
-│                                │                        │
-│         (Empty until          │    Cylinder: --        │
-│          connected)           │    Head: --            │
-│                                │    Sector: --          │
-│                                │    Status: --          │
-├────────────────────────────────┴────────────────────────┤
-│  Analytics Panel                                         │
-│  [Overview] [Flux] [Errors] [Diagnostics] [Recovery]    │
-└─────────────────────────────────────────────────────────┘
-```
+![Session Screen](../screenshots/session_screen.png)
+*Screenshot: Session screen with IBM PC platform selected and 1.44MB HD format highlighted*
+
+After selecting the session parameters you will see the main workbench screen:
+
+![Main Window Layout](../screenshots/main_window_layout.png)
+*Screenshot: Main window showing all three panels with a scanned disk*
 
 ---
 
@@ -108,6 +97,7 @@ When Floppy Workbench starts, you'll see the main workbench interface:
 ### Step 2: Verify Connection
 
 When connected successfully:
+
 - The Connect button changes to "Disconnect"
 - The Motor button becomes active
 - The status bar shows "Connected to Greaseweazle"
@@ -121,12 +111,14 @@ When connected successfully:
 ### Troubleshooting Connection
 
 **"No Greaseweazle found"**
+
 - Check USB connection
 - Verify Greaseweazle LED is on
 - On Linux, check USB permissions
 - Try a different USB port
 
 **"Device busy"**
+
 - Close other applications using the device
 - Unplug and replug the Greaseweazle
 
@@ -161,6 +153,7 @@ Click **"Start Scan"** to begin.
 ### Step 4: Watch the Progress
 
 During the scan:
+
 - The circular sector map fills in with colored sectors
 - The progress bar shows completion percentage
 - The status bar shows current track being read
@@ -168,6 +161,7 @@ During the scan:
 ### Step 5: Scan Complete
 
 When the scan finishes:
+
 - A completion sound plays (if enabled)
 - The sector map shows final results
 - Summary statistics appear in the Overview tab
@@ -275,7 +269,7 @@ Now that you've completed your first scan, explore these features:
 
 ---
 
-**Congratulations!** You've completed your first disk scan with Floppy Workbench.
+**Congratulations!** You've completed your first disk scan with Floppy Disk Workbench.
 
 ---
 

@@ -3,9 +3,11 @@ Operation toolbar for Greaseweazle workbench.
 
 This toolbar provides:
 - Large icon buttons for main operations (Scan, Format, Restore, Analyze)
-- Operation mode selector (Quick/Standard/Thorough/Forensic)
 - Start/Stop/Pause controls
-- Progress indicator with ETA
+- Utility buttons (Batch Verify, Export, Report, Print)
+
+Note: Mode selection and progress display have been moved to dialogs
+and the Progress tab in the analytics panel respectively.
 
 Part of Phase 5: Workbench GUI - Main Layout
 """
@@ -19,12 +21,10 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QLabel,
-    QComboBox,
-    QProgressBar,
     QFrame,
     QToolButton,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
 
 from floppy_formatter.gui.resources import get_colored_icon
 
@@ -205,13 +205,7 @@ class OperationToolbar(QWidget):
         # State tracking
         self._state = OperationState.IDLE
         self._selected_operation: Optional[OperationType] = None
-        self._progress = 0
-        self._eta_seconds = 0
         self._is_enabled = False
-
-        # ETA update timer
-        self._eta_timer = QTimer(self)
-        self._eta_timer.timeout.connect(self._update_eta)
 
         # Build UI
         self._setup_ui()
@@ -293,27 +287,8 @@ class OperationToolbar(QWidget):
         main_layout.addWidget(self._create_separator())
 
         # =================================================================
-        # SECTION 2: Execution Controls (Mode + Start/Pause/Stop)
+        # SECTION 2: Execution Controls (Start/Pause/Stop)
         # =================================================================
-
-        # Mode selector - moved to be right before control buttons
-        mode_label = QLabel("Mode:")
-        mode_label.setStyleSheet("color: #cccccc;")
-        mode_label.setToolTip("Select operation intensity level")
-        main_layout.addWidget(mode_label)
-
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItems([m.value for m in OperationMode])
-        self._mode_combo.setCurrentText(OperationMode.STANDARD.value)
-        self._mode_combo.setFixedWidth(100)
-        self._mode_combo.setToolTip(
-            "Quick: Fast surface check\n"
-            "Standard: Normal operation\n"
-            "Thorough: Multiple passes\n"
-            "Forensic: Maximum recovery attempts"
-        )
-        self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        main_layout.addWidget(self._mode_combo)
 
         # Control buttons - styled distinctly as action buttons
         self._start_button = QPushButton("▶ Start")
@@ -401,25 +376,7 @@ class OperationToolbar(QWidget):
         main_layout.addWidget(self._create_separator())
 
         # =================================================================
-        # SECTION 3: Progress Display
-        # =================================================================
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setRange(0, 100)
-        self._progress_bar.setValue(0)
-        self._progress_bar.setTextVisible(True)
-        self._progress_bar.setFixedWidth(150)
-        main_layout.addWidget(self._progress_bar)
-
-        self._eta_label = QLabel("Ready")
-        self._eta_label.setStyleSheet("color: #858585;")
-        self._eta_label.setFixedWidth(70)
-        main_layout.addWidget(self._eta_label)
-
-        # Separator
-        main_layout.addWidget(self._create_separator())
-
-        # =================================================================
-        # SECTION 4: Utility Buttons (Secondary style)
+        # SECTION 3: Utility Buttons (Secondary style)
         # =================================================================
 
         # Batch Verify button - secondary style, opens dialog directly
@@ -507,11 +464,6 @@ class OperationToolbar(QWidget):
         }
         return mapping[operation]
 
-    def _on_mode_changed(self, mode_text: str) -> None:
-        """Handle mode selection change."""
-        logger.debug("Mode changed: %s", mode_text)
-        self.mode_changed.emit(mode_text)
-
     def _on_start_clicked(self) -> None:
         """Handle start button click."""
         if self._state == OperationState.IDLE:
@@ -557,9 +509,6 @@ class OperationToolbar(QWidget):
         for btn in self._operation_buttons:
             btn.setEnabled(is_idle and self._is_enabled)
 
-        # Mode selector - only enabled when idle
-        self._mode_combo.setEnabled(is_idle and self._is_enabled)
-
         # Start button - enabled when operation selected and idle, or when paused
         op_selected = self._selected_operation is not None
         start_enabled = (is_idle and op_selected and self._is_enabled) or is_paused
@@ -585,21 +534,6 @@ class OperationToolbar(QWidget):
 
         # Export image button - enabled when idle and connected (needs scan data)
         self._export_image_button.setEnabled(is_idle and self._is_enabled)
-
-        # Progress bar
-        if is_idle:
-            self._progress_bar.setValue(0)
-            self._eta_label.setText("Ready")
-
-    def _update_eta(self) -> None:
-        """Update ETA countdown."""
-        if self._eta_seconds > 0:
-            self._eta_seconds -= 1
-            minutes = self._eta_seconds // 60
-            seconds = self._eta_seconds % 60
-            self._eta_label.setText(f"ETA: {minutes}:{seconds:02d}")
-        else:
-            self._eta_label.setText("Completing...")
 
     # =========================================================================
     # Public API
@@ -633,10 +567,13 @@ class OperationToolbar(QWidget):
         """
         Get the currently selected operation mode.
 
+        Note: Mode selection has been moved to operation-specific dialogs.
+        This method is kept for backward compatibility but returns a default value.
+
         Returns:
-            Mode name string
+            Mode name string (always "Standard" for backward compatibility)
         """
-        return self._mode_combo.currentText()
+        return OperationMode.STANDARD.value
 
     def set_operation(self, operation: str) -> None:
         """
@@ -677,9 +614,6 @@ class OperationToolbar(QWidget):
         Updates UI to running state.
         """
         self._state = OperationState.RUNNING
-        self._progress = 0
-        self._progress_bar.setValue(0)
-        self._eta_label.setText("Calculating...")
         self._update_control_states()
 
     def stop_operation(self) -> None:
@@ -689,30 +623,23 @@ class OperationToolbar(QWidget):
         Updates UI to idle state and clears selection.
         """
         self._state = OperationState.IDLE
-        self._eta_timer.stop()
         # Clear operation selection so user must explicitly start a new operation
         self.clear_selection()
         self._update_control_states()
 
-    def set_progress(self, progress: int, eta_seconds: Optional[int] = None) -> None:
+    def set_progress(self, _progress: int, _eta_seconds: Optional[int] = None) -> None:
         """
         Update progress display.
 
-        Args:
-            progress: Progress percentage (0-100)
-            eta_seconds: Optional estimated time remaining in seconds
-        """
-        self._progress = max(0, min(100, progress))
-        self._progress_bar.setValue(self._progress)
+        Note: Progress display has been moved to the Progress tab in the analytics panel.
+        This method is kept for backward compatibility but is a no-op.
 
-        if eta_seconds is not None:
-            self._eta_seconds = eta_seconds
-            if not self._eta_timer.isActive():
-                self._eta_timer.start(1000)  # Update every second
-            self._update_eta()
-        elif progress >= 100:
-            self._eta_timer.stop()
-            self._eta_label.setText("Complete")
+        Args:
+            _progress: Progress percentage (0-100) - unused
+            _eta_seconds: Optional estimated time remaining in seconds - unused
+        """
+        # No-op - progress is now displayed in the Progress tab
+        pass
 
     def is_operation_running(self) -> bool:
         """

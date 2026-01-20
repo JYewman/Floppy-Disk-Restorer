@@ -1,6 +1,6 @@
 # Recovery Operations
 
-This guide covers advanced data recovery techniques in Floppy Workbench.
+This guide covers data recovery from damaged floppy disks using Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -9,8 +9,7 @@ This guide covers advanced data recovery techniques in Floppy Workbench.
 - [Recovery Techniques](#recovery-techniques)
 - [Recovery Configuration](#recovery-configuration)
 - [Running Recovery](#running-recovery)
-- [Multi-Capture Recovery](#multi-capture-recovery)
-- [PLL Tuning](#pll-tuning)
+- [Understanding Results](#understanding-results)
 - [Recovery Best Practices](#recovery-best-practices)
 - [When Recovery Fails](#when-recovery-fails)
 
@@ -18,204 +17,229 @@ This guide covers advanced data recovery techniques in Floppy Workbench.
 
 ## Understanding Recovery
 
-### What is Recovery?
-
-Recovery is the process of extracting data from damaged or degraded floppy disks. Unlike a simple read, recovery employs multiple techniques to maximize data retrieval:
-
-- **Multiple read passes** - Read same data repeatedly
-- **Statistical analysis** - Compare multiple reads to find consensus
-- **PLL optimization** - Tune decoder for specific disk
-- **Signal processing** - Extract data from weak signals
+Recovery is the process of extracting data from damaged or degraded floppy disks. Unlike simple reading, recovery uses multiple techniques to maximize data retrieval from marginal sectors.
 
 ### Why Disks Need Recovery
 
 | Cause | Effect | Recovery Chance |
 |-------|--------|-----------------|
-| **Age** | Magnetic decay | Good |
+| **Age** | Magnetic signal decay | Good |
 | **Heat/Humidity** | Signal degradation | Good |
 | **Physical damage** | Scratches, warping | Moderate |
-| **Mold/Contamination** | Surface damage | Moderate |
-| **Demagnetization** | Signal loss | Poor |
-| **Media breakdown** | Oxide shedding | Poor |
+| **Mold/Contamination** | Surface damage | Moderate (after cleaning) |
+| **Demagnetization** | Partial or complete signal loss | Poor |
+| **Media breakdown** | Oxide shedding from substrate | Poor |
 
 ### Recovery vs Formatting
 
-| Approach | Goal | Data Preserved |
-|----------|------|----------------|
-| **Recovery** | Extract existing data | Yes |
-| **Format+Rescan** | Rewrite then read | No |
+| Approach | Purpose | Existing Data |
+|----------|---------|---------------|
+| **Recovery** | Extract data from damaged sectors | Preserved |
+| **Formatting** | Write fresh track structure | Destroyed |
 
-**Important**: Recovery attempts to read existing data. Formatting destroys it!
+**Important**: Recovery attempts to read existing data. Formatting destroys it. Always try recovery first.
+
+### The Recovery Process
+
+Floppy Disk Workbench recovery works in phases:
+
+1. **Initial Scan** — Identifies all bad sectors
+2. **Recovery Passes** — Applies techniques to recover each bad sector
+3. **Final Verification** — Confirms recovered sectors are stable
+4. **Retry (if needed)** — Repeats for sectors that failed verification
+
+The recovery worker may perform up to 3 complete recovery attempts if verification fails.
 
 ---
 
 ## Recovery Levels
 
-Floppy Workbench offers three recovery intensity levels:
+Floppy Disk Workbench provides three recovery intensity levels.
 
-### Standard Recovery
+### Standard
 
-**Purpose**: Basic multi-pass recovery
+Basic multi-pass recovery suitable for most situations.
 
-| Parameter | Value |
-|-----------|-------|
-| Read Passes | 5-10 |
-| Techniques | Multi-read averaging |
-| Time | 2-5 minutes |
-| Success Rate | 60-80% of bad sectors |
+| Characteristic | Value |
+|----------------|-------|
+| Techniques | Format refresh, multi-capture |
+| PLL Tuning | No |
+| Bit-Slip Recovery | No |
+| Best For | Routine recovery, light degradation |
 
-**Use for**:
-- Disks with few bad sectors
-- Recent media degradation
-- First recovery attempt
+Standard recovery uses format refresh (rewriting tracks) combined with multi-revolution flux capture. This is sufficient for most disks with minor degradation.
 
-### Aggressive Recovery
+### Aggressive
 
-**Purpose**: Enhanced recovery with PLL tuning
+Enhanced recovery with adaptive decoder tuning.
 
-| Parameter | Value |
-|-----------|-------|
-| Read Passes | 10-25 |
-| Techniques | Multi-read + PLL sweep |
-| Time | 5-15 minutes |
-| Success Rate | 70-90% of bad sectors |
+| Characteristic | Value |
+|----------------|-------|
+| Techniques | Format refresh, multi-capture, PLL tuning |
+| PLL Tuning | Yes (after initial passes) |
+| Bit-Slip Recovery | No |
+| Best For | Moderate damage, timing issues |
 
-**Use for**:
-- Disks with moderate damage
-- Older disks
-- After Standard fails
+Aggressive recovery adds PLL (Phase-Locked Loop) parameter tuning on later passes. The decoder systematically adjusts timing parameters to find settings that can read marginal sectors.
 
-### Forensic Recovery
+### Forensic
 
-**Purpose**: Maximum effort recovery
+Maximum effort recovery using all available techniques.
 
-| Parameter | Value |
-|-----------|-------|
-| Read Passes | 25-100+ |
+| Characteristic | Value |
+|----------------|-------|
 | Techniques | All available |
-| Time | 15-60+ minutes |
-| Success Rate | 80-95% of bad sectors |
+| PLL Tuning | Yes (from start) |
+| Bit-Slip Recovery | Yes |
+| Surface Treatment | Yes |
+| Best For | Critical data, severe damage |
 
-**Use for**:
-- Critical data recovery
-- Severely damaged disks
-- Last resort attempts
+Forensic recovery employs every technique from the beginning, including bit-slip recovery for synchronization errors. Use this level for critical data when time is not a constraint.
 
 ---
 
 ## Recovery Techniques
 
-### Multi-Read Averaging
+### Format Refresh
 
-Reads the same track multiple times and compares results:
+Rewrites the track structure to refresh weak magnetic signals.
 
-```
-Read 1: 1 0 1 1 ? 0 1 0  (? = uncertain bit)
-Read 2: 1 0 1 1 0 0 1 0
-Read 3: 1 0 1 1 0 0 1 0
-Read 4: 1 0 1 1 1 0 1 0
-Read 5: 1 0 1 1 0 0 1 0
-─────────────────────────
-Result: 1 0 1 1 0 0 1 0  (consensus: bit 5 = 0)
-```
+**Process:**
+1. DC erase the entire track
+2. Write with pattern 0x00
+3. Write with pattern 0xFF
+4. Write with pattern 0xAA
+5. Write with pattern 0x55
 
-### Statistical Bit Voting
+This exercises the magnetic domains and can restore signal strength in areas where the existing signal has weakened.
 
-For each bit position:
-1. Count 0s and 1s across all reads
-2. Choose the majority value
-3. Flag low-confidence bits for extra attention
+### Multi-Capture
 
-### PLL Parameter Sweep
+Captures multiple revolutions of flux data for statistical analysis.
+
+**Process:**
+1. Read track for multiple disk revolutions
+2. Compare flux patterns across revolutions
+3. Use bit voting to determine most likely data
+4. Decode using combined flux data
+
+Each revolution captures the same data but with slightly different noise. Combining multiple reads improves the signal-to-noise ratio.
+
+### PLL Tuning
+
+Adjusts decoder timing parameters to optimize for specific disk characteristics.
 
 The Phase-Locked Loop decoder has adjustable parameters:
 
-| Parameter | Description | Range |
-|-----------|-------------|-------|
-| **Bit Cell** | Expected bit timing | 1.8-2.2 µs (HD) |
-| **Period Adj** | PLL responsiveness | 0.01-0.10 |
-| **Phase Adj** | Phase correction rate | 0.3-0.8 |
+| Parameter | Description | Typical Range |
+|-----------|-------------|---------------|
+| **Bit Cell** | Expected bit timing | 1.9-2.1 µs (HD) |
+| **Period Adjust** | Rate of speed tracking | 0.03-0.07 |
+| **Phase Adjust** | Rate of phase correction | 0.4-0.7 |
 
-Recovery tries multiple parameter combinations to find optimal settings.
+Recovery systematically tries different parameter combinations to find settings that decode marginal sectors.
 
-### Bit-Slip Correction
+### Bit-Slip Recovery
 
-Detects and corrects synchronization errors:
+Detects and corrects synchronization errors.
 
-```
-Expected: SYNC SYNC SYNC DATA DATA DATA
-Actual:   SYNC SYNC DATA DATA DATA DATA  (slipped 1 bit early)
-Fixed:    SYNC SYNC SYNC DATA DATA DATA  (corrected)
-```
+A "bit slip" occurs when the decoder loses sync and shifts by one or more bits, causing all subsequent data to decode incorrectly. Bit-slip recovery:
 
-### Weak Bit Detection
+1. Detects patterns indicating sync loss
+2. Identifies likely slip location
+3. Attempts re-synchronization at different offsets
+4. Validates corrected data with CRC
 
-Identifies bits near the detection threshold:
+### Surface Treatment
 
-- Strong bits: Clear 0 or 1
-- Weak bits: Near threshold, may flip between reads
-- Recovery focuses extra attention on weak areas
+Combines DC erase with pattern refresh for weak media.
+
+This technique performs a full degauss (DC erase) followed by multiple pattern writes to "exercise" weak magnetic areas. It can restore readability to media with marginal signal levels.
 
 ---
 
 ## Recovery Configuration
 
-### Mode Selection
+Click the **Restore** button in the Operation Toolbar to open the Restore Configuration dialog.
 
-#### Fixed Passes
+![Restore Configuration Dialog](../screenshots/restore_config_dialog.png)
+*Screenshot: Restore Configuration dialog showing all recovery options*
 
-Run exactly N recovery passes:
+### Recovery Mode
 
-```
-┌────────────────────────────────────────┐
-│  Pass Mode: Fixed                       │
-│  Number of Passes: [10    ] ▼          │
-│                                         │
-│  Estimated Time: ~3 minutes             │
-└────────────────────────────────────────┘
-```
+Choose how many recovery passes to run.
 
-**Use when**:
-- You know how much time you have
-- Consistent results needed
-- Batch processing
+**Fixed Passes:**
+- Run exactly N passes
+- Set pass count from 1 to 100
+- Predictable duration
 
-#### Convergence Mode
+**Convergence Mode:**
+- Run until improvement stops
+- Stops after 3 consecutive passes with no new recoveries
+- Set maximum passes (5-200) as safety limit
+- Recommended for unknown disk condition
 
-Run until no more improvement:
+### Recovery Scope
 
-```
-┌────────────────────────────────────────┐
-│  Pass Mode: Convergence                 │
-│  Stop after [3] passes with no change  │
-│  Maximum passes: [50]                   │
-│                                         │
-│  Stops automatically when converged     │
-└────────────────────────────────────────┘
-```
+Choose which sectors to recover.
 
-**Use when**:
-- Maximum recovery desired
-- Time is flexible
-- Unknown disk condition
+**Full Disk Recovery:**
+- Scans and recovers entire disk
+- Formats and verifies all tracks
+- Preserves good sectors while recovering bad ones
+
+**Targeted Recovery:**
+- Only recovers sectors identified in previous scan
+- Faster when few sectors are bad
+- Requires prior scan data
+
+### Multi-Read Recovery
+
+Enable statistical recovery using multiple flux captures.
+
+When enabled:
+- Set the number of flux revolutions to capture (10-1000)
+- More captures = better accuracy but slower
+- Uses bit voting to determine most likely data
+- Memory usage increases with capture count
+
+The dialog notes that this now uses "flux-level bit voting" rather than byte-level comparison, providing improved accuracy.
+
+### Recovery Level
+
+Select the overall recovery aggressiveness:
+
+| Level | Description |
+|-------|-------------|
+| **Standard** | Traditional recovery using format passes and verification |
+| **Aggressive** | Adds PLL tuning and multi-capture analysis |
+| **Forensic** | All techniques, maximum effort, detailed logging |
+
+The level dropdown automatically adjusts the Advanced Options checkboxes to recommended settings.
 
 ### Advanced Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| **Multi-Capture** | Enable flux-level recovery | On |
-| **PLL Tuning** | Sweep PLL parameters | Aggressive+ |
-| **Bit-Slip Recovery** | Correct sync errors | On |
-| **Quality Threshold** | Minimum signal % | 50% |
-| **Prevent Sleep** | Keep system awake | On |
-
-### Sector Selection
+Fine-tune individual recovery techniques:
 
 | Option | Description |
 |--------|-------------|
-| **All Bad Sectors** | Recover all failed sectors |
-| **Selected Sectors** | Only recover selected |
-| **Custom Range** | Specify track/sector range |
+| **Enable PLL Tuning** | Search for optimal decoder parameters on marginal sectors |
+| **Enable Bit-Slip Recovery** | Detect and recover from synchronization errors |
+| **Enable Surface Treatment** | DC erase + pattern refresh for weak areas |
+
+These options are auto-enabled based on Recovery Level but can be manually overridden.
+
+### Report Options
+
+Configure recovery reporting:
+
+| Option | Description |
+|--------|-------------|
+| **Generate detailed report** | Create a recovery report with statistics |
+| **Include track maps** | Add visual sector maps to report |
+| **Include hex dumps** | Include raw data from recovered/failed sectors |
+| **Save report to file** | Automatically save report when complete |
 
 ---
 
@@ -223,146 +247,112 @@ Run until no more improvement:
 
 ### Step 1: Scan First
 
-Always scan before recovery:
-1. Click **Scan** (`Ctrl+S`)
+Always scan before recovery to identify bad sectors:
+
+1. Click **Scan** in the Operation Toolbar
 2. Use Standard or Thorough mode
-3. Note bad sector locations
+3. Review results in the Analytics Panel
 
 ### Step 2: Review Bad Sectors
 
-In the Errors tab:
-- Review list of bad sectors
-- Check error distribution
-- Assess recovery viability
+Before starting recovery:
 
-### Step 3: Start Recovery
+- Check the Errors tab to see the list of bad sectors
+- Note any patterns (clustered vs scattered)
+- Assess whether recovery is viable
 
-Click **Restore** (`Ctrl+R`) to open recovery dialog.
+### Step 3: Open Restore Dialog
+
+Click **Restore** in the Operation Toolbar to open the configuration dialog.
 
 ### Step 4: Configure Recovery
 
-1. Select **Recovery Level** (Standard/Aggressive/Forensic)
-2. Choose **Pass Mode** (Fixed or Convergence)
-3. Set **Options** (Multi-Capture, PLL Tuning, etc.)
-4. Click **Start Recovery**
+1. Select **Recovery Mode** (Fixed Passes or Convergence)
+2. Choose **Recovery Scope** (Full Disk or Targeted)
+3. Enable **Multi-Read Recovery** if desired
+4. Select **Recovery Level** (Standard/Aggressive/Forensic)
+5. Adjust **Advanced Options** if needed
+6. Configure **Report Options**
+7. Click **Start Restore**
 
 ### Step 5: Monitor Progress
 
-```
-┌────────────────────────────────────────────────────────────┐
-│  RECOVERY IN PROGRESS                                       │
-│  ══════════════════════════════════════════════════════    │
-│                                                             │
-│  Pass: 7/25  |  Mode: Aggressive                           │
-│                                                             │
-│  Bad Sectors:     42 → 12  (30 recovered)                  │
-│  Recovery Rate:   71.4%                                     │
-│                                                             │
-│  Current Track: 45  |  Elapsed: 4:32  |  ETA: 2:15         │
-│                                                             │
-│  [Pause]  [Cancel]                                         │
-└────────────────────────────────────────────────────────────┘
-```
+![Recovery Progress Screen](../screenshots/restore_progress.png)
+*Screenshot: Recovery progress display showing pass information and sector status*
 
-### Step 6: Review Results
+During recovery, the interface shows:
 
-After recovery completes:
-- Recovered sectors turn orange on map
-- Statistics show recovery rate
-- Remaining bad sectors listed
+| Element | Description |
+|---------|-------------|
+| **Current Pass** | Pass number and total passes |
+| **Bad Sectors** | Starting count → current count |
+| **Recovery Rate** | Percentage of bad sectors recovered |
+| **Current Track** | Cylinder and head being processed |
+| **Technique** | Current recovery technique being applied |
+| **Elapsed/ETA** | Time tracking |
 
----
+The circular sector map updates to show:
+- Green: Good sectors
+- Red: Still bad sectors
+- Orange: Recovered sectors
 
-## Multi-Capture Recovery
+### Step 6: Verification
 
-### How It Works
+After recovery passes complete:
 
-Multi-Capture reads raw flux data multiple times:
+1. Automatic verification scan runs
+2. All originally-bad sectors are re-checked
+3. If verification passes, recovery is complete
+4. If verification fails, another recovery attempt begins (up to 3 total)
 
-1. **Capture**: Read raw flux transitions (not decoded data)
-2. **Store**: Save each capture separately
-3. **Analyze**: Compare flux patterns across captures
-4. **Decode**: Use combined flux data for decoding
+### Step 7: Review Results
 
-### Why It's Better
+When recovery completes:
 
-- Works at magnetic level, before decoding
-- Captures timing variations
-- Can recover from intermittent read issues
-- More data for statistical analysis
-
-### Configuration
-
-```
-┌────────────────────────────────────────┐
-│  Multi-Capture Settings                 │
-├────────────────────────────────────────┤
-│  Captures per Track: [5   ] ▼          │
-│  Revolutions per Capture: [3]          │
-│  Store Raw Flux: [✓]                   │
-└────────────────────────────────────────┘
-```
-
-### Memory Considerations
-
-Multi-Capture uses significant memory:
-- ~500KB per track per revolution
-- 5 captures × 3 revolutions × 160 tracks = ~1.2 GB
-- Ensure adequate system RAM
+- Summary shows total recovered vs remaining bad
+- Recovered sectors appear orange on the sector map
+- Full statistics available in Analytics Panel
+- Report generated if enabled
 
 ---
 
-## PLL Tuning
+## Understanding Results
 
-### Understanding PLL
+### Recovery Statistics
 
-The Phase-Locked Loop decoder synchronizes to data:
+The recovery report includes:
 
-```
-Flux transitions:  │ │  │ │  │  │ │  │ │  │
-                   ↓ ↓  ↓ ↓  ↓  ↓ ↓  ↓ ↓  ↓
-PLL clock:        ─┴─┴──┴─┴──┴──┴─┴──┴─┴──┴─
-                   1 0  1 1  0  1 0  1 1  0
-```
+| Statistic | Description |
+|-----------|-------------|
+| **Initial Bad Sectors** | Count at start of recovery |
+| **Final Bad Sectors** | Count after all attempts |
+| **Sectors Recovered** | Total successfully recovered |
+| **Recovery Rate** | Percentage of bad sectors fixed |
+| **Passes Completed** | Number of recovery passes run |
+| **Converged** | Whether improvement stopped |
+| **Total Time** | Duration of recovery operation |
 
-### PLL Parameters
+### Technique Breakdown
 
-| Parameter | Effect | Optimal Range |
-|-----------|--------|---------------|
-| **bit_cell_us** | Expected bit timing | 1.9-2.1 (HD) |
-| **pll_period_adj** | How fast PLL adjusts to speed changes | 0.03-0.07 |
-| **pll_phase_adj** | How fast PLL adjusts to phase changes | 0.4-0.7 |
+The report shows which techniques recovered sectors:
 
-### Automatic PLL Sweep
+| Technique | Description |
+|-----------|-------------|
+| **format_refresh** | Recovered by rewriting track |
+| **multi_capture** | Recovered by statistical bit voting |
+| **pll_tuning** | Recovered by adjusting decoder timing |
+| **bit_slip** | Recovered by fixing sync errors |
+| **maximum_effort** | Recovered by combined techniques |
 
-Recovery tries multiple PLL configurations:
+### Per-Pass History
 
-```
-Trying: bit_cell=2.0, period_adj=0.05, phase_adj=0.6
-Result: 35 bad sectors
+Each pass records:
 
-Trying: bit_cell=1.95, period_adj=0.05, phase_adj=0.6
-Result: 28 bad sectors  ← Better!
+- Bad count before and after
+- Sectors recovered during that pass
+- Duration
 
-Trying: bit_cell=1.95, period_adj=0.03, phase_adj=0.5
-Result: 22 bad sectors  ← Best so far!
-```
-
-### Manual PLL Configuration
-
-For expert users:
-
-```
-┌────────────────────────────────────────┐
-│  Manual PLL Settings                    │
-├────────────────────────────────────────┤
-│  Bit Cell (µs):    [1.95  ]            │
-│  Period Adjust:    [0.03  ]            │
-│  Phase Adjust:     [0.50  ]            │
-│                                         │
-│  [Test] [Apply to All]                 │
-└────────────────────────────────────────┘
-```
+This helps identify when recovery is most effective and when it reaches diminishing returns.
 
 ---
 
@@ -370,33 +360,33 @@ For expert users:
 
 ### Before Recovery
 
-1. **Scan thoroughly** - Know what you're dealing with
-2. **Check drive** - Use a known-good drive
-3. **Clean disk** - Gently clean if contaminated
-4. **Clean drive** - Clean heads before critical recovery
+1. **Scan first** — Understand the disk condition
+2. **Clean the disk** — Gently clean if contaminated (distilled water or isopropyl alcohol)
+3. **Clean drive heads** — Ensure heads are clean for optimal reading
+4. **Use a good drive** — Try a known-working drive
 
 ### During Recovery
 
-1. **Start with Standard** - Don't jump to Forensic immediately
-2. **Monitor progress** - Watch for convergence
-3. **Don't disturb** - Avoid vibration and movement
-4. **Stay patient** - Recovery takes time
+1. **Start with Standard** — Escalate to Aggressive/Forensic only if needed
+2. **Enable Convergence Mode** — Let recovery run until improvement stops
+3. **Minimize vibration** — Keep the workspace stable
+4. **Be patient** — Forensic recovery can take considerable time
 
 ### After Recovery
 
-1. **Verify recovered sectors** - Check data makes sense
-2. **Export immediately** - Save recovered data
-3. **Don't rely on disk** - The disk is damaged
-4. **Store carefully** - Keep disk for potential future attempts
+1. **Export immediately** — Save recovered data to an image file
+2. **Verify the data** — Check that recovered files are usable
+3. **Preserve the disk** — Keep the original in case future techniques improve
+4. **Document results** — Save the recovery report
 
 ### Environmental Factors
 
 | Factor | Recommendation |
 |--------|----------------|
-| **Temperature** | 20-25°C (68-77°F) |
-| **Humidity** | 40-60% |
-| **Vibration** | Minimize |
-| **Time of day** | When power is stable |
+| **Temperature** | Room temperature (20-25°C) |
+| **Humidity** | Moderate (40-60%) |
+| **Vibration** | Minimize; use stable surface |
+| **Power** | Avoid unstable power that could affect timing |
 
 ---
 
@@ -404,70 +394,42 @@ For expert users:
 
 ### Partial Recovery
 
-If some sectors won't recover:
+If some sectors cannot be recovered:
 
-1. **Export what you have** - Save recovered data
-2. **Try different drive** - Head alignment varies
-3. **Try different parameters** - Manual PLL tuning
-4. **Professional services** - Data recovery specialists
+1. **Export what you have** — Save the partially recovered image
+2. **Try a different drive** — Head alignment varies between drives
+3. **Try different PLL settings** — Manual tuning may find better parameters
+4. **Consider professional services** — Data recovery specialists have additional tools
 
-### Assessing Damage
+### Assessing Unrecoverable Sectors
 
-| Symptom | Likely Cause | Prognosis |
+| Pattern | Likely Cause | Prognosis |
 |---------|--------------|-----------|
-| Random scattered bad sectors | Media degradation | Good |
-| Entire tracks bad | Physical damage | Moderate |
-| One side completely bad | Head issue | Try other drive |
-| No data at all | Demagnetized/blank | Poor |
+| Scattered sectors | Media degradation | Often partly recoverable |
+| Entire tracks | Physical damage | May need professional help |
+| One head entirely bad | Head alignment/drive issue | Try different drive |
+| No data readable | Demagnetization | Usually not recoverable |
 
-### Data Recovery Services
+### Professional Data Recovery
 
-For critical data that can't be recovered:
+For critical data that cannot be recovered:
 
-- Professional data recovery services
-- Specialized equipment
-- Clean room facilities
-- Magnetic force microscopy (extreme cases)
+- Professional data recovery services have clean room facilities
+- Specialized equipment can read weaker signals
+- Magnetic force microscopy (extreme cases) can image the surface directly
+- Cost varies significantly; get quotes for critical data
 
 ### Accepting Loss
 
 Sometimes data cannot be recovered:
-- Physical destruction
-- Complete demagnetization
-- Severe oxidation
-- Fire/water damage
 
-Document what was lost and preserve the disk for potential future technology advances.
+- Severe physical damage (scratches through the magnetic layer)
+- Complete demagnetization (no signal remaining)
+- Fire or water damage
+- Oxide separation from substrate
 
----
-
-## Recovery Technical Details
-
-### Signal Quality Metrics
-
-| Metric | Description | Good Value |
-|--------|-------------|------------|
-| **SNR** | Signal-to-noise ratio | > 20 dB |
-| **Jitter** | Timing variation | < 10% |
-| **Peak Amplitude** | Signal strength | Consistent |
-
-### Sector Recovery Process
-
-```
-1. Identify bad sector (cylinder, head, sector)
-2. Seek to track
-3. For each pass:
-   a. Capture flux data (multiple revolutions)
-   b. Decode with current PLL parameters
-   c. Check CRC
-   d. If good: mark recovered
-   e. If bad: store for statistical analysis
-4. After all passes:
-   a. Combine flux data from all captures
-   b. Apply bit voting
-   c. Final decode attempt
-```
+Document what was lost. Preserve the disk—future technology may improve recovery possibilities.
 
 ---
 
-**Next:** [[Flux Analysis]] - Understanding flux-level data
+**Next:** [[Flux Analysis]] — Understanding flux-level data

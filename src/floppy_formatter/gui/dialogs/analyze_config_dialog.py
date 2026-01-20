@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QComboBox,
     QFrame,
+    QScrollArea,
 )
 from PyQt6.QtGui import QFont
 
@@ -108,13 +109,22 @@ class AnalyzeConfigDialog(QDialog):
         self.setWindowTitle("Analysis Configuration")
         self.setModal(True)
         self.setMinimumWidth(500)
-        self.setMinimumHeight(620)
+        self.setMinimumHeight(450)
 
         # Apply dark theme styling
         self._apply_dialog_style()
 
-        # Main layout
-        layout = QVBoxLayout(self)
+        # Main layout with scroll
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background-color: #1e1e1e; border: none; }")
+
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
@@ -327,18 +337,21 @@ class AnalyzeConfigDialog(QDialog):
 
         layout.addWidget(output_group)
 
-        # Spacer
-        layout.addStretch()
+        scroll.setWidget(scroll_content)
+        main_layout.addWidget(scroll)
 
         # Separator
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setStyleSheet("background-color: #3a3d41;")
         separator.setFixedHeight(1)
-        layout.addWidget(separator)
+        main_layout.addWidget(separator)
 
-        # Buttons
-        button_layout = QHBoxLayout()
+        # Buttons (outside scroll area)
+        button_container = QWidget()
+        button_container.setStyleSheet("background-color: #1e1e1e;")
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(24, 12, 24, 16)
         button_layout.setSpacing(12)
         button_layout.addStretch()
 
@@ -356,7 +369,7 @@ class AnalyzeConfigDialog(QDialog):
         self._start_button.setDefault(True)
         button_layout.addWidget(self._start_button)
 
-        layout.addLayout(button_layout)
+        main_layout.addWidget(button_container)
 
         # Apply button styles
         self._apply_button_styles()
@@ -462,6 +475,22 @@ class AnalyzeConfigDialog(QDialog):
                 background-color: #2d2d30;
                 color: #cccccc;
                 selection-background-color: #0e639c;
+            }
+            QScrollBar:vertical {
+                background-color: #1e1e1e;
+                width: 12px;
+                border: none;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #3a3d41;
+                border-radius: 4px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #4e5157;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0;
             }
         """)
 

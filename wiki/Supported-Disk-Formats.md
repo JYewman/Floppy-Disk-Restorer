@@ -1,6 +1,6 @@
 # Supported Disk Formats
 
-This page details all disk formats supported by Floppy Workbench.
+This page details all disk formats supported by Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -337,7 +337,7 @@ Used by Apple and Commodore:
 
 ### Automatic Detection
 
-Floppy Workbench can auto-detect formats:
+Floppy Disk Workbench can auto-detect formats:
 
 1. **Read track 0** - Examine structure
 2. **Check sector size** - 256, 512, 1024 bytes

@@ -109,6 +109,17 @@ from floppy_formatter.gui.tabs.analysis_tab import (
     HeadQuality,
 )
 
+# Progress tab for live operation tracking
+from floppy_formatter.gui.tabs.progress_tab import (
+    # Main widget
+    ProgressTab,
+    # Component widgets
+    ProgressStatCard,
+    # Data classes
+    ProgressData,
+    OperationStatus,
+)
+
 
 __all__ = [
     # Overview tab
@@ -170,4 +181,9 @@ __all__ = [
     "AnalysisRecommendationsCard",
     "AnalysisSummary",
     "HeadQuality",
+    # Progress tab
+    "ProgressTab",
+    "ProgressStatCard",
+    "ProgressData",
+    "OperationStatus",
 ]

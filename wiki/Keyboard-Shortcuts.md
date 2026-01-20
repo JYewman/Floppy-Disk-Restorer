@@ -1,6 +1,6 @@
 # Keyboard Shortcuts
 
-Quick reference for all keyboard shortcuts in Floppy Workbench.
+Quick reference for all keyboard shortcuts in Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -127,27 +127,39 @@ Quick reference for all keyboard shortcuts in Floppy Workbench.
 
 ## Quick Reference Card
 
-```
-┌─────────────────────────────────────────────────────────┐
-│              FLOPPY WORKBENCH SHORTCUTS                 │
-├─────────────────────────────────────────────────────────┤
-│  OPERATIONS              │  DEVICE                      │
-│  ────────────            │  ──────                      │
-│  Ctrl+S     Scan         │  Ctrl+Shift+C  Connect       │
-│  Ctrl+Shift+A  Analyze   │  Ctrl+M        Motor         │
-│  Ctrl+Shift+F  Format    │  Ctrl+0        Track 0       │
-│  Ctrl+R     Restore      │  Ctrl+J        Eject         │
-│  Ctrl+B     Batch        │                              │
-│  Escape     Cancel       │  FILE                        │
-│  Space      Pause        │  ────                        │
-│                          │  Ctrl+O        Open          │
-│  VIEW                    │  Ctrl+E        Export        │
-│  ────                    │  Ctrl+Shift+R  Report        │
-│  Ctrl++     Zoom In      │  Ctrl+,        Settings      │
-│  Ctrl+-     Zoom Out     │  F1            Help          │
-│  Ctrl+0     Fit View     │  Ctrl+Q        Quit          │
-└─────────────────────────────────────────────────────────┘
-```
+### Operations
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+S` | Scan |
+| `Ctrl+Shift+A` | Analyze |
+| `Ctrl+Shift+F` | Format |
+| `Ctrl+R` | Restore |
+| `Ctrl+B` | Batch |
+| `Escape` | Cancel |
+| `Space` | Pause |
+
+### Device
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+Shift+C` | Connect |
+| `Ctrl+M` | Motor |
+| `Ctrl+0` | Track 0 |
+| `Ctrl+J` | Eject |
+
+### File & View
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+O` | Open |
+| `Ctrl+E` | Export |
+| `Ctrl+Shift+R` | Report |
+| `Ctrl+,` | Settings |
+| `F1` | Help |
+| `Ctrl+Q` | Quit |
+| `Ctrl++` | Zoom In |
+| `Ctrl+-` | Zoom Out |
 
 ---
 

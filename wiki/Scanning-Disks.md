@@ -1,35 +1,34 @@
 # Scanning Disks
 
-This guide covers everything about scanning floppy disks with Floppy Workbench.
+This guide covers scanning floppy disks with Floppy Disk Workbench, including understanding results and troubleshooting common issues.
 
 ## Table of Contents
 
 - [What is Scanning?](#what-is-scanning)
 - [Before You Scan](#before-you-scan)
-- [Scan Modes](#scan-modes)
-- [Scan Configuration](#scan-configuration)
 - [Running a Scan](#running-a-scan)
 - [Understanding Results](#understanding-results)
 - [Advanced Scanning](#advanced-scanning)
-- [Scan Best Practices](#scan-best-practices)
+- [Troubleshooting Scan Issues](#troubleshooting-scan-issues)
 
 ---
 
 ## What is Scanning?
 
-Scanning is the process of reading all sectors on a floppy disk to:
+Scanning reads all sectors on a floppy disk to assess its condition. During a scan, Floppy Disk Workbench:
 
-- **Assess disk health** - Identify good, bad, and weak sectors
-- **Map the disk surface** - Create a visual representation
-- **Prepare for recovery** - Identify sectors needing attention
-- **Verify data integrity** - Check CRC values
-
-During a scan, Floppy Workbench:
-1. Reads each track sequentially
-2. Decodes MFM data to extract sectors
-3. Validates CRC checksums
+1. Captures raw flux data from each track using the Greaseweazle
+2. Decodes MFM/FM data to extract sectors
+3. Validates CRC checksums for data integrity
 4. Records signal quality metrics
-5. Updates the sector map in real-time
+5. Updates the circular sector map in real-time
+
+The scan results help you:
+
+- **Assess disk health** — Identify good, bad, and weak sectors
+- **Visualize damage patterns** — See physical damage distribution on the sector map
+- **Prepare for recovery** — Identify which sectors need recovery attempts
+- **Verify data integrity** — Confirm CRC checksums are valid
 
 ---
 
@@ -37,313 +36,203 @@ During a scan, Floppy Workbench:
 
 ### Prerequisites
 
-- [ ] Greaseweazle connected and recognized
-- [ ] Floppy drive connected and powered
-- [ ] Motor spinning (RPM displayed)
-- [ ] Disk inserted in drive
+Before scanning, ensure:
+
+- Greaseweazle is connected and detected (green indicator in Drive Control Panel)
+- Floppy drive is connected and calibrated
+- Disk is inserted in the drive
+- Correct disk format is selected in the Session system
 
 ### Disk Inspection
 
-Before scanning, visually inspect the disk:
+Inspect the disk before scanning:
 
-- **Mold or debris** - Clean if possible, or use caution
-- **Physical damage** - Scratches, warping may cause issues
-- **Shutter condition** - Ensure metal shutter moves freely
-- **Hub ring** - Check for cracks or damage
+- **Mold or debris** — Clean carefully before inserting, or the disk may damage the drive heads
+- **Physical damage** — Scratches or warping may cause read failures
+- **Metal shutter** — Verify it moves freely and springs back
+- **Hub ring** — Check for cracks that could cause the disk to jam
 
 ### Drive Preparation
 
 For best results:
-1. Clean drive heads if not recently done
-2. Let the drive warm up for a minute
-3. Ensure RPM is stable (around 300 RPM)
 
----
-
-## Scan Modes
-
-Floppy Workbench offers three scan modes:
-
-### Quick Scan
-
-**Purpose**: Fast overview of disk condition
-
-| Parameter | Value |
-|-----------|-------|
-| Tracks Scanned | Sample (every 5th track) |
-| Reads per Track | 1 |
-| Estimated Time | 10-15 seconds |
-
-**Use when**:
-- Testing drive operation
-- Quick disk assessment
-- Sorting large disk collections
-
-### Standard Scan
-
-**Purpose**: Complete disk analysis (Recommended)
-
-| Parameter | Value |
-|-----------|-------|
-| Tracks Scanned | All (0-79) |
-| Reads per Track | 1-2 |
-| Estimated Time | 30-60 seconds |
-
-**Use when**:
-- Normal disk reading
-- Creating disk images
-- General assessment
-
-### Thorough Scan
-
-**Purpose**: Maximum accuracy for damaged disks
-
-| Parameter | Value |
-|-----------|-------|
-| Tracks Scanned | All (0-79) |
-| Reads per Track | 3-5 |
-| Estimated Time | 2-5 minutes |
-
-**Use when**:
-- Disks with known problems
-- Archival preservation
-- Before recovery operations
-
----
-
-## Scan Configuration
-
-When you click **Scan**, the configuration dialog appears:
-
-### Disk Type
-
-Select the disk format:
-
-| Type | Capacity | Cylinders | Sectors/Track |
-|------|----------|-----------|---------------|
-| **1.44MB HD** | 1,474,560 bytes | 80 | 18 |
-| **720KB DD** | 737,280 bytes | 80 | 9 |
-| **1.2MB HD** | 1,228,800 bytes | 80 | 15 |
-| **360KB DD** | 368,640 bytes | 40 | 9 |
-
-### Scan Mode
-
-Choose from Quick, Standard, or Thorough (see above).
-
-### Advanced Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| **Verify Reads** | Read sectors twice to confirm | On |
-| **Record Flux** | Save raw flux data | Off |
-| **Quality Threshold** | Minimum signal quality % | 70% |
-| **Retry Failed** | Retry bad sectors | 3 times |
-
-### Head Selection
-
-| Option | Description |
-|--------|-------------|
-| **Both Heads** | Scan head 0 and head 1 (normal) |
-| **Head 0 Only** | Single-sided scan (top) |
-| **Head 1 Only** | Single-sided scan (bottom) |
+1. Calibrate the drive first (Drive Control Panel > Calibrate button)
+2. Allow the drive motor to stabilize (RPM should settle around 300)
+3. Clean drive heads if you experience unexplained read failures
 
 ---
 
 ## Running a Scan
 
-### Step 1: Open Scan Dialog
+### Starting the Scan
 
-Click **Scan** button or press `Ctrl+S`
+Scanning is straightforward:
 
-### Step 2: Configure Options
+1. Insert a disk into the drive
+2. Click **Scan** in the Operation Toolbar
 
-1. Select disk type
-2. Choose scan mode
-3. Adjust advanced options if needed
-4. Click **Start Scan**
+The scan begins immediately and progress is displayed in the **Progress** tab at the bottom of the window.
 
-### Step 3: Monitor Progress
+### Monitoring Progress
 
-During the scan:
+During the scan, the Progress tab shows real-time information:
 
-```
-┌────────────────────────────────────────────────────┐
-│  Scanning...                                        │
-│  ════════════════════════════════════════          │
-│  Track: 45/80  |  Head: 0  |  Progress: 56%        │
-│                                                     │
-│  Good: 1,440  |  Bad: 23  |  Weak: 12              │
-│  Elapsed: 0:28  |  Remaining: 0:22                 │
-│                                                     │
-│  [Cancel]                                          │
-└────────────────────────────────────────────────────┘
-```
+![Scan Progress Tab](../screenshots/scan_progress_tab.png)
+*Screenshot: Progress tab showing scan in progress with statistics*
 
-### Step 4: Review Results
+| Element | Description |
+|---------|-------------|
+| **Circular Sector Map** | Real-time visualization of sector status as each track is read |
+| **Progress Bar** | Overall scan completion percentage |
+| **Sector Counter** | Current sector / total sectors (e.g., "1672 / 2880") |
+| **Good Count** | Number of sectors read successfully |
+| **Bad Count** | Number of sectors with errors |
+| **Elapsed Time** | Time since scan started (MM:SS) |
+| **ETA** | Estimated time remaining |
 
-When complete:
-- Completion sound plays
-- Summary dialog appears
-- Full results in Analytics Panel
+The sector map updates in real-time as each sector is decoded, with colors indicating status.
 
 ### Canceling a Scan
 
-Press **Escape** or click **Cancel** to stop the scan.
-Partial results are preserved.
+To cancel a scan in progress:
+
+1. Click the **Cancel** button in the Progress tab
+2. Confirm cancellation when prompted
+
+Partial results from a canceled scan are preserved and displayed in the sector map.
+
+### Scan Completion
+
+When the scan finishes:
+
+- A completion sound plays (if sound is enabled in settings)
+- The progress bar turns green
+- **View Report** and **Done** buttons appear
+- Full results are available in the Analytics Panel tabs
 
 ---
 
 ## Understanding Results
 
-### Sector Status Types
+### Sector Status Colors
 
-| Status | Icon | Description | Action |
-|--------|------|-------------|--------|
-| **GOOD** | Green | Read successfully, CRC valid | None needed |
-| **BAD** | Red | CRC error or unreadable | Consider recovery |
-| **WEAK** | Yellow | Read OK but marginal signal | May degrade |
-| **MISSING** | Purple | Sector not found on track | Formatting issue |
-| **NO_DATA** | Gray | No valid data pattern | May be unformatted |
-| **RECOVERED** | Orange | Previously bad, now recovered | Monitor |
+The circular sector map uses colors to indicate sector status:
 
-### Scan Statistics
+| Color | Status | Description |
+|-------|--------|-------------|
+| Green | Good | Sector read successfully, CRC valid |
+| Red | Bad | CRC error or sector unreadable |
+| Yellow | Weak | Read successfully but marginal signal quality |
+| Purple | Missing | Sector header not found on track |
+| Gray | No Data | No valid data pattern detected |
+| Orange | Recovered | Previously bad sector recovered (after recovery operation) |
 
-After a scan, view statistics in the Overview tab:
+### Statistics Panel
+
+After scanning, the Summary tab in the Analytics Panel shows:
 
 | Statistic | Description |
 |-----------|-------------|
-| **Total Sectors** | Number of sectors scanned |
+| **Total Sectors** | Number of sectors on the disk (e.g., 2880 for 1.44MB) |
 | **Good Sectors** | Successfully read sectors |
-| **Bad Sectors** | Failed sectors |
-| **Weak Sectors** | Marginal signal sectors |
-| **Disk Health** | Percentage of good sectors |
-| **Scan Time** | Duration of scan |
-| **Read Errors** | Total read error count |
+| **Bad Sectors** | Failed sectors requiring recovery |
+| **Health Percentage** | Ratio of good sectors to total |
+| **Scan Duration** | Total time elapsed |
 
-### Signal Quality Metrics
+### Signal Quality
 
-Each sector has a signal quality score (0-100%):
+Each sector has a signal quality score from 0% to 100%:
 
 | Range | Quality | Interpretation |
 |-------|---------|----------------|
-| 90-100% | Excellent | Strong, clear signal |
-| 70-89% | Good | Normal condition |
-| 50-69% | Fair | Aging or wear |
-| 30-49% | Poor | At risk of failure |
-| 0-29% | Critical | Likely unrecoverable |
+| 90-100% | Excellent | Strong, clear signal suitable for archiving |
+| 70-89% | Good | Normal condition, reliable reads |
+| 50-69% | Fair | Aging media, may degrade over time |
+| 30-49% | Poor | At risk of failure, consider backup now |
+| 0-29% | Critical | Recovery may not be possible |
 
 ---
 
 ## Advanced Scanning
 
-### Multi-Pass Scanning
+### Flux Analysis
 
-For damaged disks, multiple read passes improve accuracy:
+For detailed analysis of problem disks after scanning:
 
-1. Open Scan Configuration
-2. Set **Scan Mode** to Thorough
-3. Increase **Reads per Track** (3-10)
-4. Enable **Verify Reads**
+- Open the **Flux** tab in the Analytics Panel
+- Select a track from the dropdown
+- View the waveform display showing individual flux transitions
+- Analyze the histogram showing pulse timing distribution
+- Check timing jitter and signal quality metrics
 
-Multiple passes help because:
-- Weak sectors may read correctly on some passes
-- Statistical analysis improves reliability
-- Different read conditions may yield better results
+### Session-Aware Scanning
 
-### Track-Specific Scanning
+The scan operation uses the currently selected session format to decode sectors correctly. For non-IBM formats:
 
-To scan specific tracks:
-
-1. Use seek controls to position head
-2. In scan dialog, enable **Custom Range**
-3. Enter start and end tracks
-4. Run scan
-
-### Flux Recording During Scan
-
-To capture raw flux data:
-
-1. Enable **Record Flux** in scan options
-2. Select flux storage location
-3. Run scan
-
-Flux data enables:
-- Post-scan analysis
-- Different decoding attempts
-- Archival preservation
+1. Select the correct platform and format in the Session screen
+2. The scan worker uses the appropriate codec (Amiga MFM, Mac GCR, etc.)
+3. Sector counts and geometry adjust automatically
 
 ---
 
-## Scan Best Practices
+## Troubleshooting Scan Issues
 
-### For Unknown Disks
+### Entire Disk Shows Bad
 
-1. Start with **Quick Scan** to assess condition
-2. If mostly good, use **Standard Scan**
-3. If many errors, use **Thorough Scan**
+**Possible causes:**
+- Wrong disk format selected in Session
+- Drive not calibrated
+- Disk inserted upside down
+- Drive head alignment issue
 
-### For Damaged Disks
+**Solutions:**
+- Verify the session format matches the disk type
+- Click Calibrate in the Drive Control Panel
+- Remove and reinsert the disk correctly
+- Try a different drive
 
-1. Use **Thorough Scan** mode
-2. Enable **Record Flux**
-3. Set high retry count (5-10)
-4. Lower quality threshold to 50%
+### Track 0 Bad, Rest Good
 
-### For Archival
+**Possible causes:**
+- Boot sector damage
+- Physical damage to outer edge (most handled area)
 
-1. Use **Thorough Scan** mode
-2. Enable **Record Flux**
-3. Set maximum retries
-4. Run scan multiple times
-5. Compare results
-
-### For Large Collections
-
-1. Use **Quick Scan** for initial triage
-2. Separate good disks from problem disks
-3. Use appropriate mode for each category
-
-### Environmental Tips
-
-- **Temperature**: Room temperature is best (20-25°C)
-- **Humidity**: Moderate humidity (40-60%)
-- **Vibration**: Minimize during scanning
-- **Multiple attempts**: Try scanning again if results seem wrong
-
----
-
-## Interpreting Problem Patterns
-
-### Entire Disk Bad
-
-- **Possible causes**: Wrong disk type selected, drive issue, disk completely damaged
-- **Try**: Verify disk type, try different drive, clean drive heads
-
-### Track 0 Bad
-
-- **Possible causes**: Boot sector damage, physical damage to outer edge
-- **Impact**: Disk may not be bootable, but data may be recoverable
-
-### Outer Tracks Bad
-
-- **Possible causes**: Physical damage to disk edge, handling damage
-- **Impact**: Data on inner tracks may still be good
-
-### Inner Tracks Bad
-
-- **Possible causes**: Hub area damage, age-related degradation
-- **Impact**: Earlier data (outer tracks) may be intact
-
-### Scattered Bad Sectors
-
-- **Possible causes**: Media degradation, magnetic wear
-- **Impact**: Recovery may be possible for most data
+**Impact:**
+- Disk may not be bootable but other data is likely intact
+- Boot sector can sometimes be reconstructed
 
 ### One Side Completely Bad
 
-- **Possible causes**: Single-sided disk, head alignment issue
-- **Impact**: Try head alignment test, verify disk format
+**Possible causes:**
+- Single-sided disk scanned as double-sided
+- Drive head 1 alignment issue or failure
+- Media damage to one side only
+
+**Solutions:**
+- Check if disk is labeled as single-sided
+- Try the Head Alignment test in Diagnostics
+- Use a different drive to rule out head issues
+
+### Scattered Bad Sectors
+
+**Possible causes:**
+- Normal age-related degradation
+- Magnetic wear from repeated reads/writes
+- Environmental damage (heat, humidity, magnetic fields)
+
+**Recovery approach:**
+- Use the Recovery operation for thorough multi-pass recovery
+- Multiple passes may recover marginal sectors
+- Flux-level analysis can help identify patterns
+
+### Outer or Inner Tracks Bad
+
+| Pattern | Likely Cause |
+|---------|--------------|
+| Outer tracks (0-10) bad | Edge handling damage, fingerprints on outer edge |
+| Inner tracks (70-79) bad | Hub area damage, age-related degradation |
+| Radial scratch pattern | Physical scratch across surface |
 
 ---
 
-**Next:** [[Formatting Disks]] - Learn about formatting operations
+**Next:** [[Formatting Disks]] — Learn about formatting operations

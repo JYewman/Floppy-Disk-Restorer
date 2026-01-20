@@ -1,27 +1,29 @@
-# Floppy Workbench Wiki
+# Floppy Disk Workbench Wiki
 
-Welcome to the **Floppy Workbench** documentation wiki. This comprehensive guide covers everything you need to know about using Floppy Workbench for floppy disk analysis, recovery, and preservation.
+Welcome to the **Floppy Disk Workbench** documentation. This wiki covers installation, operation, and troubleshooting for Floppy Disk Workbench—a tool for floppy disk analysis, recovery, and preservation.
 
-![Floppy Workbench](../screenshots/Screenshot_1.png)
+![Floppy Disk Workbench](../screenshots/Screenshot_1.png)
 
-## What is Floppy Workbench?
+## What is Floppy Disk Workbench?
 
-Floppy Workbench is a professional-grade floppy disk analysis and recovery application that uses the **Greaseweazle** USB controller for flux-level disk access. It provides advanced tools for:
+Floppy Disk Workbench reads and writes floppy disks at the magnetic flux level using a **Greaseweazle** USB controller. This approach allows recovery of damaged disks that standard floppy controllers cannot read.
 
-- **Disk Analysis** - Comprehensive sector-by-sector health assessment
-- **Data Recovery** - Multi-pass algorithms to recover data from damaged disks
-- **Flux Analysis** - Low-level magnetic signal visualization and analysis
-- **Disk Preservation** - Create archival-quality disk images
-- **Drive Diagnostics** - Test and calibrate floppy drives
+**Main features:**
+
+- **Disk Analysis** – Sector-by-sector health assessment with signal quality metrics
+- **Data Recovery** – Multi-pass algorithms with statistical bit voting for damaged disks
+- **Flux Analysis** – Raw magnetic signal visualization, histograms, and timing analysis
+- **Disk Imaging** – Export to IMG, SCP, and HFE formats for archival or emulator use
+- **Drive Diagnostics** – RPM monitoring, head alignment testing, and read consistency checks
 
 ## Quick Navigation
 
 ### Getting Started
 
-- [[Installation]] - How to install Floppy Workbench
+- [[Installation]] - How to install Floppy Disk Workbench
 - [[Hardware Requirements]] - Required hardware and where to get it
 - [[Software Requirements]] - Operating system and dependencies
-- [[Getting Started]] - Your first steps with Floppy Workbench
+- [[Getting Started]] - Your first steps with Floppy Disk Workbench
 
 ### Using the Application
 
@@ -51,7 +53,7 @@ Floppy Workbench is a professional-grade floppy disk analysis and recovery appli
 
 ## Support
 
-If you encounter issues or have questions:
+If you run into problems:
 
 1. Check the [[Troubleshooting]] guide
 2. Review the [[FAQ]]
@@ -59,4 +61,4 @@ If you encounter issues or have questions:
 
 ## Contributing
 
-Floppy Workbench is open source. Contributions are welcome! See the [Contributing Guide](https://github.com/JYewman/Floppy-Disk-Restorer/blob/main/CONTRIBUTING.md) for details.
+Floppy Disk Workbench is open source. Contributions are welcome—see the [Contributing Guide](https://github.com/JYewman/Floppy-Disk-Restorer/blob/main/CONTRIBUTING.md) for details.

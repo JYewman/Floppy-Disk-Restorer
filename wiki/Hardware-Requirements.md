@@ -1,6 +1,6 @@
 # Hardware Requirements
 
-This page covers all the hardware you need to use Floppy Workbench effectively.
+This page covers all the hardware you need to use Floppy Disk Workbench effectively.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ This page covers all the hardware you need to use Floppy Workbench effectively.
 
 ## Required Hardware
 
-To use Floppy Workbench, you need:
+To use Floppy Disk Workbench, you need:
 
 | Component | Required | Notes |
 |-----------|----------|-------|

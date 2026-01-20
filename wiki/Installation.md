@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers all methods of installing Floppy Workbench on your system.
+This guide covers all methods of installing Floppy Disk Workbench on your system.
 
 ## Table of Contents
 
@@ -32,7 +32,7 @@ Before installing, ensure your system meets these requirements:
 
 ## Quick Install (pip)
 
-The easiest way to install Floppy Workbench is via pip:
+The easiest way to install Floppy Disk Workbench is via pip:
 
 ```bash
 pip install floppy-workbench
@@ -111,7 +111,7 @@ Verify installation:
 python --version
 ```
 
-### Step 2: Install Floppy Workbench
+### Step 2: Install Floppy Disk Workbench
 
 Open Command Prompt or PowerShell:
 
@@ -136,7 +136,7 @@ Greaseweazle usually works without additional drivers on Windows 10/11. If your 
 floppy-workbench
 ```
 
-Or from the Start Menu search for "Floppy Workbench".
+Or from the Start Menu search for "Floppy Disk Workbench".
 
 ---
 
@@ -154,7 +154,7 @@ sudo apt install python3 python3-pip python3-venv
 # Install system dependencies for PyQt6
 sudo apt install libxcb-xinerama0 libxcb-cursor0
 
-# Install Floppy Workbench
+# Install Floppy Disk Workbench
 pip install floppy-workbench
 ```
 
@@ -164,7 +164,7 @@ pip install floppy-workbench
 # Install Python
 sudo dnf install python3 python3-pip
 
-# Install Floppy Workbench
+# Install Floppy Disk Workbench
 pip install floppy-workbench
 ```
 
@@ -174,7 +174,7 @@ pip install floppy-workbench
 # Install Python
 sudo pacman -S python python-pip
 
-# Install Floppy Workbench
+# Install Floppy Disk Workbench
 pip install floppy-workbench
 ```
 
@@ -215,7 +215,7 @@ brew install python
 
 Or download from [python.org](https://www.python.org/downloads/macos/).
 
-### Step 2: Install Floppy Workbench
+### Step 2: Install Floppy Disk Workbench
 
 ```bash
 pip3 install floppy-workbench
@@ -243,7 +243,7 @@ floppy-workbench --version
 
 Should output:
 ```
-Floppy Workbench v2.0.0
+Floppy Disk Workbench v2.0.0
 ```
 
 ### 2. Launch the GUI

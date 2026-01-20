@@ -55,6 +55,16 @@ from floppy_formatter.gui.dialogs import (
     ExportDialog,
     ExportConfig,
     show_export_dialog,
+    # Operation configuration dialogs
+    show_format_config_dialog,
+    FormatConfig,
+    FormatType as FormatDialogType,
+    show_restore_config_dialog,
+    RestoreConfig as RestoreDialogConfig,
+    RecoveryLevel as RestoreRecoveryLevel,
+    show_analyze_config_dialog,
+    AnalysisConfig as AnalyzeDialogConfig,
+    AnalysisDepth as AnalyzeDialogDepth,
 )
 from floppy_formatter.gui.resources import get_icon, get_theme, set_theme
 from floppy_formatter.gui.utils import (
@@ -968,15 +978,12 @@ class MainWindow(QMainWindow):
         logger.debug("Mode changed: %s", mode)
 
     def _on_start_clicked(self) -> None:
-        """Handle start button click."""
+        """Handle start button click - shows configuration dialog then starts operation."""
         operation = self._operation_toolbar.get_selected_operation()
         if not operation:
             return
 
-        logger.info("Starting operation: %s", operation)
-
-        # Clear sector map from previous operation
-        self._sector_map_panel.reset_all_sectors()
+        logger.info("Start clicked for operation: %s", operation)
 
         # Check device is connected
         if not self._device:
@@ -996,13 +1003,52 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Show operation-specific configuration dialog
+        # If user cancels, the dialog returns None and we abort
+        # Note: Scan starts immediately without a dialog (only one mode)
+        if operation == "scan":
+            pass  # No dialog needed for scan
+        elif operation == "format":
+            config = show_format_config_dialog(self)
+            if config is None:
+                logger.info("Format cancelled by user")
+                return
+            self._format_config = config
+        elif operation == "restore":
+            # Check if we have scan data to determine bad sector count
+            bad_sector_count = len(self._last_bad_sectors) if hasattr(self, '_last_bad_sectors') else 0
+            has_scan_data = hasattr(self, '_last_scan_result') and self._last_scan_result is not None
+            config = show_restore_config_dialog(
+                self,
+                has_scan_data=has_scan_data,
+                bad_sector_count=bad_sector_count
+            )
+            if config is None:
+                logger.info("Restore cancelled by user")
+                return
+            self._restore_dialog_config = config
+        elif operation == "analyze":
+            config = show_analyze_config_dialog(self)
+            if config is None:
+                logger.info("Analyze cancelled by user")
+                return
+            self._analyze_config = config
+        elif operation == "write_image":
+            # Write image already shows its own dialog
+            self._start_write_image_operation()
+            return
+
+        logger.info("Starting operation: %s with user-configured settings", operation)
+
+        # Clear sector map from previous operation
+        self._sector_map_panel.reset_all_sectors()
+
         # Map operation to state
         state_map = {
             "scan": WorkbenchState.SCANNING,
             "format": WorkbenchState.FORMATTING,
             "restore": WorkbenchState.RESTORING,
             "analyze": WorkbenchState.ANALYZING,
-            "write_image": WorkbenchState.WRITING_IMAGE,
         }
 
         self._state = state_map.get(operation, WorkbenchState.IDLE)
@@ -1013,26 +1059,38 @@ class MainWindow(QMainWindow):
         # The scan/format/restore/analyze workers will be reading from the device
         self._drive_control.pause_rpm_polling()
 
+        # Start progress tracking in the Progress tab
+        total_tracks = self._geometry.cylinders * self._geometry.heads
+        total_sectors = self._geometry.total_sectors
+
         # Update status strip and start operation
         if operation == "scan":
-            self._status_strip.set_scanning(0, 160)
+            self._analytics_panel.start_progress("scan", total_tracks, total_sectors)
+            self._status_strip.set_scanning(0, total_tracks)
             self._start_scan_operation()
         elif operation == "format":
-            self._status_strip.set_formatting(0, 160)
+            self._analytics_panel.start_progress("format", total_tracks, total_sectors)
+            self._status_strip.set_formatting(0, total_tracks)
             self._start_format_operation()
         elif operation == "restore":
-            self._status_strip.set_restoring(1, 5, 0, 2880)
+            # Get passes from restore config
+            passes = self._restore_dialog_config.passes if hasattr(self, '_restore_dialog_config') else 5
+            self._analytics_panel.start_progress("restore", total_tracks, total_sectors, passes)
+            self._status_strip.set_restoring(1, passes, 0, total_sectors)
             self._start_restore_operation()
         elif operation == "analyze":
+            self._analytics_panel.start_progress("analyze", total_tracks, total_sectors)
             self._status_strip.set_analyzing("flux data")
             self._start_analyze_operation()
-        elif operation == "write_image":
-            self._start_write_image_operation()
 
     def _start_scan_operation(self) -> None:
         """Start the actual scan operation with worker thread."""
         # Clean up any existing worker
         self._cleanup_scan_worker()
+
+        # Reset scan tracking counters for Progress tab
+        self._scan_good_count = 0
+        self._scan_bad_count = 0
 
         # Reset sector map to pending state (no animation for instant visual update)
         total_sectors = self._geometry.total_sectors
@@ -1043,13 +1101,18 @@ class MainWindow(QMainWindow):
         self._analytics_panel.clear_errors()
         self._analytics_panel.clear_recovery_data()
 
+        # Scan uses standard mode without a configuration dialog
+        scan_mode = ScanMode.STANDARD
+        capture_flux = False
+        logger.info("Starting scan with mode=%s, capture_flux=%s", scan_mode.name, capture_flux)
+
         # Create thread and worker
         self._scan_thread = QThread()
         self._scan_worker = ScanWorker(
             device=self._device,
             geometry=self._geometry,
-            capture_flux=False,
-            mode=ScanMode.STANDARD,
+            capture_flux=capture_flux,
+            mode=scan_mode,
             session=self._active_session,
         )
         self._scan_worker.moveToThread(self._scan_thread)
@@ -1101,6 +1164,13 @@ class MainWindow(QMainWindow):
         logger.debug("Track scanned: cyl=%d, head=%d, good=%d, bad=%d",
                      cylinder, head, track_result.good_count, track_result.bad_count)
 
+        # Track cumulative sector counts for Progress tab
+        if not hasattr(self, '_scan_good_count'):
+            self._scan_good_count = 0
+            self._scan_bad_count = 0
+        self._scan_good_count += track_result.good_count
+        self._scan_bad_count += track_result.bad_count
+
         # Update sector map with track results - disable animation for immediate visual feedback
         for sector_result in track_result.sector_results:
             if sector_result.is_good:
@@ -1126,6 +1196,13 @@ class MainWindow(QMainWindow):
         track_number = cylinder * 2 + head
         start_sector = track_number * self._geometry.sectors_per_track
         self._sector_map_panel.set_active_sector(start_sector, ActivityType.READING)
+
+        # Update Progress tab with current sector counts
+        self._analytics_panel.update_progress_sector_counts(
+            good=self._scan_good_count,
+            bad=self._scan_bad_count,
+            recovered=0
+        )
 
         # Force scene repaint after each track for visual feedback
         self._sector_map_panel.update_scenes()
@@ -1251,12 +1328,22 @@ class MainWindow(QMainWindow):
 
     def _on_scan_progress(self, progress: int) -> None:
         """Handle scan progress update."""
-        # Update operation toolbar progress bar
+        # Update operation toolbar progress bar (now a no-op, kept for compatibility)
         self._operation_toolbar.set_progress(progress)
 
-        # Update status strip with progress
+        # Update Progress tab with live progress
         total_tracks = self._geometry.cylinders * self._geometry.heads
         current_track = int((progress / 100) * total_tracks)
+        current_head = current_track % 2
+        current_cylinder = current_track // 2
+
+        self._analytics_panel.update_progress(progress)
+        self._analytics_panel.update_progress_track(current_cylinder, current_head)
+        self._analytics_panel.update_progress_message(
+            f"Scanning track {current_track} of {total_tracks} (Cylinder {current_cylinder}, Head {current_head})"
+        )
+
+        # Update status strip with progress
         self._status_strip.set_scanning(current_track, total_tracks)
 
     def _on_scan_error(self, error_message: str) -> None:
@@ -1294,14 +1381,35 @@ class MainWindow(QMainWindow):
         self._analytics_panel.clear_errors()
         self._analytics_panel.clear_recovery_data()
 
+        # Get format configuration from dialog (stored in _on_start_clicked)
+        format_config = getattr(self, '_format_config', None)
+
+        if format_config:
+            # Map dialog format type to worker format type
+            type_map = {
+                FormatDialogType.STANDARD: FormatType.STANDARD,
+                FormatDialogType.LOW_LEVEL_REFRESH: FormatType.LOW_LEVEL_REFRESH,
+                FormatDialogType.SECURE_ERASE: FormatType.SECURE_ERASE,
+            }
+            format_type = type_map.get(format_config.format_type, FormatType.STANDARD)
+            fill_pattern = format_config.fill_pattern
+            verify = format_config.verify
+            logger.info("Format config from dialog: type=%s, pattern=0x%02X, verify=%s",
+                        format_config.format_type.name, fill_pattern, verify)
+        else:
+            # Fallback defaults
+            format_type = FormatType.STANDARD
+            fill_pattern = 0xE5
+            verify = True
+
         # Create thread and worker
         self._format_thread = QThread()
         self._format_worker = FormatWorker(
             device=self._device,
             geometry=self._geometry,
-            fill_pattern=0xE5,
-            verify=True,
-            format_type=FormatType.STANDARD,
+            fill_pattern=fill_pattern,
+            verify=verify,
+            format_type=format_type,
             session=self._active_session,
         )
         self._format_worker.moveToThread(self._format_thread)
@@ -1397,12 +1505,22 @@ class MainWindow(QMainWindow):
 
     def _on_format_progress(self, progress: int) -> None:
         """Handle format progress update."""
-        # Update operation toolbar progress bar
+        # Update operation toolbar progress bar (now a no-op, kept for compatibility)
         self._operation_toolbar.set_progress(progress)
 
-        # Update status strip
+        # Update Progress tab with live progress
         total_tracks = self._geometry.cylinders * self._geometry.heads
         current_track = int((progress / 100) * total_tracks)
+        current_head = current_track % 2
+        current_cylinder = current_track // 2
+
+        self._analytics_panel.update_progress(progress)
+        self._analytics_panel.update_progress_track(current_cylinder, current_head)
+        self._analytics_panel.update_progress_message(
+            f"Formatting track {current_track} of {total_tracks} (Cylinder {current_cylinder}, Head {current_head})"
+        )
+
+        # Update status strip
         self._status_strip.set_formatting(current_track, total_tracks)
 
     def _on_format_error(self, error_message: str) -> None:
@@ -1434,47 +1552,49 @@ class MainWindow(QMainWindow):
         self._restore_previous_bad_count = 0
         self._restore_initial_bad_count = 0
 
-        # Get operation mode from toolbar and map to recovery level
-        mode_text = self._operation_toolbar.get_selected_mode()
+        # Get restore configuration from dialog (stored in _on_start_clicked)
+        dialog_config = getattr(self, '_restore_dialog_config', None)
 
-        # Map operation mode to recovery level and settings
-        if mode_text == "Quick":
-            recovery_level = RecoveryLevel.STANDARD
-            passes = 3
-            pll_tuning = False
-            bit_slip_recovery = False
-        elif mode_text == "Standard":
-            recovery_level = RecoveryLevel.STANDARD
-            passes = 10
-            pll_tuning = False
-            bit_slip_recovery = False
-        elif mode_text == "Thorough":
-            recovery_level = RecoveryLevel.AGGRESSIVE
-            passes = 20
-            pll_tuning = True
-            bit_slip_recovery = False
-        elif mode_text == "Forensic":
-            recovery_level = RecoveryLevel.FORENSIC
-            passes = 50
-            pll_tuning = True
-            bit_slip_recovery = True
+        if dialog_config:
+            # Map dialog recovery level to worker recovery level
+            level_map = {
+                RestoreRecoveryLevel.STANDARD: RecoveryLevel.STANDARD,
+                RestoreRecoveryLevel.AGGRESSIVE: RecoveryLevel.AGGRESSIVE,
+                RestoreRecoveryLevel.FORENSIC: RecoveryLevel.FORENSIC,
+            }
+            recovery_level = level_map.get(dialog_config.recovery_level, RecoveryLevel.STANDARD)
+
+            # Use settings from dialog
+            passes = dialog_config.passes if dialog_config.convergence_mode else dialog_config.max_passes
+            convergence_threshold = dialog_config.convergence_threshold
+            multiread_mode = dialog_config.multiread_mode
+            multiread_attempts = dialog_config.multiread_attempts
+            pll_tuning = dialog_config.pll_tuning
+            bit_slip_recovery = dialog_config.bit_slip_recovery
+
+            logger.info("Restore config from dialog: level=%s, passes=%d, convergence=%d, "
+                        "multiread=%s, pll=%s, bitslip=%s",
+                        recovery_level.name, passes, convergence_threshold,
+                        multiread_mode, pll_tuning, bit_slip_recovery)
         else:
-            # Default to Standard
+            # Fallback defaults
             recovery_level = RecoveryLevel.STANDARD
             passes = 10
+            convergence_threshold = 3
+            multiread_mode = True
+            multiread_attempts = 5
             pll_tuning = False
             bit_slip_recovery = False
+            logger.info("Using default restore config: level=%s, passes=%d",
+                        recovery_level.name, passes)
 
-        logger.info("Starting restore with mode=%s, level=%s, pll=%s, bitslip=%s",
-                    mode_text, recovery_level.name, pll_tuning, bit_slip_recovery)
-
-        # Create restore config
+        # Create restore config for worker
         config = RestoreConfig(
-            convergence_mode=True,
+            convergence_mode=dialog_config.convergence_mode if dialog_config else True,
             passes=passes,
-            convergence_threshold=3,
-            multiread_mode=True,
-            multiread_attempts=5,
+            convergence_threshold=convergence_threshold,
+            multiread_mode=multiread_mode,
+            multiread_attempts=multiread_attempts,
             recovery_level=recovery_level,
             pll_tuning=pll_tuning,
             bit_slip_recovery=bit_slip_recovery,
@@ -1521,6 +1641,13 @@ class MainWindow(QMainWindow):
     def _on_restore_pass_started(self, pass_num: int, total_passes: int) -> None:
         """Handle restore pass start."""
         logger.debug("Restore pass started: %d/%d", pass_num, total_passes)
+
+        # Update Progress tab with pass information
+        self._analytics_panel.update_progress_pass(pass_num, total_passes)
+        self._analytics_panel.update_progress_message(
+            f"Starting pass {pass_num} of {total_passes}"
+        )
+
         self._status_strip.set_restoring(pass_num, total_passes, 0, self._geometry.total_sectors)
 
     def _on_restore_pass_complete(
@@ -1559,6 +1686,16 @@ class MainWindow(QMainWindow):
             good_sectors=good_sectors,
             bad_sectors=bad_count,
             recovered_sectors=recovered_count,
+        )
+
+        # Update Progress tab with sector counts
+        self._analytics_panel.update_progress_sector_counts(
+            good=good_sectors,
+            bad=bad_count,
+            recovered=recovered_count
+        )
+        self._analytics_panel.update_progress_message(
+            f"Pass {pass_num} complete: {recovered_count} sectors recovered, {bad_count} bad remaining"
         )
 
     def _on_sector_recovered(self, sector_num: int, technique: str) -> None:
@@ -1736,8 +1873,12 @@ class MainWindow(QMainWindow):
 
     def _on_restore_progress(self, progress: int) -> None:
         """Handle restore progress update."""
-        # Update operation toolbar progress bar
+        # Update operation toolbar progress bar (now a no-op, kept for compatibility)
         self._operation_toolbar.set_progress(progress)
+
+        # Update Progress tab with live progress
+        self._analytics_panel.update_progress(progress)
+        self._analytics_panel.update_progress_message(f"Restoring disk: {progress}% complete")
 
         # Update status strip with progress info
         self._status_strip.set_operation_status(f"Restoring: {progress}%")
@@ -1767,46 +1908,37 @@ class MainWindow(QMainWindow):
         self._analytics_panel.clear_errors()
         self._analytics_panel.clear_recovery_data()
 
-        # Get operation mode from toolbar and map to analysis config
-        mode_text = self._operation_toolbar.get_selected_mode()
+        # Get analyze configuration from dialog (stored in _on_start_clicked)
+        dialog_config = getattr(self, '_analyze_config', None)
 
-        # Map operation mode to analysis depth and components
-        if mode_text == "Quick":
-            depth = AnalysisDepth.QUICK
-            revolutions = 1
+        if dialog_config:
+            # Map dialog depth to worker depth
+            depth_map = {
+                AnalyzeDialogDepth.QUICK: AnalysisDepth.QUICK,
+                AnalyzeDialogDepth.STANDARD: AnalysisDepth.STANDARD,
+                AnalyzeDialogDepth.FULL: AnalysisDepth.COMPREHENSIVE,
+            }
+            depth = depth_map.get(dialog_config.depth, AnalysisDepth.STANDARD)
+            revolutions = dialog_config.revolutions_per_track
+
+            # Build components list based on dialog settings
             components = [
                 AnalysisComponent.FLUX_TIMING,
                 AnalysisComponent.SIGNAL_QUALITY,
             ]
-        elif mode_text == "Standard":
-            depth = AnalysisDepth.STANDARD
-            revolutions = 2
-            components = [
-                AnalysisComponent.FLUX_TIMING,
-                AnalysisComponent.SIGNAL_QUALITY,
-                AnalysisComponent.ENCODING,
-            ]
-        elif mode_text == "Thorough":
-            depth = AnalysisDepth.COMPREHENSIVE
-            revolutions = 3
-            components = [
-                AnalysisComponent.FLUX_TIMING,
-                AnalysisComponent.SIGNAL_QUALITY,
-                AnalysisComponent.ENCODING,
-                AnalysisComponent.WEAK_BITS,
-            ]
-        elif mode_text == "Forensic":
-            depth = AnalysisDepth.COMPREHENSIVE
-            revolutions = 5
-            components = [
-                AnalysisComponent.FLUX_TIMING,
-                AnalysisComponent.SIGNAL_QUALITY,
-                AnalysisComponent.ENCODING,
-                AnalysisComponent.WEAK_BITS,
-                AnalysisComponent.FORENSICS,
-            ]
+            if dialog_config.analyze_flux:
+                components.append(AnalysisComponent.ENCODING)
+            if dialog_config.analyze_alignment:
+                components.append(AnalysisComponent.WEAK_BITS)
+            if dialog_config.analyze_forensics:
+                components.append(AnalysisComponent.FORENSICS)
+
+            logger.info("Analyze config from dialog: depth=%s, revolutions=%d, "
+                        "flux=%s, alignment=%s, forensics=%s",
+                        depth.name, revolutions, dialog_config.analyze_flux,
+                        dialog_config.analyze_alignment, dialog_config.analyze_forensics)
         else:
-            # Default to standard
+            # Fallback defaults
             depth = AnalysisDepth.STANDARD
             revolutions = 2
             components = [
@@ -1814,9 +1946,11 @@ class MainWindow(QMainWindow):
                 AnalysisComponent.SIGNAL_QUALITY,
                 AnalysisComponent.ENCODING,
             ]
+            logger.info("Using default analyze config: depth=%s, revolutions=%d",
+                        depth.name, revolutions)
 
-        logger.info("Starting analysis with mode=%s, depth=%s, revolutions=%d",
-                    mode_text, depth.name, revolutions)
+        logger.info("Starting analysis with depth=%s, revolutions=%d, components=%s",
+                    depth.name, revolutions, [c.name for c in components])
 
         # Create analysis config
         config = AnalysisConfig(
@@ -2000,12 +2134,22 @@ class MainWindow(QMainWindow):
 
     def _on_analyze_progress(self, progress: int) -> None:
         """Handle analyze progress update."""
-        # Update operation toolbar progress bar
+        # Update operation toolbar progress bar (now a no-op, kept for compatibility)
         self._operation_toolbar.set_progress(progress)
 
-        # Update status strip
+        # Update Progress tab with live progress
         total_tracks = self._geometry.cylinders * self._geometry.heads
         current_track = int((progress / 100) * total_tracks)
+        current_head = current_track % 2
+        current_cylinder = current_track // 2
+
+        self._analytics_panel.update_progress(progress)
+        self._analytics_panel.update_progress_track(current_cylinder, current_head)
+        self._analytics_panel.update_progress_message(
+            f"Analyzing track {current_track} of {total_tracks} (Cylinder {current_cylinder}, Head {current_head})"
+        )
+
+        # Update status strip
         self._status_strip.set_analyzing(f"track {current_track}/{total_tracks}")
 
     def _on_analyze_error(self, error_message: str) -> None:
@@ -2260,6 +2404,10 @@ class MainWindow(QMainWindow):
             logger.debug("_on_operation_complete: stopping operation toolbar")
             self._operation_toolbar.stop_operation()
             self._operation_toolbar.set_progress(100)
+
+            # Stop progress tracking in Progress tab
+            logger.debug("_on_operation_complete: stopping progress tracking")
+            self._analytics_panel.stop_progress(success=True, message="Operation completed successfully")
 
             # Don't overwrite status - scan_complete/format_complete already set it
 

@@ -2,8 +2,7 @@
 Batch verification configuration dialog.
 
 Allows users to configure batch verification of multiple floppy disks,
-including brand selection, disk count, optional serial numbers, and
-analysis depth settings.
+including brand selection, disk count, and optional serial numbers.
 
 Part of Phase 11: Batch Operations
 """
@@ -20,8 +19,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QWidget,
     QGroupBox,
-    QRadioButton,
-    QButtonGroup,
     QCheckBox,
     QSpinBox,
     QComboBox,
@@ -78,14 +75,12 @@ class BatchVerifyConfig:
         disk_count: Number of disks to verify
         disks: List of disk info objects
         use_serial_numbers: Whether serials are being used
-        analysis_depth: Analysis depth (Quick/Standard/Thorough/Forensic)
     """
     batch_name: str = "Batch Verification"
     brand: FloppyBrand = FloppyBrand.GENERIC
     disk_count: int = 1
     disks: List[FloppyDiskInfo] = field(default_factory=list)
     use_serial_numbers: bool = False
-    analysis_depth: str = "Standard"
 
 
 # =============================================================================
@@ -100,7 +95,6 @@ class BatchVerifyConfigDialog(QDialog):
     - Batch name and brand selection
     - Number of disks to verify
     - Optional serial number entry for each disk
-    - Analysis depth selection
 
     Example:
         dialog = BatchVerifyConfigDialog(parent)
@@ -127,7 +121,7 @@ class BatchVerifyConfigDialog(QDialog):
         self.setWindowTitle("Batch Verification Configuration")
         self.setModal(True)
         self.setMinimumWidth(550)
-        self.setMinimumHeight(600)
+        self.setMinimumHeight(400)
 
         # Apply dark theme styling
         self._apply_dialog_style()
@@ -244,63 +238,6 @@ class BatchVerifyConfigDialog(QDialog):
 
         layout.addWidget(serial_group)
 
-        # Analysis Settings group
-        analysis_group = QGroupBox("Analysis Settings")
-        analysis_layout = QVBoxLayout(analysis_group)
-        analysis_layout.setSpacing(8)
-
-        depth_label = QLabel("Analysis Depth:")
-        analysis_layout.addWidget(depth_label)
-
-        self._depth_group = QButtonGroup(self)
-
-        # Quick
-        self._quick_radio = QRadioButton("Quick")
-        self._quick_radio.setToolTip("Fast verification on sample tracks only")
-        self._depth_group.addButton(self._quick_radio, 0)
-        analysis_layout.addWidget(self._quick_radio)
-
-        quick_desc = QLabel("Fast check on sample tracks. Good for initial screening.")
-        quick_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
-        quick_desc.setWordWrap(True)
-        analysis_layout.addWidget(quick_desc)
-
-        # Standard
-        self._standard_radio = QRadioButton("Standard")
-        self._standard_radio.setToolTip("Full verification of all tracks")
-        self._standard_radio.setChecked(True)
-        self._depth_group.addButton(self._standard_radio, 1)
-        analysis_layout.addWidget(self._standard_radio)
-
-        standard_desc = QLabel("Complete verification of all tracks. Recommended for most cases.")
-        standard_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
-        standard_desc.setWordWrap(True)
-        analysis_layout.addWidget(standard_desc)
-
-        # Thorough
-        self._thorough_radio = QRadioButton("Thorough")
-        self._thorough_radio.setToolTip("Extended verification with multiple passes")
-        self._depth_group.addButton(self._thorough_radio, 2)
-        analysis_layout.addWidget(self._thorough_radio)
-
-        thorough_desc = QLabel("Multiple passes per track for detailed quality assessment.")
-        thorough_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
-        thorough_desc.setWordWrap(True)
-        analysis_layout.addWidget(thorough_desc)
-
-        # Forensic
-        self._forensic_radio = QRadioButton("Forensic")
-        self._forensic_radio.setToolTip("Deep analysis including copy protection detection")
-        self._depth_group.addButton(self._forensic_radio, 3)
-        analysis_layout.addWidget(self._forensic_radio)
-
-        forensic_desc = QLabel("Comprehensive analysis including forensic examination.")
-        forensic_desc.setStyleSheet("color: #858585; font-size: 9pt; margin-left: 24px;")
-        forensic_desc.setWordWrap(True)
-        analysis_layout.addWidget(forensic_desc)
-
-        layout.addWidget(analysis_group)
-
         # Spacer
         layout.addStretch()
 
@@ -361,24 +298,6 @@ class BatchVerifyConfigDialog(QDialog):
                 padding: 0 8px;
                 background-color: #1e1e1e;
                 color: #cccccc;
-            }
-            QRadioButton {
-                color: #cccccc;
-                spacing: 8px;
-            }
-            QRadioButton::indicator {
-                width: 16px;
-                height: 16px;
-                border: 1px solid #6c6c6c;
-                border-radius: 8px;
-                background-color: #3a3d41;
-            }
-            QRadioButton::indicator:hover {
-                border-color: #007acc;
-            }
-            QRadioButton::indicator:checked {
-                background-color: #0e639c;
-                border-color: #0e639c;
             }
             QCheckBox {
                 color: #cccccc;
@@ -546,16 +465,6 @@ class BatchVerifyConfigDialog(QDialog):
         Returns:
             BatchVerifyConfig with current dialog settings
         """
-        # Determine depth
-        if self._quick_radio.isChecked():
-            depth = "Quick"
-        elif self._thorough_radio.isChecked():
-            depth = "Thorough"
-        elif self._forensic_radio.isChecked():
-            depth = "Forensic"
-        else:
-            depth = "Standard"
-
         # Get brand
         brand = self._brand_combo.currentData()
 
@@ -581,7 +490,6 @@ class BatchVerifyConfigDialog(QDialog):
             disk_count=disk_count,
             disks=disks,
             use_serial_numbers=self._use_serials_check.isChecked(),
-            analysis_depth=depth,
         )
 
     def set_config(self, config: BatchVerifyConfig) -> None:
@@ -607,16 +515,6 @@ class BatchVerifyConfigDialog(QDialog):
         for i, disk_info in enumerate(config.disks):
             if i < len(self._serial_inputs) and disk_info.serial_number:
                 self._serial_inputs[i].setText(disk_info.serial_number)
-
-        # Set depth
-        if config.analysis_depth == "Quick":
-            self._quick_radio.setChecked(True)
-        elif config.analysis_depth == "Thorough":
-            self._thorough_radio.setChecked(True)
-        elif config.analysis_depth == "Forensic":
-            self._forensic_radio.setChecked(True)
-        else:
-            self._standard_radio.setChecked(True)
 
 
 def show_batch_verify_config_dialog(

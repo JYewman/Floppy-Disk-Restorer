@@ -1,16 +1,17 @@
 # User Interface Overview
 
-This guide provides a complete tour of the Floppy Workbench user interface.
+This guide documents the complete Floppy Disk Workbench interface.
 
 ## Table of Contents
 
 - [Main Window Layout](#main-window-layout)
+- [Session Screen](#session-screen)
 - [Drive Control Panel](#drive-control-panel)
 - [Operation Toolbar](#operation-toolbar)
 - [Circular Sector Map](#circular-sector-map)
 - [Sector Info Panel](#sector-info-panel)
 - [Analytics Panel](#analytics-panel)
-- [Status Bar](#status-bar)
+- [Status Strip](#status-strip)
 - [Menus](#menus)
 - [Themes](#themes)
 
@@ -18,332 +19,367 @@ This guide provides a complete tour of the Floppy Workbench user interface.
 
 ## Main Window Layout
 
-Floppy Workbench uses a single-page workbench design where all major functions are accessible without navigating between screens.
+Floppy Disk Workbench uses a three-panel architecture:
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  Menu Bar                                                            │
-├─────────────────────────────────────────────────────────────────────┤
-│  Drive Control Panel                                                 │
-│  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ [Connect] [Drive: 0 ▼] [Motor: Off] [Seek: ◄ 0 ►] RPM: 300.0   ││
-│  └─────────────────────────────────────────────────────────────────┘│
-├─────────────────────────────────────────────────────────────────────┤
-│  Operation Toolbar                                                   │
-│  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ [Scan] [Analyze] [Format] [Restore] [Write Image] [Export]      ││
-│  └─────────────────────────────────────────────────────────────────┘│
-├──────────────────────────────────────────┬──────────────────────────┤
-│                                          │                          │
-│                                          │    Sector Info Panel     │
-│                                          │    ──────────────────    │
-│        Circular Sector Map               │    Cylinder: 15          │
-│                                          │    Head: 0               │
-│        ┌────────────────────┐            │    Sector: 7             │
-│        │    ████████████    │            │    Status: GOOD          │
-│        │  ██            ██  │            │    Signal: 94.2%         │
-│        │ ██              ██ │            │    CRC: Valid            │
-│        │ ██              ██ │            │                          │
-│        │  ██            ██  │            │    Raw Data:             │
-│        │    ████████████    │            │    E8 03 00 00 ...       │
-│        └────────────────────┘            │                          │
-│                                          │                          │
-├──────────────────────────────────────────┴──────────────────────────┤
-│  Analytics Panel                                                     │
-│  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ [Overview] [Flux] [Errors] [Diagnostics] [Recovery]             ││
-│  ├─────────────────────────────────────────────────────────────────┤│
-│  │                                                                  ││
-│  │  Tab Content Area                                                ││
-│  │                                                                  ││
-│  └─────────────────────────────────────────────────────────────────┘│
-├─────────────────────────────────────────────────────────────────────┤
-│  Status Bar: Ready | Sectors: 2880 | Good: 2880 | Bad: 0           │
-└─────────────────────────────────────────────────────────────────────┘
-```
+- **Top Panel**: Session indicator, drive controls, and operation toolbar
+- **Center Panel**: Dual circular sector maps (one per head) with toolbar and sector info
+- **Bottom Panel**: Tabbed analytics dashboard with eight analysis tabs
+
+![Main Window Layout](../screenshots/main_window_layout.png)
+*Screenshot: Main window showing all three panels with a scanned disk*
+
+---
+
+## Session Screen
+
+When you start Floppy Disk Workbench, the Session Screen appears. This screen lets you select the disk format before performing any operations.
+
+### Components
+
+**Platform Panel** (left side):
+- Lists all supported platforms: IBM PC, Amiga, Atari ST, Macintosh, BBC Micro, Commodore, Apple II, and more
+- Each platform has an icon for quick identification
+- Click a platform to see its available formats
+
+**Format Panel** (center):
+- Shows all formats available for the selected platform
+- Formats can be filtered by disk size (3.5" or 5.25")
+- Displays key specifications: capacity, cylinders, heads, sectors per track, encoding
+
+**Session Preview Panel** (right side):
+- Visual disk representation showing geometry
+- Complete format specifications
+- Encoding type and bit cell timing
+
+**Preset Management** (bottom):
+- Load Preset: Recall previously saved session configurations
+- Save Preset: Store the current session for future use
+- Continue: Proceed to main workbench with selected format
+
+![Session Screen](../screenshots/session_screen.png)
+*Screenshot: Session screen with IBM PC platform selected and 1.44MB HD format highlighted*
 
 ---
 
 ## Drive Control Panel
 
-The Drive Control Panel provides hardware interaction controls.
+The Drive Control Panel occupies the top of the main window and provides hardware controls.
 
 ### Components
 
-| Control | Purpose | Shortcut |
-|---------|---------|----------|
-| **Connect/Disconnect** | Connect to Greaseweazle | `Ctrl+Shift+C` |
-| **Drive Selector** | Choose drive unit (0 or 1) | - |
-| **Motor Toggle** | Turn drive motor on/off | `Ctrl+M` |
-| **Seek Controls** | Move head to specific track | `Ctrl+0` (Track 0) |
-| **RPM Display** | Shows current drive speed | - |
+| Control | Function |
+|---------|----------|
+| **LED Indicator** | Green (connected), Red (disconnected), Yellow (connecting) |
+| **Connect/Disconnect** | Toggle connection to Greaseweazle |
+| **Drive Selector** | Choose Drive 0 or Drive 1 |
+| **Motor On/Off** | Control spindle motor |
+| **RPM Display** | Shows current drive speed (target: 300 RPM) |
+| **Head Position** | Current cylinder with manual seek spinbox |
+| **Calibrate** | Run drive alignment calibration |
 
 ### Connection States
 
-| State | Button Text | Indicator |
-|-------|-------------|-----------|
-| Disconnected | "Connect" | Gray |
-| Connecting | "Connecting..." | Yellow |
-| Connected | "Disconnect" | Green |
-| Error | "Connect" | Red |
+| State | LED Color | Button Text |
+|-------|-----------|-------------|
+| Disconnected | Red | Connect |
+| Connecting | Yellow | Connecting... |
+| Connected | Green | Disconnect |
+| Error | Red (flashing) | Connect |
 
-### Motor States
+### Keyboard Shortcuts
 
-| State | Display | Notes |
-|-------|---------|-------|
-| Off | "Motor: Off" | No disk activity |
-| Starting | "Motor: Starting" | Spinning up |
-| Running | "Motor: On" + RPM | Ready for operations |
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+C` | Connect/Disconnect |
+| `Ctrl+M` | Toggle motor |
+| `Ctrl+0` | Seek to track 0 |
 
-### Seek Controls
-
-- **◄ Button**: Move head inward (lower track)
-- **► Button**: Move head outward (higher track)
-- **Track Display**: Current head position
-- **Track 0 Button**: Return to track 0 (`Ctrl+0`)
+![Drive Control Panel](../screenshots/drive_control_panel.png)
+*Screenshot: Drive control panel showing connected state with motor running at 300 RPM*
 
 ---
 
 ## Operation Toolbar
 
-The Operation Toolbar provides quick access to all major operations.
+The Operation Toolbar provides access to all disk operations.
 
-### Buttons
+### Operation Buttons
 
-| Button | Operation | Shortcut | Description |
-|--------|-----------|----------|-------------|
-| **Scan** | Disk Scan | `Ctrl+S` | Read all sectors and assess health |
-| **Analyze** | Deep Analysis | `Ctrl+Shift+A` | Detailed flux analysis |
-| **Format** | Format Disk | `Ctrl+Shift+F` | Write fresh format |
-| **Restore** | Recovery | `Ctrl+R` | Multi-pass recovery |
-| **Write Image** | Write Image | - | Write disk image to physical disk |
-| **Export** | Export Image | `Ctrl+E` | Save disk to file |
+| Button | Purpose | Shortcut |
+|--------|---------|----------|
+| **Scan** | Read disk surface and analyze sector health | `Ctrl+S` |
+| **Format** | Write fresh format to disk (destructive) | `Ctrl+Shift+F` |
+| **Restore** | Multi-pass recovery for damaged disks | `Ctrl+R` |
+| **Analyze** | Comprehensive signal quality analysis | `Ctrl+Shift+A` |
+| **Write Image** | Write blank disk image to physical disk | — |
 
-### Button States
+### Mode Selector
 
-Buttons change appearance based on application state:
+Operations can run in different modes:
 
-| State | Appearance |
-|-------|------------|
-| Available | Normal color |
-| Unavailable | Grayed out |
-| Active | Highlighted |
-| In Progress | Shows spinner |
+| Mode | Description |
+|------|-------------|
+| **Quick** | Sample tracks only (fast assessment) |
+| **Standard** | Full single-pass operation |
+| **Thorough** | Multi-pass with extended analysis |
+| **Forensic** | Maximum effort, detailed logging |
 
-### Context Sensitivity
+### Progress Display
 
-Buttons are enabled/disabled based on context:
+During operations, the toolbar shows:
+- Current track and head being processed
+- Progress bar with percentage
+- Estimated time remaining
+- Start/Stop/Pause buttons
 
-- **Scan**: Enabled when connected with motor running
-- **Format**: Enabled when connected
-- **Restore**: Enabled after scan with bad sectors
-- **Export**: Enabled after successful scan
+![Operation Toolbar](../screenshots/operation_toolbar.png)
+*Screenshot: Operation toolbar with Scan button highlighted and mode selector visible*
 
 ---
 
 ## Circular Sector Map
 
-The Circular Sector Map is the central visualization showing disk health.
+The center of the interface displays dual circular sector maps—one for each head (side) of the disk. Each map visualizes all sectors on that side.
 
 ### Layout
 
-```
-                    Track 0 (outermost)
-                          ↓
-    ┌───────────────────────────────────────┐
-    │           ████████████████            │
-    │       ████                ████        │
-    │     ██                        ██      │
-    │   ██    Head 0 (Top Half)       ██    │
-    │  ██                              ██   │
-    │  ██ ─────────────────────────── ██   │
-    │  ██                              ██   │
-    │   ██    Head 1 (Bottom Half)    ██    │
-    │     ██                        ██      │
-    │       ████                ████        │
-    │           ████████████████            │
-    └───────────────────────────────────────┘
-                          ↑
-                    Track 79 (innermost)
-```
+- **Outer ring**: Track 0 (outer edge of disk)
+- **Inner rings**: Higher track numbers toward center
+- **Segments**: Each segment represents one sector
+- **Head 0 Map**: Left circular display (top side)
+- **Head 1 Map**: Right circular display (bottom side)
 
-### Color Legend
+### Sector Colors
 
 | Color | Status | Meaning |
 |-------|--------|---------|
-| **Green** (#00C853) | GOOD | Successfully read, CRC valid |
-| **Red** (#FF1744) | BAD | CRC error or unreadable |
-| **Yellow** (#FFD600) | WEAK | Read OK but marginal signal |
-| **Orange** (#FF9100) | RECOVERED | Previously bad, now recovered |
-| **Gray** (#424242) | UNREAD | Not yet scanned |
-| **Blue** (#2196F3) | READING | Currently being processed |
-| **Purple** (#9C27B0) | MISSING | Sector not found |
+| **Gray** | UNSCANNED | Not yet read |
+| **Green** | GOOD | Read successfully, CRC valid |
+| **Red** | BAD | CRC error or unreadable |
+| **Yellow-Orange** | WEAK | Marginal signal quality |
+| **Light Green** | RECOVERED | Previously bad, now recovered |
+| **Blue** | READING | Currently being read |
+| **Purple** | WRITING | Currently being written |
+| **Orange** | VERIFYING | Being verified |
+
+### View Modes
+
+The sector map toolbar offers four view modes:
+
+| Mode | Display |
+|------|---------|
+| **Status** | Sector status (good/bad/weak/etc.) |
+| **Quality** | Flux quality as color gradient |
+| **Errors** | Highlight only errors, dim others |
+| **Data Pattern** | Data pattern visualization |
 
 ### Interaction
 
-**Click a sector:**
-- Selects the sector
-- Displays details in Sector Info Panel
-- Highlights sector on map
+- **Click sector**: Select and view details in Sector Info Panel
+- **Right-click**: Context menu with sector options
+- **Scroll wheel**: Zoom in/out
+- **Drag**: Pan when zoomed
+- **Select All Bad**: Toolbar button to select all bad sectors
 
-**Right-click a sector:**
-- Opens context menu
-- Options: Read Sector, View Flux, Mark for Recovery
-
-**Scroll wheel:**
-- Zoom in/out on the map
-
-**Drag:**
-- Pan the view when zoomed
-
-### Toolbar
-
-The sector map has a small toolbar:
+### Sector Map Toolbar
 
 | Button | Function |
 |--------|----------|
-| **Zoom In** | Enlarge view |
-| **Zoom Out** | Reduce view |
-| **Fit** | Fit entire map in view |
-| **Legend** | Toggle color legend |
+| **View Mode Buttons** | Switch between STATUS/QUALITY/ERRORS/DATA_PATTERN |
+| **Fit** | Fit entire map to view |
+| **100%/200%** | Preset zoom levels |
+| **Zoom Slider** | Custom zoom (50%–300%) |
+| **Select All Bad** | Select all bad sectors |
+| **Clear Selection** | Deselect all |
+| **Export PNG** | Save map as PNG image |
+| **Export SVG** | Save map as vector image |
+
+![Circular Sector Map](../screenshots/sector_map.png)
+*Screenshot: Dual sector maps showing a disk with some bad sectors (red) and weak sectors (yellow)*
 
 ---
 
 ## Sector Info Panel
 
-The Sector Info Panel shows detailed information about the selected sector.
+The collapsible right-side panel shows detailed information about the selected sector.
 
 ### Displayed Information
 
-```
-┌─────────────────────────────┐
-│     SECTOR INFORMATION      │
-├─────────────────────────────┤
-│ Cylinder:     15            │
-│ Head:         0             │
-│ Sector:       7             │
-│ Linear:       277           │
-├─────────────────────────────┤
-│ Status:       GOOD          │
-│ Signal:       94.2%         │
-│ CRC:          Valid         │
-│ Read Count:   3             │
-├─────────────────────────────┤
-│ RAW DATA                    │
-│ ┌─────────────────────────┐ │
-│ │ E8 03 00 00 8B C4 89 46 │ │
-│ │ FC 8B 76 FC 81 FE 00 7C │ │
-│ │ 74 16 B4 00 CD 16 3C 1B │ │
-│ │ ...                     │ │
-│ └─────────────────────────┘ │
-└─────────────────────────────┘
-```
+**Address Information:**
+- Sector number (1-based, standard PC numbering)
+- CHS address (Cylinder/Head/Sector)
+- LBA (Linear Block Address)
+- Byte offset on disk
 
-### Fields
+**Status:**
+- Color-coded status indicator
+- Current status (GOOD, BAD, WEAK, RECOVERED, etc.)
+- Status history timeline showing changes over recovery passes
 
-| Field | Description |
-|-------|-------------|
-| **Cylinder** | Track number (0-79) |
-| **Head** | Side (0 or 1) |
-| **Sector** | Sector number (1-18 for HD) |
-| **Linear** | Linear sector number (0-2879) |
-| **Status** | Current sector state |
-| **Signal** | Signal quality percentage |
-| **CRC** | CRC validation result |
-| **Read Count** | Number of read attempts |
-| **Raw Data** | Hex dump of sector contents |
+**Flux Quality Metrics:**
+- Signal quality (0.0–1.0 scale)
+- Timing jitter measurement
+- Weak bit indicator
+
+**Raw Data:**
+- Hex dump showing first 64 bytes of sector
+- Scrollable and selectable for copying
+
+![Sector Info Panel](../screenshots/sector_info_panel.png)
+*Screenshot: Sector info panel showing details for a selected sector*
 
 ---
 
 ## Analytics Panel
 
-The Analytics Panel provides detailed analysis through tabbed views.
+The bottom panel contains a tabbed dashboard with eight analysis tabs.
 
-### Overview Tab
+### Summary Tab
 
-Summary statistics and charts:
+Provides a high-level view of disk health:
 
-```
-┌────────────────────────────────────────────────────────────┐
-│  DISK OVERVIEW                                              │
-├────────────────────────────────────────────────────────────┤
-│  Total Sectors:    2,880      │  ████████████████████  98% │
-│  Good Sectors:     2,823      │  Good                      │
-│  Bad Sectors:         42      │  ██                    2%  │
-│  Weak Sectors:        15      │  Bad                       │
-├────────────────────────────────────────────────────────────┤
-│  Disk Health:     98.5%       │                            │
-│  Disk Type:       1.44MB HD   │  Scan Time: 45.3s          │
-│  Format:          FAT12       │  Read Errors: 42           │
-└────────────────────────────────────────────────────────────┘
-```
+- **Health Score Gauge**: 0–100 score with letter grade (A–F)
+- **Statistics Cards**: Total sectors, good count, bad count, recovered count
+- **Bad Sector Trend Chart**: Shows bad sector count over multiple operations
+- **Recommendations**: Color-coded suggestions (INFO/WARNING/CRITICAL)
+
+**Grading Scale:**
+| Grade | Score | Status |
+|-------|-------|--------|
+| A | 90–100 | Excellent |
+| B | 80–89 | Good |
+| C | 70–79 | Fair |
+| D | 60–69 | Poor |
+| F | Below 60 | Failed |
+
+![Summary Tab](../screenshots/analytics_summary.png)
+*Screenshot: Summary tab showing health gauge and statistics cards*
+
+### Analysis Tab
+
+Detailed signal analysis:
+
+- **Overall Grade**: Per-head quality breakdown
+- **Track Grade Distribution**: Chart showing quality distribution across tracks
+- **Signal Quality Metrics**: SNR, jitter, weak bit statistics
+- **Encoding Detection**: Auto-detected format and encoding type
+- **Copy Protection Status**: Indicates if protection schemes are detected
+- **Recommendations**: Specific suggestions based on analysis
+
+![Analysis Tab](../screenshots/analytics_analysis.png)
+*Screenshot: Analysis tab showing track distribution and signal metrics*
 
 ### Flux Tab
 
-Flux-level analysis tools:
+Raw magnetic signal visualization:
 
-- **Waveform View**: Oscilloscope-style flux visualization
-- **Histogram**: Pulse width distribution
-- **Track Selector**: Choose track to analyze
-- **Zoom Controls**: Time scale adjustment
+- **Track/Sector Selector**: Choose specific location to analyze
+- **Waveform Display**: Oscilloscope-style flux timing visualization
+- **Histogram**: Pulse width distribution with MFM reference lines
+- **Capture Controls**: Load saved flux or capture live from disk
+- **Export Options**: Save flux data or visualization images
+
+![Flux Tab](../screenshots/analytics_flux.png)
+*Screenshot: Flux tab with waveform and histogram displays*
 
 ### Errors Tab
 
-Error analysis and statistics:
+Error analysis and patterns:
 
-- **Error List**: Table of all bad sectors
-- **Error Distribution**: Heat map by track
-- **Error Types**: Breakdown by error category
-- **Export Errors**: Save error report
+- **Error Heatmap**: Visual cylinder-by-sector error distribution
+- **Error Type Pie Chart**: Breakdown by error category
+- **Error Log Table**: Detailed list with filtering options
+- **Pattern Detection**: Identifies error clustering (radial scratches, track failures, etc.)
 
-### Diagnostics Tab
+**Error Categories:**
+| Type | Color | Description |
+|------|-------|-------------|
+| CRC | Red | Data CRC mismatch |
+| Missing | Orange | Sector not found |
+| Weak | Yellow | Marginal signal |
+| No Address | Purple | Header not found |
+| Header CRC | Brown | Header checksum error |
+| Deleted | Blue | Deleted data mark |
 
-Drive diagnostic tools:
-
-- **RPM Graph**: Real-time speed monitoring
-- **Head Alignment**: Alignment test results
-- **Read Consistency**: Multi-read comparison
-- **Drive Info**: Hardware information
+![Errors Tab](../screenshots/analytics_errors.png)
+*Screenshot: Errors tab showing heatmap and error type breakdown*
 
 ### Recovery Tab
 
-Recovery options and progress:
+Recovery operation monitoring:
 
-- **Recovery Mode**: Select recovery strategy
-- **Pass Counter**: Current/total passes
-- **Progress Chart**: Recovery progress over time
-- **Recovered Sectors**: List of successfully recovered sectors
+- **Convergence Chart**: Line graph showing bad sector count per recovery pass
+- **Pass History Table**: Pass-by-pass breakdown with recovery counts
+- **Recovered Sectors Timeline**: When each sector was recovered
+- **Recovery Prediction**: Estimates if additional passes will help
+
+![Recovery Tab](../screenshots/analytics_recovery.png)
+*Screenshot: Recovery tab with convergence graph and pass history*
+
+### Diagnostics Tab
+
+Drive health and testing:
+
+- **Head Alignment Graph**: Track positioning accuracy visualization
+- **RPM Stability Chart**: Spindle speed variation over time
+- **Self-Test Results**: Motor, head positioning, and flux reading tests
+- **Drive Information**: Model, firmware version, capabilities
+
+![Diagnostics Tab](../screenshots/analytics_diagnostics.png)
+*Screenshot: Diagnostics tab showing alignment graph and self-test results*
+
+### Verification Tab
+
+Post-operation verification results:
+
+- **Overall Statistics**: Total/good/bad/weak sector counts
+- **Per-Track Results Table**: Detailed breakdown by track
+- **Grade Distribution Chart**: Visual grade breakdown
+
+![Verification Tab](../screenshots/analytics_verification.png)
+*Screenshot: Verification tab showing per-track results*
+
+### Progress Tab
+
+Real-time operation progress display (visible during active operations):
+
+- **Circular Sector Map**: Live-updating visualization of sector status
+- **Progress Bar**: Overall completion percentage
+- **Sector Counter**: Current sector / total sectors (e.g., "1672 / 2880")
+- **Good/Bad Counts**: Running tallies of sector status
+- **Elapsed Time**: Time since operation started (MM:SS)
+- **ETA**: Estimated time remaining
+- **Cancel Button**: Stop the current operation
+
+The Progress tab automatically becomes active when you start an operation (Scan, Format, Restore, etc.) and shows real-time updates as each track is processed.
+
+![Progress Tab](../screenshots/scan_progress_tab.png)
+*Screenshot: Progress tab showing scan operation in progress*
 
 ---
 
-## Status Bar
+## Status Strip
 
-The Status Bar shows current application state.
+The bottom status strip shows real-time application state.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Ready | Sectors: 2880 | Good: 2823 | Bad: 42 | Weak: 15 | 98.5% │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Sections
+### Four Sections
 
 | Section | Content |
 |---------|---------|
-| **Status** | Current operation or "Ready" |
-| **Sectors** | Total sector count |
-| **Good** | Good sector count |
-| **Bad** | Bad sector count |
-| **Weak** | Weak sector count |
-| **Health** | Overall health percentage |
+| **Connection** | Greaseweazle status and firmware version |
+| **Drive** | Drive type, disk presence, current RPM |
+| **Operation** | Current operation and progress percentage |
+| **Health** | Color-coded disk health indicator |
 
 ### During Operations
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Scanning... Track 45/80 | ████████████░░░░░░ 56% | ETA: 0:23   │
-└─────────────────────────────────────────────────────────────────┘
-```
+The status strip updates to show:
+- Operation name and progress percentage
+- Current track being processed
+- Estimated time remaining
+
+![Status Strip](../screenshots/status_strip.png)
+*Screenshot: Status strip during a scan operation*
 
 ---
 
@@ -353,77 +389,62 @@ The Status Bar shows current application state.
 
 | Item | Shortcut | Description |
 |------|----------|-------------|
-| Open Image | `Ctrl+O` | Load disk image file |
-| Export Image | `Ctrl+E` | Save disk to image file |
-| Export Report | `Ctrl+Shift+R` | Generate PDF/HTML report |
-| Settings | `Ctrl+,` | Open settings dialog |
-| Exit | `Alt+F4` | Close application |
+| New Session | `Ctrl+N` | Return to session screen to select new format |
+| Load Session Preset | — | Load a saved session configuration |
+| Save Session Preset | — | Save current session for future use |
+| Exit | `Ctrl+Q` | Close application |
 
-### Device Menu
+### Tools Menu
 
-| Item | Shortcut | Description |
-|------|----------|-------------|
-| Connect | `Ctrl+Shift+C` | Connect to Greaseweazle |
-| Disconnect | `Ctrl+Shift+C` | Disconnect from device |
-| Motor On/Off | `Ctrl+M` | Toggle drive motor |
-| Seek Track 0 | `Ctrl+0` | Return head to track 0 |
-| Eject | `Ctrl+J` | Eject disk (if supported) |
-
-### Operations Menu
-
-| Item | Shortcut | Description |
-|------|----------|-------------|
-| Scan | `Ctrl+S` | Start disk scan |
-| Analyze | `Ctrl+Shift+A` | Start deep analysis |
-| Format | `Ctrl+Shift+F` | Format disk |
-| Restore | `Ctrl+R` | Start recovery |
-| Batch Verify | `Ctrl+B` | Start batch verification |
+| Item | Description |
+|------|-------------|
+| Settings | Open application preferences dialog |
 
 ### View Menu
 
 | Item | Shortcut | Description |
 |------|----------|-------------|
-| Zoom In | `Ctrl++` | Zoom sector map in |
-| Zoom Out | `Ctrl+-` | Zoom sector map out |
-| Fit View | `Ctrl+0` | Fit map to window |
-| Dark Theme | - | Switch to dark theme |
-| Light Theme | - | Switch to light theme |
+| Toggle Dark Mode | `Ctrl+D` | Switch between dark and light themes |
+| Full Screen | `F11` | Toggle fullscreen mode |
 
 ### Help Menu
 
-| Item | Shortcut | Description |
-|------|----------|-------------|
-| Documentation | `F1` | Open wiki |
-| About | - | Version and credits |
-| Check Updates | - | Check for new version |
+| Item | Description |
+|------|-------------|
+| Documentation | Open wiki in web browser |
+| About | Version information and credits |
 
 ---
 
 ## Themes
 
-Floppy Workbench supports dark and light themes.
+Floppy Disk Workbench supports dark and light themes.
 
 ### Dark Theme (Default)
 
-- Dark gray background
-- High contrast text
-- Reduced eye strain
-- Best for low-light environments
+- Dark gray background (#1e1e1e)
+- High-contrast text
+- Reduced eye strain for extended use
+- Professional appearance
 
 ### Light Theme
 
 - Light gray/white background
 - Standard contrast
-- Best for bright environments
+- Better for bright environments
 
 ### Changing Theme
 
-1. Go to **View** menu
-2. Select **Dark Theme** or **Light Theme**
+**Method 1: Menu**
+1. Open **View** menu
+2. Select **Toggle Dark Mode**
 
-Or:
-1. Open **Settings** (`Ctrl+,`)
-2. Navigate to **Display** tab
+**Method 2: Keyboard**
+Press `Ctrl+D` to toggle between themes
+
+**Method 3: Settings**
+1. Open **Tools → Settings**
+2. Navigate to Display tab
 3. Select theme from dropdown
 
 ---

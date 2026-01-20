@@ -1,6 +1,6 @@
 # Troubleshooting
 
-This guide helps resolve common issues with Floppy Workbench.
+This guide helps resolve common issues with Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -66,7 +66,7 @@ This guide helps resolve common issues with Floppy Workbench.
 
 1. Close other applications that might use the device
 2. Unplug and replug Greaseweazle
-3. Restart Floppy Workbench
+3. Restart Floppy Disk Workbench
 4. Check for background processes
 
 ### "Connection Lost During Operation"

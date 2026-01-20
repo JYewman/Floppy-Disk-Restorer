@@ -57,6 +57,11 @@ from floppy_formatter.gui.tabs.analysis_tab import (
     AnalysisTab,
     AnalysisSummary,
 )
+from floppy_formatter.gui.tabs.progress_tab import (
+    ProgressTab,
+    ProgressData,
+    OperationStatus,
+)
 from floppy_formatter.gui.resources import get_colored_icon
 
 if TYPE_CHECKING:
@@ -72,6 +77,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Tab names for external reference (renamed Overview to Summary)
+TAB_PROGRESS = "progress"
 TAB_SUMMARY = "summary"
 TAB_OVERVIEW = "summary"  # Alias for backward compatibility
 TAB_FLUX = "flux"
@@ -262,6 +268,7 @@ class AnalyticsPanel(QWidget):
         """)
 
         # Create tabs
+        self._progress_tab = ProgressTab()
         self._overview_tab = OverviewTab()
         self._flux_tab = FluxTab()
         self._errors_tab = ErrorsTab()
@@ -271,6 +278,7 @@ class AnalyticsPanel(QWidget):
         self._analysis_tab = AnalysisTab()
 
         # Add tabs in logical order:
+        # 0. Progress - live operation progress (first for visibility during operations)
         # 1. Summary (formerly Overview) - main health summary
         # 2. Analysis - signal quality, encoding detection
         # 3. Flux - raw flux visualization
@@ -278,6 +286,7 @@ class AnalyticsPanel(QWidget):
         # 5. Recovery - recovery progress (Issues group)
         # 6. Verification - track-by-track results (Hardware group)
         # 7. Diagnostics - drive health (Hardware group)
+        self._tab_widget.addTab(self._progress_tab, "Progress")
         self._tab_widget.addTab(self._overview_tab, "Summary")
         self._tab_widget.addTab(self._analysis_tab, "Analysis")
         self._tab_widget.addTab(self._flux_tab, "Flux")
@@ -289,33 +298,35 @@ class AnalyticsPanel(QWidget):
         # Try to add icons
         self._add_tab_icons()
 
-        # Store tab name mapping (updated order)
+        # Store tab name mapping (updated order with Progress tab first)
         self._tab_names = {
-            0: TAB_SUMMARY,
-            1: TAB_ANALYSIS,
-            2: TAB_FLUX,
-            3: TAB_ERRORS,
-            4: TAB_RECOVERY,
-            5: TAB_VERIFICATION,
-            6: TAB_DIAGNOSTICS,
+            0: TAB_PROGRESS,
+            1: TAB_SUMMARY,
+            2: TAB_ANALYSIS,
+            3: TAB_FLUX,
+            4: TAB_ERRORS,
+            5: TAB_RECOVERY,
+            6: TAB_VERIFICATION,
+            7: TAB_DIAGNOSTICS,
         }
 
         self._tab_indices = {v: k for k, v in self._tab_names.items()}
         # Add backward-compatible alias
-        self._tab_indices[TAB_OVERVIEW] = 0
+        self._tab_indices[TAB_OVERVIEW] = 1
 
         layout.addWidget(self._tab_widget)
 
     def _add_tab_icons(self) -> None:
-        """Add icons to tabs (updated for new tab order)."""
+        """Add icons to tabs (updated for new tab order with Progress first)."""
         icons = {
-            0: "info",      # Summary
-            1: "activity",  # Analysis
-            2: "chart",     # Flux
-            3: "warning",   # Errors
-            4: "refresh",   # Recovery
-            5: "check",     # Verification
-            6: "settings",  # Diagnostics
+            0: "play",      # Progress
+            1: "info",      # Summary
+            2: "activity",  # Analysis
+            3: "chart",     # Flux
+            4: "warning",   # Errors
+            5: "refresh",   # Recovery
+            6: "check",     # Verification
+            7: "settings",  # Diagnostics
         }
 
         for index, icon_name in icons.items():
@@ -349,9 +360,9 @@ class AnalyticsPanel(QWidget):
             error_count: Number of errors (0 = remove badge)
         """
         if error_count > 0:
-            self._tab_bar.set_tab_badge(3, "#e81123", error_count)  # Red badge
+            self._tab_bar.set_tab_badge(4, "#e81123", error_count)  # Red badge
         else:
-            self._tab_bar.clear_badge(3)
+            self._tab_bar.clear_badge(4)
 
     def set_recovery_badge(self, has_recoverable: bool) -> None:
         """
@@ -361,9 +372,9 @@ class AnalyticsPanel(QWidget):
             has_recoverable: True if recoverable sectors exist
         """
         if has_recoverable:
-            self._tab_bar.set_tab_badge(4, "#f7b731", 0)  # Yellow badge
+            self._tab_bar.set_tab_badge(5, "#f7b731", 0)  # Yellow badge
         else:
-            self._tab_bar.clear_badge(4)
+            self._tab_bar.clear_badge(5)
 
     def set_analysis_badge(self, has_data: bool) -> None:
         """
@@ -373,9 +384,9 @@ class AnalyticsPanel(QWidget):
             has_data: True if analysis data is available
         """
         if has_data:
-            self._tab_bar.set_tab_badge(1, "#33cc33", 0)  # Green badge
+            self._tab_bar.set_tab_badge(2, "#33cc33", 0)  # Green badge
         else:
-            self._tab_bar.clear_badge(1)
+            self._tab_bar.clear_badge(2)
 
     def set_verification_badge(self, has_issues: bool) -> None:
         """
@@ -385,9 +396,21 @@ class AnalyticsPanel(QWidget):
             has_issues: True if verification found issues
         """
         if has_issues:
-            self._tab_bar.set_tab_badge(5, "#f7b731", 0)  # Yellow badge
+            self._tab_bar.set_tab_badge(6, "#f7b731", 0)  # Yellow badge
         else:
-            self._tab_bar.clear_badge(5)
+            self._tab_bar.clear_badge(6)
+
+    def set_progress_badge(self, is_running: bool) -> None:
+        """
+        Set badge on Progress tab if operation is running.
+
+        Args:
+            is_running: True if operation is in progress
+        """
+        if is_running:
+            self._tab_bar.set_tab_badge(0, "#569cd6", 0)  # Blue badge
+        else:
+            self._tab_bar.clear_badge(0)
 
     def clear_all_badges(self) -> None:
         """Clear all tab badges."""
@@ -702,10 +725,123 @@ class AnalyticsPanel(QWidget):
         """Clear analysis tab."""
         self._analysis_tab.clear_analysis()
 
+    # =========================================================================
+    # Public API - Progress Tab
+    # =========================================================================
+
+    def get_progress_tab(self) -> ProgressTab:
+        """Get the progress tab widget."""
+        return self._progress_tab
+
+    def start_progress(
+        self,
+        operation_type: str,
+        total_tracks: int = 160,
+        total_sectors: int = 2880,
+        total_passes: int = 1
+    ) -> None:
+        """
+        Start tracking progress for an operation.
+
+        Args:
+            operation_type: Type of operation (scan, format, restore, analyze)
+            total_tracks: Total number of tracks to process
+            total_sectors: Total number of sectors
+            total_passes: Total number of passes (for multi-pass operations)
+        """
+        self._progress_tab.start_operation(
+            operation_type, total_tracks, total_sectors, total_passes
+        )
+        self.set_progress_badge(True)
+        self.show_tab(TAB_PROGRESS)
+
+    def stop_progress(self, success: bool = True, message: str = "") -> None:
+        """
+        Stop tracking progress.
+
+        Args:
+            success: Whether the operation completed successfully
+            message: Optional completion message
+        """
+        self._progress_tab.stop_operation(success, message)
+        self.set_progress_badge(False)
+
+    def cancel_progress(self) -> None:
+        """Mark the operation as cancelled."""
+        self._progress_tab.cancel_operation()
+        self.set_progress_badge(False)
+
+    def reset_progress(self) -> None:
+        """Reset the progress tab to initial state."""
+        self._progress_tab.reset()
+        self.set_progress_badge(False)
+
+    def update_progress(self, progress: int, eta_seconds: float = None) -> None:
+        """
+        Update progress percentage.
+
+        Args:
+            progress: Progress percentage (0-100)
+            eta_seconds: Optional estimated time remaining
+        """
+        self._progress_tab.set_progress(progress, eta_seconds)
+
+    def update_progress_track(self, track: int, head: int = 0) -> None:
+        """
+        Update current track and head position.
+
+        Args:
+            track: Current track number
+            head: Current head (0 or 1)
+        """
+        self._progress_tab.set_track(track, head)
+
+    def update_progress_sector(self, sector: int) -> None:
+        """
+        Update current sector.
+
+        Args:
+            sector: Current sector number
+        """
+        self._progress_tab.set_sector(sector)
+
+    def update_progress_pass(self, pass_num: int, total_passes: int = None) -> None:
+        """
+        Update current pass number.
+
+        Args:
+            pass_num: Current pass number
+            total_passes: Optional total passes
+        """
+        self._progress_tab.set_pass(pass_num, total_passes)
+
+    def update_progress_sector_counts(
+        self, good: int = 0, bad: int = 0, recovered: int = 0
+    ) -> None:
+        """
+        Update sector count statistics.
+
+        Args:
+            good: Number of good sectors
+            bad: Number of bad sectors
+            recovered: Number of recovered sectors
+        """
+        self._progress_tab.set_sector_counts(good, bad, recovered)
+
+    def update_progress_message(self, message: str) -> None:
+        """
+        Update the progress status message.
+
+        Args:
+            message: Status message to display
+        """
+        self._progress_tab.set_message(message)
+
 
 __all__ = [
     'AnalyticsPanel',
     'BadgeTabBar',
+    'TAB_PROGRESS',
     'TAB_SUMMARY',
     'TAB_OVERVIEW',  # Backward-compatible alias for TAB_SUMMARY
     'TAB_FLUX',

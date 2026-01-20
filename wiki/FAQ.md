@@ -1,6 +1,6 @@
 # Frequently Asked Questions
 
-Common questions about Floppy Workbench.
+Common questions about Floppy Disk Workbench.
 
 ## Table of Contents
 
@@ -15,26 +15,26 @@ Common questions about Floppy Workbench.
 
 ## General Questions
 
-### What is Floppy Workbench?
+### What is Floppy Disk Workbench?
 
-Floppy Workbench is a professional-grade application for reading, writing, and recovering floppy disks. It uses the Greaseweazle USB controller to access disks at the magnetic flux level, enabling advanced recovery techniques not possible with standard floppy controllers.
+Floppy Disk Workbench is a professional-grade application for reading, writing, and recovering floppy disks. It uses the Greaseweazle USB controller to access disks at the magnetic flux level, enabling advanced recovery techniques not possible with standard floppy controllers.
 
-### Why use Floppy Workbench instead of just copying files?
+### Why use Floppy Disk Workbench instead of just copying files?
 
 Standard file copying:
 - Fails completely on any read error
 - Cannot access damaged disks
 - Misses data in non-standard formats
 
-Floppy Workbench:
+Floppy Disk Workbench:
 - Recovers data from damaged disks
 - Reads any disk format
 - Preserves complete disk images
 - Provides detailed analysis
 
-### Is Floppy Workbench free?
+### Is Floppy Disk Workbench free?
 
-Yes, Floppy Workbench is open-source software released under the MIT license. You can use, modify, and distribute it freely.
+Yes, Floppy Disk Workbench is open-source software released under the MIT license. You can use, modify, and distribute it freely.
 
 ### What platforms are supported?
 
@@ -91,7 +91,7 @@ Yes, with limitations:
 
 ## Software Questions
 
-### How do I install Floppy Workbench?
+### How do I install Floppy Disk Workbench?
 
 ```bash
 pip install floppy-workbench
@@ -116,7 +116,7 @@ Python 3.10 or higher is required. Python 3.11 or 3.12 is recommended.
 pip install --upgrade floppy-workbench
 ```
 
-### Can I run Floppy Workbench without a GUI?
+### Can I run Floppy Disk Workbench without a GUI?
 
 The current version requires a GUI. Command-line operation may be added in future versions. For scripting, you can use the Greaseweazle command-line tools directly.
 
@@ -145,7 +145,7 @@ The current version requires a GUI. Command-line operation may be added in futur
    - Labels may indicate format
 
 2. **Auto-detection:**
-   - Floppy Workbench attempts to detect format
+   - Floppy Disk Workbench attempts to detect format
    - Check sector count and layout
 
 3. **Platform clues:**
@@ -158,7 +158,7 @@ Macintosh 400K/800K disks use GCR encoding, which requires special codec support
 
 ### Can I read copy-protected disks?
 
-Floppy Workbench can capture the flux data from copy-protected disks. Whether the protection can be bypassed depends on the specific protection scheme. Flux-level capture preserves the protection for later analysis.
+Floppy Disk Workbench can capture the flux data from copy-protected disks. Whether the protection can be bypassed depends on the specific protection scheme. Flux-level capture preserves the protection for later analysis.
 
 ### What's the difference between HD and DD disks?
 
@@ -174,7 +174,7 @@ Floppy Workbench can capture the flux data from copy-protected disks. Whether th
 
 ## Recovery Questions
 
-### Can Floppy Workbench recover my damaged disk?
+### Can Floppy Disk Workbench recover my damaged disk?
 
 It depends on the damage:
 - **Likely recoverable:** Age-related degradation, weak signal, minor scratches
